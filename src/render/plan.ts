@@ -1,5 +1,21 @@
 /** The pipeline's rendering contract (§8): a plan is data, sending is stage 7. */
-export type MessagePlan = { kind: 'text' | 'link_only'; text: string };
+export type MediaKind = 'photo' | 'video' | 'audio' | 'animation';
+
+/** One downloaded file, ready to upload. */
+export interface MediaFile {
+  path: string;
+  kind: MediaKind;
+  size: number;
+}
+
+export type MessagePlan =
+  | { kind: 'text'; text: string }
+  | { kind: 'link_only'; text: string }
+  | { kind: 'photo' | 'video' | 'animation' | 'audio'; file: string; caption: string }
+  /** R3/R4: one `sendMediaGroup` per 10 items, same kind only. */
+  | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string }
+  /** R5: photo and video mixed, so each item is its own message. */
+  | { kind: 'sequential'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string };
 
 /** What a `posts.payload_json` row carries from stage 2 to the renderer. */
 export interface PostPayload {

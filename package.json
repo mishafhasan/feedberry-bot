@@ -15,6 +15,7 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "cobalt-engine": "file:cobalt-engine",
     "grammy": "^1.46.0"
   },
   "devDependencies": {

@@ -2,20 +2,28 @@ import { GrammyError, type Context, type InlineKeyboard } from 'grammy';
 import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } from '../db/repos/chats.ts';
+import { countDownloadsSince } from '../db/repos/deliveries.ts';
 import { deleteSourceIfOrphan, getSource, setSourceEnabled } from '../db/repos/sources.ts';
 import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser } from '../db/repos/subscriptions.ts';
 import { ensureUser } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
+import type { MediaEngine } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
-import type { SourceRef } from '../platform/registry.ts';
+import { detectSource, type SourceRef } from '../platform/registry.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
+import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
+import { renderDownload } from '../pipeline/s6-render.ts';
+import { recordDelivery } from '../pipeline/s8-record.ts';
+import { cleanupWorkDir, workDirFor } from '../pipeline/s9-cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
-import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type PendingSource, type S7State } from './fsm.ts';
-import { errorKeyboard } from './keyboards.ts';
+import type { TelegramSender } from '../telegram/api.ts';
+import { targetOf } from '../telegram/target.ts';
+import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
+import { backKeyboard, errorKeyboard } from './keyboards.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
 import { s2View } from './screens/s2.ts';
@@ -24,7 +32,7 @@ import { s4View } from './screens/s4.ts';
 import { s5View } from './screens/s5.ts';
 import { s6View } from './screens/s6.ts';
 import { PAGE_SIZE, s7CardView, s7HeaderView } from './screens/s7.ts';
-import { actionToast, errorText, genericToast, sourceBody } from './texts.ts';
+import { actionToast, downloadPrompt, errorText, genericToast, sourceBody } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -51,6 +59,8 @@ export interface BotDeps {
   cfg: Config;
   db: Db;
   http: Http;
+  media: MediaEngine;
+  sender: TelegramSender;
 }
 
 interface View {
@@ -99,18 +109,21 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
     case cb.retry:
       return retry(ctx, deps, userId);
     case cb.download:
-      return; // stub toast already answered (Appendix A)
+      setSession(userId, { state: 'awaiting_source_link', mode: 'download', error: undefined });
+      await ctx.reply(downloadPrompt, { parse_mode: 'HTML', reply_markup: backKeyboard() });
+      return;
     default:
       log('warn', 'callback_unknown', { data, user: userId });
   }
 }
 
-/** A source link arrived in `awaiting_source_link` (stages 1–2, then S3 → S4). */
+/** A source link arrived in `awaiting_source_link`; the mode decides the pipeline (ADR-013). */
 export async function handleSourceLink(ctx: Context, deps: BotDeps): Promise<void> {
   const userId = ctx.from?.id;
   const link = ctx.message?.text?.trim();
   if (userId === undefined || !link) return;
-  await runResolve(ctx, deps, userId, link);
+  if (getSession(userId).mode === 'download') await runDownload(ctx, deps, userId, link);
+  else await runResolve(ctx, deps, userId, link);
 }
 
 async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
@@ -393,16 +406,60 @@ export async function verifyAndStoreChat(ctx: Context, deps: BotDeps, tgChatId: 
 async function retry(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
   const last = getSession(userId).error;
   if (last?.kind === 'source') return runResolve(ctx, deps, userId, last.link);
+  if (last?.kind === 'download') return runDownload(ctx, deps, userId, last.link);
   if (last?.kind === 'chat') return verifyAndStoreChat(ctx, deps, last.tgChatId);
   setSession(userId, { state: 'awaiting_source_link' });
   return paint(ctx, s2View(deps.cfg.telegramBeta));
 }
 
-async function showError(ctx: Context, deps: BotDeps, userId: number, err: unknown, last: { kind: 'source'; link: string }): Promise<void> {
+/**
+ * Download mode (ADR-013, OQ-8): stages 1 and 3–7 without a subscription. The delivery row keeps
+ * post_id NULL because no `posts` row exists for a single link.
+ */
+async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  const chat = ensurePrivateChat(deps.db, user.id, userId);
+  const chatId = ctx.chat?.id;
+  let working: number | undefined;
+
+  try {
+    const ref = detectSource(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+    if (ref.strategy !== 'single_post') throw new Coded(E.POST_REQUIRED, 'profile link in download mode');
+
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    if (countDownloadsSince(deps.db, user.id, since) >= deps.cfg.limits.maxDownloadsPerDay) {
+      throw new Coded(E.DOWNLOAD_LIMIT, 'daily quota');
+    }
+
+    setSession(userId, { state: 'checking', error: undefined });
+    working = (await ctx.reply(s3View(ref.canonicalUrl).text, { parse_mode: 'HTML' })).message_id;
+
+    const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
+    const dir = workDirFor(`download-${userId}-${Date.now()}`);
+    try {
+      const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
+      const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+      const ids = await deps.sender.send(renderDownload(files, resolved.title ?? '', ref.canonicalUrl), targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type));
+      recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
+      log('info', 'download_done', { user: userId, parts: ids.length });
+    } finally {
+      await cleanupWorkDir(dir);
+    }
+    setSession(userId, { state: 'idle', mode: undefined });
+  } catch (err) {
+    await showError(ctx, deps, userId, err, { kind: 'download', link });
+  } finally {
+    if (working !== undefined && chatId !== undefined) await ctx.api.deleteMessage(chatId, working).catch(() => {});
+  }
+}
+
+async function showError(ctx: Context, deps: BotDeps, userId: number, err: unknown, last: LastError): Promise<void> {
   const code = isCoded(err) ? err.code : E.TG_UNKNOWN;
   log('warn', 'check_failed', { code, cause: message(err) });
-  setSession(userId, { state: 'error', error: last });
-  await ctx.reply(errorText(code, deps.cfg.limits.maxSourcesPerUser), { parse_mode: 'HTML', reply_markup: errorKeyboard() });
+  // Stay ready for the next link: sending a new one is the natural retry for a bad link.
+  setSession(userId, { state: 'awaiting_source_link', error: last });
+  const limit = code === E.SOURCE_LIMIT ? deps.cfg.limits.maxSourcesPerUser : code === E.DOWNLOAD_LIMIT ? deps.cfg.limits.maxDownloadsPerDay : undefined;
+  await ctx.reply(errorText(code, limit), { parse_mode: 'HTML', reply_markup: errorKeyboard() });
 }
 
 /** The chat was built by a previous session state that no longer exists. */
@@ -424,6 +481,7 @@ function toastFor(data: string): string | undefined {
     case cb.retry:
     case cb.save:
     case cb.saveSilent:
+    case cb.download:
       return undefined;
     default:
       return genericToast.unknown;
@@ -489,3 +547,6 @@ function notModified(err: unknown): boolean {
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** One link must never hold a worker slot forever (M8 adds the job-level timeout). */
+const DOWNLOAD_TIMEOUT_MS = 120_000;

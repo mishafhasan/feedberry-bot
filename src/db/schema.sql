@@ -69,9 +69,10 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE TABLE IF NOT EXISTS deliveries (
   id         INTEGER PRIMARY KEY,
-  post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  -- NULL for Download mode (ADR-013): a single post link has no `posts` row.
+  post_id    INTEGER REFERENCES posts(id) ON DELETE CASCADE,
   chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-  status     TEXT NOT NULL,                      -- sent|failed|skipped
+  status     TEXT NOT NULL,                      -- pending|sent|failed|skipped
   parts      INTEGER,
   message_ids TEXT,
   attempts   INTEGER NOT NULL DEFAULT 0,

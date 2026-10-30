@@ -12,6 +12,7 @@ import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import { runOnce } from '../../src/jobs/worker.ts';
+import type { MediaEngine } from '../../src/media/cobalt.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
@@ -39,6 +40,16 @@ const http: Http = async (url) => {
 
 const count = (db: Db, sql: string, ...args: Array<string | number>): number => (db.prepare(sql).get(...args) as { n: number }).n;
 
+/** M4 is text-only: the engine reports no media for any URL. */
+const noMedia: MediaEngine = {
+  async resolve() {
+    return { items: [], title: null };
+  },
+  async download() {
+    throw new Error('no media in M4');
+  },
+};
+
 test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queues without moving it', async () => {
   feedBody = BASE;
   const api = await fakeBotApi();
@@ -50,7 +61,7 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
   try {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
     await bot.init();
-    const deps = { db, http, cfg, sender: new TelegramSender(bot.api), workerConcurrency: 2 };
+    const deps = { db, http, cfg, media: noMedia, sender: new TelegramSender(bot.api), workerConcurrency: 2 };
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
     const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };

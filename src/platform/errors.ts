@@ -18,6 +18,10 @@ export const E = {
   TG_FORBIDDEN: 'E_TG_FORBIDDEN',
   TG_429: 'E_TG_429',
   TG_UNKNOWN: 'E_TG_UNKNOWN',
+  /** Download mode: a profile link was sent where a post link is required (ADR-013). */
+  POST_REQUIRED: 'E_POST_REQUIRED',
+  /** MAX_DOWNLOADS_PER_DAY reached (§12.4). */
+  DOWNLOAD_LIMIT: 'E_DOWNLOAD_LIMIT',
 } as const;
 
 export type ErrorCode = (typeof E)[keyof typeof E];

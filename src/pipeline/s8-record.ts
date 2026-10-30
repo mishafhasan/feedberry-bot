@@ -2,7 +2,8 @@ import type { Db } from '../db/index.ts';
 import type { DeliveryStatus } from '../db/repos/deliveries.ts';
 
 export interface DeliveryRecord {
-  postId: number;
+  /** null in Download mode: a single post link has no `posts` row (ADR-013). */
+  postId: number | null;
   chatId: number;
   status: DeliveryStatus;
   parts: number;

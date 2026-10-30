@@ -4,5 +4,5 @@ import type { Target } from '../telegram/target.ts';
 
 /** Stage 7: the only stage that sends. Rate limiting lives in the sender, so nothing can bypass it. */
 export function deliver(sender: TelegramSender, plan: MessagePlan, target: Target): Promise<number[]> {
-  return sender.sendText(target, plan.text);
+  return sender.send(plan, target);
 }

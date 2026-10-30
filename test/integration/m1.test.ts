@@ -19,7 +19,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
 
   let db = openDb(dbPath);
   try {
-    assert.equal(schemaVersion(db), 1, 'schema_version = 1 after boot on an empty file');
+    assert.equal(schemaVersion(db), 2, 'schema_version = 2 after boot on an empty file');
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot });
     await bot.init(); // production calls this from bot.start()

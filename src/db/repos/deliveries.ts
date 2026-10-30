@@ -35,3 +35,14 @@ export function listPendingForSource(db: Db, sourceId: number, chatId: number): 
     )
     .all(sourceId, chatId) as unknown as DeliveryRow[];
 }
+
+/** MAX_DOWNLOADS_PER_DAY is counted per user over Download-mode deliveries (post_id IS NULL). */
+export function countDownloadsSince(db: Db, ownerUserId: number, since: number): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM deliveries d JOIN chats c ON c.id = d.chat_id
+       WHERE c.owner_user_id = ? AND d.post_id IS NULL AND d.at >= ?`,
+    )
+    .get(ownerUserId, since) as { n: number };
+  return row.n;
+}

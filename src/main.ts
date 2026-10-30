@@ -3,6 +3,7 @@ import { createBot, networkFor } from './bot/index.ts';
 import { parseConfig, type Config } from './config.ts';
 import { openDb, schemaVersion } from './db/index.ts';
 import { startWorker } from './jobs/worker.ts';
+import { cobaltEngine } from './media/cobalt.ts';
 import { log } from './obs/log.ts';
 import { TelegramSender } from './telegram/api.ts';
 
@@ -16,7 +17,7 @@ try {
 
 const db = openDb(cfg.dbPath);
 const http = networkFor(cfg);
-const bot = createBot({ cfg, db, http });
+const bot = createBot({ cfg, db, http, media: cobaltEngine });
 
 log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });
 
@@ -24,6 +25,7 @@ const worker = startWorker({
   db,
   http,
   cfg,
+  media: cobaltEngine,
   sender: new TelegramSender(bot.api),
   workerConcurrency: cfg.limits.workerConcurrency,
 });

@@ -1,10 +1,20 @@
-import type { PostRow } from '../db/repos/posts.ts';
-import { payloadOf } from '../render/plan.ts';
+import type { MediaItem } from '../media/cobalt.ts';
 
-/** §5.6 reduced to what M4 can send: text, or a link card for anything with media. */
-export type PostKind = 'text' | 'link_only';
+/** §5.6 plus the M5 media rows; 'mixed' is R5 (photo + video, sent one by one). */
+export type PostKind = 'text' | 'link_only' | 'photo' | 'album' | 'video' | 'mixed' | 'animation' | 'audio';
 
-export function classifyPost(post: PostRow): PostKind {
-  // M4 has no media renderer, so a media post degrades to R14 (text + link). M5 upgrades this.
-  return payloadOf(post.payload_json).media.length > 0 ? 'link_only' : 'text';
+/**
+ * Stage 3. `items` is cobalt's metadata-only view of the post URL; `hadFeedMedia` is the feed's own
+ * hint, used to tell "a text post" from "media we failed to extract" (R14 vs R1).
+ */
+export function classifyMedia(items: MediaItem[], hadFeedMedia: boolean): PostKind {
+  if (items.length === 0) return hadFeedMedia ? 'link_only' : 'text';
+
+  const kinds = new Set(items.map((item) => item.kind));
+  if (items.length === 1) {
+    const only = items[0]?.kind;
+    return only === 'video' ? 'video' : only === 'animation' ? 'animation' : only === 'audio' ? 'audio' : 'photo';
+  }
+  if (kinds.has('photo') && kinds.has('video')) return 'mixed';
+  return 'album';
 }

@@ -62,14 +62,12 @@ export function s2Text(telegramBeta: boolean): string {
   return `🔗 Adding a source\n\n${rows.join('\n\n')}\n\nJust send a link to any of these sources and follow the instructions.`;
 }
 
-/** Stubs registered in Appendix A; each line disappears at its milestone. */
-export const stubToast = {
-  download: 'Download Mode arrives in M5.',
-} as const;
-
 export const genericToast = {
   unknown: 'That button is no longer available.',
 } as const;
+
+/** S1 Download Mode prompt (ADR-013): the next message must be a post link. */
+export const downloadPrompt = '⬇️ Send a post link and I will deliver the media here.';
 
 /** S3 — the bot's answer while stage 1 and 2 run. */
 export function s3Text(canonicalUrl: string): string {
@@ -192,10 +190,13 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   E_TG_FORBIDDEN: "I can't post to this chat.",
   E_TG_429: 'Telegram asked us to slow down. Retrying.',
   E_TG_UNKNOWN: 'Something went wrong. Retry?',
+  E_POST_REQUIRED: 'Send a post link, not a profile.',
+  E_DOWNLOAD_LIMIT: 'The daily download limit is reached. Try again tomorrow.',
 };
 
 export function errorText(code: ErrorCode, limit?: number): string {
-  // The limit is config, so the one message that names it interpolates it (E_SOURCE_LIMIT).
-  const text = code === 'E_SOURCE_LIMIT' && limit !== undefined ? `You've reached ${limit} sources. Delete one first.` : ERROR_TEXT[code];
-  return `⚠️ ${text}`;
+  // The two limit messages name a configured number, so they are built here, not in the table.
+  if (limit !== undefined && code === 'E_SOURCE_LIMIT') return `⚠️ You've reached ${limit} sources. Delete one first.`;
+  if (limit !== undefined && code === 'E_DOWNLOAD_LIMIT') return `⚠️ You've reached ${limit} downloads today.`;
+  return `⚠️ ${ERROR_TEXT[code]}`;
 }

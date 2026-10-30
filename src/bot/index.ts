@@ -4,8 +4,10 @@ import type { Db } from '../db/index.ts';
 import { captureTopic, demoteChat, ensurePrivateChat } from '../db/repos/chats.ts';
 import { ensureUser } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
+import { cobaltEngine, type MediaEngine } from '../media/cobalt.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
+import { TelegramSender } from '../telegram/api.ts';
 import { handleCallback, handleSourceLink, mainMenu, verifyAndStoreChat } from './callbacks.ts';
 import { getSession, resetSession } from './fsm.ts';
 
@@ -16,6 +18,8 @@ export interface CreateBotOptions {
   apiRoot?: string;
   /** Stage-2 network; tests inject fixtures here. */
   http?: Http;
+  /** Media engine (ADR-005); tests inject a fixture-backed fake. */
+  media?: MediaEngine;
 }
 
 /** RSSHub and the Bluesky AppView are ours to call; anything else a user typed goes through SSRF checks. */
@@ -25,10 +29,10 @@ export function networkFor(cfg: Config): Http {
   return (url, opts) => (isTrusted(url, cfg) ? trustedFetch(url, opts) : safeFetch(url, opts));
 }
 
-export function createBot({ cfg, db, apiRoot, http }: CreateBotOptions): Bot {
+export function createBot({ cfg, db, apiRoot, http, media }: CreateBotOptions): Bot {
   const bot = new Bot(cfg.botToken, apiRoot ? { client: { apiRoot } } : undefined);
   const network: Http = http ?? networkFor(cfg);
-  const deps = { cfg, db, http: network };
+  const deps = { cfg, db, http: network, media: media ?? cobaltEngine, sender: new TelegramSender(bot.api) };
 
   bot.command('start', async (ctx) => {
     const userId = ctx.from?.id;

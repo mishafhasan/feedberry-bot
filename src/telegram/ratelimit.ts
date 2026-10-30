@@ -68,3 +68,6 @@ export class RateLimiter {
     }
   }
 }
+
+/** One set of buckets per process: the bot and the worker must share them (9.1). */
+export const sharedLimiter = new RateLimiter();

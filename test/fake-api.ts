@@ -48,17 +48,25 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}): Promise<
       case 'editMessageText':
       case 'sendPhoto':
         return { message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' } };
+      case 'sendMediaGroup': {
+        // The API answers with one Message per media item.
+        const count = Array.isArray(body.media) ? body.media.length : 1;
+        return Array.from({ length: count }, () => ({ message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' } }));
+      }
       default:
         return true;
     }
   };
 
   const server = createServer((req, res) => {
-    let raw = '';
-    req.on('data', (chunk) => (raw += chunk));
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
       const method = new URL(req.url ?? '/', 'http://localhost').pathname.split('/').pop() ?? '';
-      const body = raw ? JSON.parse(raw) : {};
+      const contentType = String(req.headers['content-type'] ?? '');
+      // Media methods post multipart/form-data (the file plus its fields), everything else JSON.
+      const body = contentType.includes('multipart/form-data') ? parseMultipart(raw, contentType) : raw ? JSON.parse(raw) : {};
       calls.push({ method, body });
       const result = resultFor(method, body) as { __error?: string };
       res.setHeader('content-type', 'application/json');
@@ -78,8 +86,48 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}): Promise<
     calls,
     last: (method) => calls.filter((c) => c.method === method).at(-1),
     callsSince: (mark) => calls.slice(mark),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    // Keep-alive sockets from the bot client would otherwise hold the server (and the test) open.
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
+}
+
+/**
+ * Minimal multipart/form-data reader: enough to see the text fields (`caption`, `chat_id`, the
+ * `media` JSON array) without pulling a parser dependency into the tests.
+ */
+function parseMultipart(raw: string, contentType: string): Record<string, any> {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+  const marker = boundary?.[1] ?? boundary?.[2];
+  const fields: Record<string, any> = {};
+  if (!marker) return fields;
+
+  for (const part of raw.split(`--${marker}`)) {
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd < 0) continue;
+    const headers = part.slice(0, headerEnd);
+    const name = /name="([^"]+)"/i.exec(headers)?.[1];
+    if (!name) continue;
+    const isFile = /filename=/i.test(headers);
+    const value = part.slice(headerEnd + 4).replace(/\r\n$/, '');
+    if (isFile) {
+      fields[name] = [{ file: /filename="([^"]*)"/i.exec(headers)?.[1] ?? 'file' }];
+      continue;
+    }
+    if (name === 'media' || name === 'reply_markup' || name === 'reply_parameters') {
+      try {
+        fields[name] = JSON.parse(value);
+        continue;
+      } catch {
+        // fall through to the raw string
+      }
+    }
+    fields[name] = value;
+  }
+  return fields;
 }
 
 const PRIVATE_CHAT = (userId: number) => ({ id: userId, type: 'private' });

@@ -5,24 +5,29 @@ import { getPost, insertPosts } from '../db/repos/posts.ts';
 import { getSource, type SourceRow } from '../db/repos/sources.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
 import { log } from '../obs/log.ts';
+import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
 import type { SourceRef } from '../platform/registry.ts';
+import { payloadOf, type MessagePlan } from '../render/plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { fetchFeed } from './s2-feed.ts';
-import { classifyPost } from './s3-classify.ts';
+import { classifyMedia } from './s3-classify.ts';
 import { unseenItems } from './s4-dedupe.ts';
+import { mediaSignal, prepareMedia } from './s5-media.ts';
 import { renderPost } from './s6-render.ts';
 import { deliver } from './s7-deliver.ts';
 import { recordCheck, recordDelivery } from './s8-record.ts';
+import { cleanupWorkDir, workDirFor } from './s9-cleanup.ts';
 
 export interface RunDeps {
   db: Db;
   http: Http;
   sender: TelegramSender;
   cfg: Config;
+  media: MediaEngine;
 }
 
 export interface RunResult {
@@ -77,10 +82,12 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
     for (const delivery of listPendingForSource(deps.db, sourceId, row.chat_id)) {
-      const post = getPost(deps.db, delivery.post_id);
+      const post = getPost(deps.db, delivery.post_id ?? 0);
       if (!post) continue;
+
+      const dir = workDirFor(`post-${post.id}-${row.chat_id}`);
       try {
-        const ids = await deliver(deps.sender, renderPost(post, classifyPost(post)), target);
+        const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir), target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         delivered++;
       } catch (err) {
@@ -88,10 +95,42 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'failed', parts: 0, messageIds: null, errorCode: code, now });
         failed++;
         log('warn', 'deliver_failed', { post: post.id, chat: row.chat_id, code });
+      } finally {
+        // Stage 9 always runs, success or failure (§5.1).
+        await cleanupWorkDir(dir);
       }
     }
   }
   return { delivered, failed };
+}
+
+const MEDIA_TIMEOUT_MS = 120_000;
+
+/** Stages 3 → 5 → 6 for one post; any media failure degrades to a link card, never a lost post. */
+async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string): Promise<MessagePlan> {
+  const hadFeedMedia = payloadOf(post.payload_json).media.length > 0;
+  const signal = mediaSignal(MEDIA_TIMEOUT_MS);
+
+  let items: MediaItem[] = [];
+  if (post.url) {
+    try {
+      items = (await deps.media.resolve(post.url, signal)).items;
+    } catch (err) {
+      log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const kind = classifyMedia(items, hadFeedMedia);
+  if (items.length === 0) return renderPost(post, kind, []);
+
+  try {
+    const files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+    return renderPost(post, kind, files);
+  } catch (err) {
+    if (isCoded(err) && err.code === E.TOO_LARGE) throw err; // recorded, M6 turns it into R7/R8
+    log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
+    return renderPost(post, 'link_only', []);
+  }
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({
