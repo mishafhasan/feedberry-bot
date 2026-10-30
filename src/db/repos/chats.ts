@@ -93,6 +93,11 @@ export function findChat(db: Db, tgChatId: number): ChatRow | undefined {
   return db.prepare('SELECT * FROM chats WHERE tg_chat_id = ? ORDER BY id LIMIT 1').get(tgChatId) as unknown as ChatRow | undefined;
 }
 
+/** S4 destinations are internal chat ids; this proves the chat belongs to the tapper. */
+export function ownChat(db: Db, ownerUserId: number, chatId: number): ChatRow | undefined {
+  return db.prepare('SELECT * FROM chats WHERE id = ? AND owner_user_id = ?').get(chatId, ownerUserId) as unknown as ChatRow | undefined;
+}
+
 /** OQ-9: a topic is only listed once a verified chat row exists — topics are never auto-created. */
 export function captureTopic(db: Db, tgChatId: number, messageThreadId: number): void {
   const base = findChat(db, tgChatId);

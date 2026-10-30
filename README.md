@@ -7,7 +7,7 @@ chat — your DM, a group, a channel, or a forum topic — as a normal Telegram 
 readable article text, no watermarks, no ads.
 
 - Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/)
-- Status: **M2 of 9** (resolve + feed adapters + S3/S4 preview + chat verification). Nothing here pretends to work before it does.
+- Status: **M3 of 9** (add flow, limits, source list with toggle/check/delete). Nothing here pretends to work before it does.
 
 ## How it works
 

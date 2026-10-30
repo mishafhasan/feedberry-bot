@@ -65,9 +65,7 @@ export function s2Text(telegramBeta: boolean): string {
 
 /** Stubs registered in Appendix A; each line disappears at its milestone. */
 export const stubToast = {
-  sources: 'My sources arrives in M3.',
   download: 'Download Mode arrives in M5.',
-  destination: 'Choosing a destination arrives in M3.',
 } as const;
 
 export const genericToast = {
@@ -81,12 +79,70 @@ export function s3Text(canonicalUrl: string): string {
 
 /** S4 — preview. Items are the newest few, oldest first (§5.4). */
 export function s4Text(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string }): string {
+  return `${sourceBody(params)}\n\nWhere should posts from this source be delivered?\n\n⚠️ To deliver into a channel or group, add the bot there as an admin with permission to post — the chat will then show up in this list.`;
+}
+
+/** The author + items block S4 and S5 share; kept so S5 can rebuild the caption without refetching. */
+export function sourceBody(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string }): string {
   const lines = params.items.map((item) => {
     const when = item.publishedAt === null ? null : mmddhhmm(item.publishedAt, params.tz);
     return when === null ? `• — ${esc(item.title)}` : `• [${when}] — ${esc(item.title)}`;
   });
-  return `${PLATFORM_ICON[params.platform]} <b>${esc(params.author)}</b>\n\n${lines.join('\n')}\n\nWhere should posts from this source be delivered?\n\n⚠️ To deliver into a channel or group, add the bot there as an admin with permission to post — the chat will then show up in this list.`;
+  return `${platformIcon(params.platform)} <b>${esc(params.author)}</b>\n\n${lines.join('\n')}`;
 }
+
+/** S5 — the same preview with the add question (§7.2 add:save / add:save_silent). */
+export function s5Text(body: string): string {
+  return `${body}\n\nHow do we add the source?`;
+}
+
+/** S6 — added. */
+export function s6Text(title: string): string {
+  return `Data source «${esc(title)}» is added to your feed. You will receive notification about new posts as soon as they are published.`;
+}
+
+/** S10 — delete confirmation (ADR-016). */
+export function s10Text(title: string): string {
+  return `🗑 Delete the source «${esc(title)}»?\nIts posts will stop coming and the subscription settings will be removed.`;
+}
+
+/** S7 header: the page label under the title. */
+export function rangeLabel(offset: number, count: number, total: number): string {
+  return count === 0 ? 'Showing 0 of 0' : `Showing ${offset + 1}–${offset + count} of ${total}`;
+}
+
+export function s7HeaderText(shown: string): string {
+  return `Source list · Private messages\n${shown}`;
+}
+
+/** One S7 card: `id: #<id>, source checked: <age>` (§7.3). */
+export function s7CardText(card: { platform: string; sourceId: number; title: string | null; lastCheckAt: number | null; lastOkAt: number | null }, now = Date.now()): string {
+  const age = humanAge(card.lastCheckAt ?? card.lastOkAt, now);
+  return `${platformIcon(card.platform)} <b>${esc(card.title ?? `#${card.sourceId}`)}</b>\nid: #${card.sourceId}, source checked: ${age}`;
+}
+
+/** `41s`, `10m`, `2h`, `3d` — the screenshot's shape. */
+export function humanAge(ms: number | null, now = Date.now()): string {
+  if (ms === null) return 'never';
+  const seconds = Math.max(0, Math.round((now - ms) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86_400)}d`;
+}
+
+export function platformIcon(platform: string): string {
+  return PLATFORM_ICON[platform as Platform] ?? '📡';
+}
+
+/** S8/S9/S11 toasts, verbatim from the screenshots and §7.2. */
+export const actionToast = {
+  disabled: 'Source disabled — new posts will not arrive.',
+  enabled: 'Source enabled.',
+  deleted: 'Source deleted.',
+  /** M3 stub: the manual_check worker lands in M4 (§4.6). */
+  checkStub: 'Source checks arrive in M4.',
+} as const;
 
 const PLATFORM_ICON: Record<Platform, string> = {
   rss: '📡',
@@ -139,6 +195,8 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   E_TG_UNKNOWN: 'Something went wrong. Retry?',
 };
 
-export function errorText(code: ErrorCode): string {
-  return `⚠️ ${ERROR_TEXT[code]}`;
+export function errorText(code: ErrorCode, limit?: number): string {
+  // The limit is config, so the one message that names it interpolates it (E_SOURCE_LIMIT).
+  const text = code === 'E_SOURCE_LIMIT' && limit !== undefined ? `You've reached ${limit} sources. Delete one first.` : ERROR_TEXT[code];
+  return `⚠️ ${text}`;
 }

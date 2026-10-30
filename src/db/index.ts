@@ -28,3 +28,16 @@ export function schemaVersion(db: Db): number {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
   return row.user_version;
 }
+
+/** Short write transactions only: the worker never holds one across a network await (ADR-009). */
+export function tx<T>(db: Db, fn: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}

@@ -18,17 +18,32 @@ export interface PendingSource {
   author: string;
   avatarUrl: string | null;
   items: FeedItem[];
+  /** Author + item lines, reused by S5 so the caption does not have to be rebuilt. */
+  bodyText: string;
+  /** S4 was sent as a photo, so S5/S6 must edit a caption rather than text. */
+  photo: boolean;
   at: number;
 }
 
 export type LastError = { kind: 'source'; link: string } | { kind: 'chat'; tgChatId: number };
+
+/** S7 is a header message plus one message per card; ids are kept to replace them on re-render. */
+export interface S7State {
+  headerId: number | null;
+  cardIds: number[];
+  page: number;
+  platform: string | null;
+}
 
 export interface Session {
   state: FsmState;
   /** awaiting_source_link in Download Mode (ADR-013); unused until M5. */
   mode?: 'download';
   pending?: PendingSource;
+  /** The chat chosen on S4, kept until the add finishes. */
+  destChatId?: number;
   error?: LastError;
+  s7?: S7State;
 }
 
 export const PREVIEW_TTL_MS = 60_000;
