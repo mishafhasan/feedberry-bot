@@ -25,7 +25,7 @@ export interface FakeApi {
 export const BOT_USER = { id: 999, is_bot: true, first_name: 'FeedBerry', username: 'feedberry_bot' };
 
 /** Fake Bot API: records calls, answers from fixtures, never touches the network. */
-export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number } = {}): Promise<FakeApi> {
+export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number; forbidChat?: number } = {}): Promise<FakeApi> {
   const calls: Call[] = [];
   let messageId = 100;
   let floodPending = options.fail429Once !== undefined;
@@ -35,6 +35,10 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       // §9.2 fixture: the first send is flood-limited, retry_after is in seconds.
       floodPending = false;
       return { __error: `Too Many Requests: retry after ${options.fail429Once}`, __retryAfter: options.fail429Once } as never;
+    }
+    if (method === 'sendMessage' && options.forbidChat !== undefined && Number(body.chat_id) === options.forbidChat) {
+      // §12.3 fixture: the bot was removed from this chat.
+      return { __error: 'Forbidden: bot was kicked from the channel', __status: 403 } as never;
     }
     switch (method) {
       case 'getMe':
@@ -74,13 +78,13 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       // Media methods post multipart/form-data (the file plus its fields), everything else JSON.
       const body = contentType.includes('multipart/form-data') ? parseMultipart(raw, contentType) : raw ? JSON.parse(raw) : {};
       calls.push({ method, body });
-      const result = resultFor(method, body) as { __error?: string; __retryAfter?: number };
+      const result = resultFor(method, body) as { __error?: string; __retryAfter?: number; __status?: number };
       res.setHeader('content-type', 'application/json');
       res.end(
         result.__error
           ? JSON.stringify({
               ok: false,
-              error_code: result.__retryAfter === undefined ? 400 : 429,
+              error_code: result.__status ?? (result.__retryAfter === undefined ? 400 : 429),
               description: result.__error,
               ...(result.__retryAfter === undefined ? {} : { parameters: { retry_after: result.__retryAfter } }),
             })

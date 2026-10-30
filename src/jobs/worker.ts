@@ -2,6 +2,8 @@ import { log } from '../obs/log.ts';
 import { alerts } from '../obs/alerts.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts';
+import { runRetention } from '../pipeline/s9-cleanup.ts';
+import { recordEvent } from '../db/repos/events.ts';
 import { tick } from '../scheduler/tick.ts';
 import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, type JobRow } from './queue.ts';
 
@@ -55,6 +57,12 @@ async function execute(deps: WorkerDeps, job: JobRow, now: number): Promise<void
     case 'deliver_post':
       await deliverPending(deps, job.target_id, now);
       return;
+    case 'cleanup': {
+      // §13.1 retention; the event also marks the daily run for the scheduler.
+      const result = runRetention(deps.db, deps.cfg.limits.maxSourceAgeDays, now);
+      recordEvent(deps.db, { level: 'info', code: 'cleanup', detail: `${result.posts} posts, ${result.events} events`, at: now });
+      return;
+    }
     default:
       return; // cleanup arrives with the media pipeline in M5
   }

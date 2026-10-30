@@ -6,8 +6,8 @@ FeedBerry watches the profiles and blogs you care about and re-publishes each ne
 chat — your DM, a group, a channel, or a forum topic — as a normal Telegram post: original-quality media,
 readable article text, no watermarks, no ads.
 
-- Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/)
-- Status: **M8 of 9** (reliability: retries, 429 policy, health, alerts, `/status`). Nothing here pretends to work before it does.
+- Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/) · Runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- Status: **M1–M9 implemented** (39 tests). Deployment and the restore drill are operator steps in the runbook.
 
 ## How it works
 
@@ -31,7 +31,8 @@ npm run dev               # runs src/ directly, no build step
 npm test                  # node:test, fixtures only, no network
 ```
 
-`npm start` runs the compiled build (`npm run build` first). Docker Compose arrives in M9.
+`npm start` runs the compiled build (`npm run build` first). For a host, use `docker compose up -d` — see
+[docs/RUNBOOK.md](docs/RUNBOOK.md) for the first start, the nightly backup and the restore drill.
 
 ## Configuration
 

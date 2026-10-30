@@ -99,10 +99,13 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'"), 1);
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM posts WHERE guid = 't-3'"), 1);
 
-    // Immediately again: nothing is due, nothing is queued.
+    // Immediately again: nothing is due, so no fetch is queued (the daily cleanup job may still be).
     const secondTick = tick(db, Date.now());
     assert.equal(secondTick.enqueued, 0, 'no duplicate fetch');
-    assert.equal(await runOnce(deps, Date.now()), false, 'queue is empty');
+    while (await runOnce(deps, Date.now())) {
+      // drain whatever is left (the daily retention job)
+    }
+    assert.equal(count(db, "SELECT COUNT(*) AS n FROM jobs WHERE kind = 'fetch_source' AND state = 'queued'"), 0);
     assert.equal(api.calls.filter((c) => c.method === 'sendMessage').length, sentBefore + 1, 'no duplicate message');
 
     // S9: the manual check is queued at priority 100 and leaves the slot alone.

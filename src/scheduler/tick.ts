@@ -17,6 +17,16 @@ export interface TickResult {
   sources: number;
   advanced: number;
   enqueued: number;
+  cleanup: boolean;
+}
+
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** A daily retention run; `jobs_one_active` keeps it to one at a time. */
+function enqueueCleanup(db: Db, now: number): boolean {
+  const last = db.prepare("SELECT MAX(at) AS at FROM events WHERE code = 'cleanup'").get() as { at: number | null };
+  if (last.at !== null && now - last.at < CLEANUP_INTERVAL_MS) return false;
+  return enqueue(db, { kind: 'cleanup', targetId: 0, priority: PRIORITY.retry, runAfter: now });
 }
 
 /**
@@ -56,5 +66,5 @@ export function tick(db: Db, now = Date.now()): TickResult {
     if (!late && enqueue(db, { kind: 'fetch_source', targetId: sourceId, priority: PRIORITY.scheduled, runAfter: now })) enqueued++;
   }
 
-  return { sources: perSource.size, advanced, enqueued };
+  return { sources: perSource.size, advanced, enqueued, cleanup: enqueueCleanup(db, now) };
 }

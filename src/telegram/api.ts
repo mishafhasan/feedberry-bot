@@ -130,7 +130,15 @@ export class TelegramSender {
     try {
       return await call();
     } catch (err) {
-      if (!(err instanceof GrammyError) || err.error_code !== 429) throw err;
+      if (!(err instanceof GrammyError)) throw err;
+
+      // §11: a chat we can no longer post to is demoted by the caller, never retried forever.
+      if (err.error_code === 403) throw new Coded(E.TG_FORBIDDEN, err.description);
+
+      // §8.2 rule 5: a parse failure is reported so the post can be resent as plain text.
+      if (err.error_code === 400 && /can't parse entities/i.test(err.description)) throw new Coded(E.TG_PARSE, err.description);
+
+      if (err.error_code !== 429) throw err;
 
       // §9.2: sleep retry_after + 1 s and retry the same call; a 429 never consumes an attempt.
       const waitMs = (err.parameters?.retry_after ?? 5) * 1000;

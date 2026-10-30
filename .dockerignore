@@ -1,0 +1,15 @@
+node_modules
+dist
+data
+tmp
+test
+docs
+UI-Refference
+formatbot1
+.agent
+.zcode
+.git
+*.md
+!README.md
+cobalt-engine/test
+cobalt-engine/examples

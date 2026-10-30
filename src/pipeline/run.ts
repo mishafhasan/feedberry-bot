@@ -3,6 +3,7 @@ import { tx, type Db } from '../db/index.ts';
 import { listPendingForSource, markPendingDelivery } from '../db/repos/deliveries.ts';
 import { getPost, insertPosts } from '../db/repos/posts.ts';
 import { getSource, type SourceRow } from '../db/repos/sources.ts';
+import { demoteChat } from '../db/repos/chats.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { alerts, type Notifier } from '../obs/alerts.ts';
@@ -46,6 +47,40 @@ export interface RunResult {
   fresh: number;
   delivered: number;
   failed: number;
+}
+
+/** §5.7: the only extension point. A hook sees an immutable context and may replace the plan. */
+export interface HookContext {
+  readonly sourceId: number;
+  readonly chatId: number;
+  readonly postId: number;
+  readonly url: string | null;
+}
+
+export interface PipelineHook {
+  id: string;
+  after: 'classify' | 'render';
+  run(context: HookContext, plan: MessagePlan): Promise<MessagePlan> | MessagePlan;
+}
+
+/** Empty in the MVP; registered at boot. A hook can never send: stage 7 owns delivery. */
+const hooks: PipelineHook[] = [];
+
+export function registerHook(hook: PipelineHook): void {
+  hooks.push(hook);
+}
+
+export function resetHooks(): void {
+  hooks.length = 0;
+}
+
+async function applyHooks(after: PipelineHook['after'], context: HookContext, plan: MessagePlan): Promise<MessagePlan> {
+  let current = plan;
+  for (const hook of hooks.filter((candidate) => candidate.after === after)) {
+    current = await hook.run(Object.freeze(context), current);
+    log('info', 'hook_applied', { hook: hook.id, kind: current.kind });
+  }
+  return current;
 }
 
 /**
@@ -106,7 +141,9 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
-        const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir, platform), target);
+        const hookContext: HookContext = { sourceId, chatId: row.chat_id, postId: post.id, url: post.url };
+        const plan = await applyHooks('render', hookContext, await planForDelivery(deps, post, dir, platform));
+        const ids = await deliver(deps.sender, plan, target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         recordEvent(deps.db, { level: 'info', code: 'send_ok', sourceId, chatId: row.chat_id, detail: `${ids.length} parts`, at: now });
         delivered++;
@@ -119,8 +156,10 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
         }
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'failed', parts: 0, messageIds: null, errorCode: code, now });
         recordEvent(deps.db, { level: 'error', code: 'send_fail', sourceId, chatId: row.chat_id, detail: code, at: now });
+        // §12.3: a 403 demotes the chat so S4 stops offering it; the row is never deleted.
+        if (code === E.TG_FORBIDDEN) demoteChat(deps.db, row.tg_chat_id);
         failed++;
-        log('warn', 'deliver_failed', { post: post.id, chat: row.chat_id, code });
+        log('warn', 'deliver_failed', { post: post.id, chat: row.chat_id, code, cause: message(err) });
       } finally {
         // Stage 9 always runs, success or failure (§5.1).
         await cleanupWorkDir(dir);
@@ -192,3 +231,5 @@ const refOfSource = (source: SourceRow): SourceRef => ({
   feedUrl: source.feed_url,
   strategy: source.strategy as SourceRef['strategy'],
 });
+
+const message = (err: unknown): string => (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
