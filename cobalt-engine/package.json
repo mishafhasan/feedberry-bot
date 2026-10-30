@@ -1,0 +1,30 @@
+{
+    "name": "cobalt-engine",
+    "version": "1.0.0",
+    "description": "Standalone media extraction engine. Resolve and download media from 11 platforms plus any web page, with no server and no native binaries required.",
+    "keywords": ["downloader", "media", "extractor", "tiktok", "instagram", "youtube", "twitter", "facebook", "threads", "tumblr", "pinterest", "snapchat", "bluesky"],
+    "type": "module",
+    "main": "./index.js",
+    "exports": {
+        ".": "./index.js",
+        "./registry": "./src/registry.js"
+    },
+    "bin": {
+        "cobalt-engine": "./bin/cobalt-engine.mjs"
+    },
+    "engines": {
+        "node": ">=18.17"
+    },
+    "files": ["index.js", "bin", "src", "test", "examples", "README.md", "USER_GUIDE.md", "LICENSE"],
+    "scripts": {
+        "validate": "node test/validate.mjs",
+        "test": "node test/smoke.mjs"
+    },
+    "dependencies": {
+        "@imput/psl": "^2.0.4",
+        "hls-parser": "^0.16.0",
+        "set-cookie-parser": "2.7.2",
+        "url-pattern": "1.0.3"
+    },
+    "license": "AGPL-3.0"
+}

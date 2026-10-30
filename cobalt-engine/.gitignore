@@ -1,0 +1,8 @@
+node_modules/
+downloads/
+media/
+library/
+_out/
+*.log
+cookies.json
+.env

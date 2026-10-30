@@ -1,0 +1,24 @@
+{
+  "name": "feedberry-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fresh posts from your favorite accounts, delivered to Telegram.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "dev": "node --env-file-if-exists=.env --watch src/main.ts",
+    "build": "tsc -p tsconfig.json && node --input-type=module -e \"import{cpSync}from'node:fs';cpSync('src/db/schema.sql','dist/db/schema.sql')\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
