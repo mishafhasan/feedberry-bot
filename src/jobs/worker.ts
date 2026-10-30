@@ -1,7 +1,12 @@
 import { log } from '../obs/log.ts';
+import { alerts } from '../obs/alerts.ts';
+import { E, isCoded } from '../platform/errors.ts';
 import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts';
 import { tick } from '../scheduler/tick.ts';
-import { claim, complete, fail, recoverStale, type JobRow } from './queue.ts';
+import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, type JobRow } from './queue.ts';
+
+/** §9.2: a flood wait longer than the inline limit frees the worker and retries later. */
+const FLOOD_REQUEUE_MS = 5 * 60_000;
 
 export interface WorkerDeps extends RunDeps {
   workerConcurrency: number;
@@ -18,8 +23,24 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
     complete(deps.db, job.id);
   } catch (err) {
     const cause = message(err);
-    fail(deps.db, job.id, cause);
-    log('error', 'job_failed', { job: job.id, kind: job.kind, cause });
+    const code = isCoded(err) ? err.code : E.TG_UNKNOWN;
+
+    if (code === E.TG_429) {
+      // A flood wait never consumes an attempt: requeue and let the worker go.
+      reschedule(deps.db, job.id, now + FLOOD_REQUEUE_MS, code);
+      deps.db.prepare('UPDATE jobs SET attempts = MAX(attempts - 1, 0) WHERE id = ?').run(job.id);
+      log('warn', 'job_requeued_429', { job: job.id, kind: job.kind });
+      return true;
+    }
+
+    const delay = retryDelayMs(code, job.attempts);
+    if (delay === null) {
+      fail(deps.db, job.id, cause);
+      log('error', 'job_failed', { job: job.id, kind: job.kind, code, cause });
+    } else {
+      reschedule(deps.db, job.id, now + delay, code);
+      log('warn', 'job_retry', { job: job.id, kind: job.kind, code, inMs: delay });
+    }
   }
   return true;
 }
@@ -58,6 +79,11 @@ export function startWorker(deps: WorkerDeps, options: { pollMs?: number; slotMs
         if (now - lastSlot >= slotMs) {
           lastSlot = now;
           tick(deps.db, now);
+          // §13.1 alerts that are cheap to check once per slot.
+          if (deps.notifier) {
+            await alerts.silent(deps.db, deps.notifier, now).catch(() => false);
+            await alerts.queueBacklog(deps.db, deps.notifier, now).catch(() => false);
+          }
         }
         await runOnce(deps, now);
       } catch (err) {

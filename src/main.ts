@@ -5,6 +5,7 @@ import { openDb, schemaVersion } from './db/index.ts';
 import { startWorker } from './jobs/worker.ts';
 import { cobaltEngine } from './media/cobalt.ts';
 import { ffmpegThumbnail } from './media/thumb.ts';
+import type { Notifier } from './obs/alerts.ts';
 import { log } from './obs/log.ts';
 import { TelegramSender } from './telegram/api.ts';
 
@@ -22,13 +23,19 @@ const bot = createBot({ cfg, db, http, media: cobaltEngine });
 
 log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });
 
+const sender = new TelegramSender(bot.api);
+const notifier: Notifier = {
+  notify: (text) => sender.sendText({ chatId: cfg.adminChatId, messageThreadId: null, isGroup: false }, text).then(() => undefined),
+};
+
 const worker = startWorker({
   db,
   http,
   cfg,
   media: cobaltEngine,
   thumbnail: ffmpegThumbnail,
-  sender: new TelegramSender(bot.api),
+  notifier,
+  sender,
   workerConcurrency: cfg.limits.workerConcurrency,
 });
 

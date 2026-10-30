@@ -1,4 +1,5 @@
 import type { Db } from '../db/index.ts';
+import { E } from '../platform/errors.ts';
 
 export type JobState = 'queued' | 'running' | 'done' | 'failed';
 
@@ -64,4 +65,16 @@ export function fail(db: Db, id: number, error: string): void {
 /** Puts a job back with a delay; the backoff ladder that calls this lands in M8 (§4.5). */
 export function reschedule(db: Db, id: number, runAfter: number, error: string | null = null): void {
   db.prepare("UPDATE jobs SET state = 'queued', run_after = ?, locked_at = NULL, last_error = ? WHERE id = ?").run(runAfter, error, id);
+}
+
+/** §4.5 ladder: network/5xx 1 m → 6 h (max 5), rate limit 30 m → 8 h (max 3), login wall none. */
+export const NETWORK_BACKOFF_MS = [60_000, 5 * 60_000, 25 * 60_000, 2 * 3_600_000, 6 * 3_600_000];
+export const RATE_BACKOFF_MS = [30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
+
+/** null means "do not retry": the failure is terminal for this job. */
+export function retryDelayMs(code: string, attempts: number): number | null {
+  if (code === E.RATE_LIMIT) return RATE_BACKOFF_MS[attempts - 1] ?? null;
+  if (code === E.COOKIE_REQUIRED) return null; // login wall: refuse, never retry (§10, ADR-017)
+  if (code === E.TOO_LARGE || code === E.NO_MEDIA || code === E.MEDIA_GONE) return null; // media is terminal
+  return NETWORK_BACKOFF_MS[attempts - 1] ?? null;
 }

@@ -7,7 +7,7 @@ chat — your DM, a group, a channel, or a forum topic — as a normal Telegram 
 readable article text, no watermarks, no ads.
 
 - Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/)
-- Status: **M6 of 9** (video: 3-minute rule, 50 MB wall; articles arrive in M7). Nothing here pretends to work before it does.
+- Status: **M8 of 9** (reliability: retries, 429 policy, health, alerts, `/status`). Nothing here pretends to work before it does.
 
 ## How it works
 
@@ -92,6 +92,11 @@ UI-Refference/   normative screen screenshots
 - **SQLite uses the built-in `node:sqlite`** synchronous driver, which is the "better-sqlite3-class"
   dependency named in ADR-001 without a native build step. That is why Node 24+ is required.
 - Tests use the Telegram API shape through a fake local server (`test/integration`), so no token or network is needed.
+- **`sendRichMessage` (Bot API 10.3) stays unused** (OQ-16). Revisit only when clients confirm coverage across
+  Desktop, Android, iOS and Web; classic media + caption is the MVP contract (ADR-008).
+- **Failures are quiet for readers.** A scheduled fetch failure updates `sources` health and the `events`
+  trail, and the operator gets at most one DM per source per 24 h. Users only see the error screens when they
+  tapped something.
 
 ## Legal
 

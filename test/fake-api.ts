@@ -25,11 +25,17 @@ export interface FakeApi {
 export const BOT_USER = { id: 999, is_bot: true, first_name: 'FeedBerry', username: 'feedberry_bot' };
 
 /** Fake Bot API: records calls, answers from fixtures, never touches the network. */
-export async function fakeBotApi(chats: Record<number, FakeChat> = {}): Promise<FakeApi> {
+export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number } = {}): Promise<FakeApi> {
   const calls: Call[] = [];
   let messageId = 100;
+  let floodPending = options.fail429Once !== undefined;
 
   const resultFor = (method: string, body: Record<string, any>): unknown | { __error: string } => {
+    if (method === 'sendMessage' && floodPending) {
+      // §9.2 fixture: the first send is flood-limited, retry_after is in seconds.
+      floodPending = false;
+      return { __error: `Too Many Requests: retry after ${options.fail429Once}`, __retryAfter: options.fail429Once } as never;
+    }
     switch (method) {
       case 'getMe':
         return { ...BOT_USER, can_join_groups: true, can_read_all_group_messages: false, supports_inline_queries: false };
@@ -68,11 +74,16 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}): Promise<
       // Media methods post multipart/form-data (the file plus its fields), everything else JSON.
       const body = contentType.includes('multipart/form-data') ? parseMultipart(raw, contentType) : raw ? JSON.parse(raw) : {};
       calls.push({ method, body });
-      const result = resultFor(method, body) as { __error?: string };
+      const result = resultFor(method, body) as { __error?: string; __retryAfter?: number };
       res.setHeader('content-type', 'application/json');
       res.end(
         result.__error
-          ? JSON.stringify({ ok: false, error_code: 400, description: result.__error })
+          ? JSON.stringify({
+              ok: false,
+              error_code: result.__retryAfter === undefined ? 400 : 429,
+              description: result.__error,
+              ...(result.__retryAfter === undefined ? {} : { parameters: { retry_after: result.__retryAfter } }),
+            })
           : JSON.stringify({ ok: true, result }),
       );
     });

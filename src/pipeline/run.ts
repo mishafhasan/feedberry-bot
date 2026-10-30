@@ -4,6 +4,8 @@ import { listPendingForSource, markPendingDelivery } from '../db/repos/deliverie
 import { getPost, insertPosts } from '../db/repos/posts.ts';
 import { getSource, type SourceRow } from '../db/repos/sources.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
+import { recordEvent } from '../db/repos/events.ts';
+import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
 import { extractArticle } from '../article/readability.ts';
 import { publishArticle, telegraphClient, type TelegraphClient } from '../article/telegraph.ts';
@@ -23,7 +25,7 @@ import { unseenItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
 import { renderArticle, renderArticleFallback, renderPost } from './s6-render.ts';
 import { deliver } from './s7-deliver.ts';
-import { recordCheck, recordDelivery } from './s8-record.ts';
+import { recordDelivery, recordFailure, recordSuccess } from './s8-record.ts';
 import { cleanupWorkDir, workDirFor } from './s9-cleanup.ts';
 
 export interface RunDeps {
@@ -36,6 +38,8 @@ export interface RunDeps {
   thumbnail: Thumbnailer;
   /** Telegra.ph (ADR-007); tests inject a recorder, production uses the real client. */
   telegraph?: TelegraphClient;
+  /** Operator DM for §13.1 alerts; absent means alerts are only logged. */
+  notifier?: Notifier;
 }
 
 export interface RunResult {
@@ -58,9 +62,14 @@ export async function runFetchSource(deps: RunDeps, sourceId: number, now = Date
     const newItems = unseenItems(deps.db, sourceId, feed.items);
     fresh = newItems.length;
     if (fresh > 0) persistNew(deps.db, sourceId, feed, newItems, now);
-    recordCheck(deps.db, sourceId, true, now);
+    recordSuccess(deps.db, sourceId, now);
+    recordEvent(deps.db, { level: 'info', code: 'fetch_ok', sourceId, detail: `${fresh} new`, at: now });
   } catch (err) {
-    recordCheck(deps.db, sourceId, false, now);
+    const code = isCoded(err) ? err.code : 'E_UNKNOWN';
+    const failures = recordFailure(deps.db, sourceId, code, now);
+    recordEvent(deps.db, { level: 'error', code: 'fetch_fail', sourceId, detail: code, at: now });
+    // §4.5: the owner hears about a source once per 24 h, not once per failure.
+    if (failures >= 3 && deps.notifier) await alerts.sourceFailing(deps.db, deps.notifier, sourceId, code, now);
     throw err;
   }
 
@@ -99,10 +108,17 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       try {
         const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir, platform), target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
+        recordEvent(deps.db, { level: 'info', code: 'send_ok', sourceId, chatId: row.chat_id, detail: `${ids.length} parts`, at: now });
         delivered++;
       } catch (err) {
         const code = isCoded(err) ? err.code : E.TG_UNKNOWN;
+        if (code === E.TG_429) {
+          // §9.2: leave the row pending, let the worker requeue the job. Nothing is lost.
+          log('warn', 'deliver_flood_wait', { post: post.id, chat: row.chat_id });
+          throw err;
+        }
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'failed', parts: 0, messageIds: null, errorCode: code, now });
+        recordEvent(deps.db, { level: 'error', code: 'send_fail', sourceId, chatId: row.chat_id, detail: code, at: now });
         failed++;
         log('warn', 'deliver_failed', { post: post.id, chat: row.chat_id, code });
       } finally {

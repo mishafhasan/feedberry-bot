@@ -4,6 +4,7 @@ import type { Db } from '../db/index.ts';
 import { captureTopic, demoteChat, ensurePrivateChat } from '../db/repos/chats.ts';
 import { ensureUser } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
+import { statusText } from '../obs/status.ts';
 import { cobaltEngine, type MediaEngine } from '../media/cobalt.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
@@ -42,6 +43,12 @@ export function createBot({ cfg, db, apiRoot, http, media }: CreateBotOptions): 
     resetSession(userId);
     const view = mainMenu(userId, deps);
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  // §13.1: the operator's only command, and only the operator's.
+  bot.command('status', async (ctx) => {
+    if (ctx.from?.id !== cfg.adminChatId) return;
+    await ctx.reply(statusText(db));
   });
 
   bot.on('message:text', async (ctx) => {

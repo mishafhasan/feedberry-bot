@@ -27,8 +27,23 @@ export function recordDelivery(db: Db, record: DeliveryRecord): void {
   ).run(record.postId, record.chatId, record.status, record.parts, record.messageIds, record.errorCode, record.now ?? Date.now());
 }
 
-/** Health fields on `sources` (§6). `ok=false` keeps the last success visible for S7's age. */
-export function recordCheck(db: Db, sourceId: number, ok: boolean, now = Date.now()): void {
-  if (ok) db.prepare('UPDATE sources SET last_check_at = ?, last_ok_at = ? WHERE id = ?').run(now, now, sourceId);
-  else db.prepare('UPDATE sources SET last_check_at = ? WHERE id = ?').run(now, sourceId);
+/** Health fields on `sources` (§6). A success clears the failure streak. */
+export function recordSuccess(db: Db, sourceId: number, now = Date.now()): void {
+  db.prepare('UPDATE sources SET last_check_at = ?, last_ok_at = ?, last_error_code = NULL, last_error_at = NULL, consecutive_failures = 0 WHERE id = ?').run(
+    now,
+    now,
+    sourceId,
+  );
+}
+
+/** Returns the new consecutive-failure count so the caller can alert on the third one. */
+export function recordFailure(db: Db, sourceId: number, code: string, now = Date.now()): number {
+  db.prepare('UPDATE sources SET last_check_at = ?, last_error_code = ?, last_error_at = ?, consecutive_failures = consecutive_failures + 1 WHERE id = ?').run(
+    now,
+    code,
+    now,
+    sourceId,
+  );
+  const row = db.prepare('SELECT consecutive_failures AS n FROM sources WHERE id = ?').get(sourceId) as { n: number };
+  return row.n;
 }
