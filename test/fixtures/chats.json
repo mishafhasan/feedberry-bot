@@ -1,0 +1,20 @@
+{
+  "adminChannel": {
+    "id": -1001234567890,
+    "type": "channel",
+    "title": "FeedBerry Test Channel",
+    "member": { "status": "administrator", "can_post_messages": true, "can_manage_topics": false }
+  },
+  "plainChannel": {
+    "id": -1009876543210,
+    "type": "channel",
+    "title": "Plain Channel",
+    "member": { "status": "member" }
+  },
+  "mutedChannel": {
+    "id": -1005555555555,
+    "type": "channel",
+    "title": "Muted Channel",
+    "member": { "status": "administrator", "can_post_messages": false }
+  }
+}

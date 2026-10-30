@@ -7,7 +7,7 @@ chat — your DM, a group, a channel, or a forum topic — as a normal Telegram 
 readable article text, no watermarks, no ads.
 
 - Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/)
-- Status: **M1 of 9** (skeleton, schema, S1/S2, callback router). Nothing here pretends to work before it does.
+- Status: **M2 of 9** (resolve + feed adapters + S3/S4 preview + chat verification). Nothing here pretends to work before it does.
 
 ## How it works
 
@@ -76,8 +76,10 @@ src/
   config.ts      env + limits
   db/            schema.sql, open/migrate, one repo per table
   bot/           long polling, FSM, callback router, screens, keyboards, texts
+  pipeline/      one file per stage (s1 resolve, s2 feed)
+  platform/      link detection, host allowlist, SSRF guard, feed adapters
   obs/           JSON-line logs with token/cookie redaction
-test/            unit + integration, fixtures only (never live social URLs)
+test/            unit + integration on fixtures, fake Bot API (never live social URLs)
 cobalt-engine/   locked media engine, imported as a library
 formatbot1/      reference for the Readability → Telegra.ph path
 docs/            architecture, implementation plan, ADRs

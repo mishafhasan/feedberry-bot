@@ -18,3 +18,13 @@ export function backKeyboard(): InlineKeyboard {
 export function errorKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text('🔁 Retry', 'err:retry').row().text('← Back', 'nav:back');
 }
+
+/** S4: personal account first, then every verified chat, then Back (ADR-014). */
+export function destinationKeyboard(personalChatId: number, chats: Array<{ id: number; title: string | null; type: string }>): InlineKeyboard {
+  const keyboard = new InlineKeyboard().text('👤 Personal account', `add:dest:${personalChatId}`).row();
+  for (const chat of chats) {
+    const icon = chat.type === 'channel' ? '📢' : '👥';
+    keyboard.text(`${icon} ${chat.title ?? chat.id}`, `add:dest:${chat.id}`).row();
+  }
+  return keyboard.text('← Back', 'nav:back');
+}

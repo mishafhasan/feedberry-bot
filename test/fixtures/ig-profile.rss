@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Cristiano Ronaldo</title>
+    <link>https://www.instagram.com/cristiano/</link>
+    <description>Instagram posts of cristiano</description>
+    <image>
+      <url>https://cdn.example.test/avatar.jpg</url>
+      <title>Cristiano Ronaldo</title>
+      <link>https://www.instagram.com/cristiano/</link>
+    </image>
+    <item>
+      <title><![CDATA[71 years of passion. Happy birthday, Al Nassr! 💛💙]]></title>
+      <link>https://www.instagram.com/p/C1/</link>
+      <guid isPermaLink="false">ig-1</guid>
+      <pubDate>Fri, 24 Oct 2025 20:34:00 GMT</pubDate>
+      <description><![CDATA[<p>71 years of passion.</p>]]></description>
+    </item>
+    <item>
+      <title><![CDATA[Let&apos;s go! 💛💙]]></title>
+      <link>https://www.instagram.com/p/C2/</link>
+      <guid isPermaLink="false">ig-2</guid>
+      <pubDate>Thu, 23 Oct 2025 17:56:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[+3 points! 💛💙 Together!]]></title>
+      <link>https://www.instagram.com/p/C3/</link>
+      <guid isPermaLink="false">ig-3</guid>
+      <pubDate>Mon, 20 Oct 2025 22:32:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Putting in the work. 🔥]]></title>
+      <link>https://www.instagram.com/p/C4/</link>
+      <guid isPermaLink="false">ig-4</guid>
+      <pubDate>Sun, 19 Oct 2025 20:45:00 GMT</pubDate>
+      <enclosure url="https://cdn.example.test/C4.jpg" type="image/jpeg" />
+    </item>
+    <item>
+      <title><![CDATA[@WHOOP now available in Arabic. متوفر الآن بالعربية]]></title>
+      <link>https://www.instagram.com/p/C5/</link>
+      <guid isPermaLink="false">ig-5</guid>
+      <pubDate>Thu, 16 Oct 2025 20:01:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Older post that is outside the newest five]]></title>
+      <link>https://www.instagram.com/p/C6/</link>
+      <guid isPermaLink="false">ig-6</guid>
+      <pubDate>Wed, 15 Oct 2025 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Newest post]]></title>
+      <link>https://www.instagram.com/p/C7/</link>
+      <guid isPermaLink="false">ig-7</guid>
+      <pubDate>Sat, 25 Oct 2025 09:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
