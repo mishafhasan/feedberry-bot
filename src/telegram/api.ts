@@ -1,6 +1,6 @@
 import { GrammyError, InputFile, type Api } from 'grammy';
 import { log } from '../obs/log.ts';
-import { Coded, E } from '../platform/errors.ts';
+import { Coded, E, isCoded } from '../platform/errors.ts';
 import { chunk } from '../render/albums.ts';
 import { splitMessage } from '../render/caption.ts';
 import type { MessagePlan } from '../render/plan.ts';
@@ -44,10 +44,21 @@ export class TelegramSender {
   }
 
   private async sendTextParts(target: Target, text: string): Promise<number[]> {
+    try {
+      return await this.sendParts(target, text, true);
+    } catch (err) {
+      // §8.2 rule 5: a post that cannot be parsed is resent as plain text, never dropped.
+      if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
+      log('warn', 'tg_parse_fallback', { chat: target.chatId });
+      return this.sendParts(target, plainText(text), false);
+    }
+  }
+
+  private async sendParts(target: Target, text: string, html: boolean): Promise<number[]> {
     const ids: number[] = [];
     let replyTo: number | undefined;
     for (const part of splitMessage(text, MESSAGE_LIMIT)) {
-      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo)));
+      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo, html)));
       ids.push(message.message_id);
       replyTo = message.message_id;
     }
@@ -149,9 +160,9 @@ export class TelegramSender {
     }
   }
 
-  private textBody(target: Target, replyTo?: number) {
+  private textBody(target: Target, replyTo?: number, html = true) {
     return {
-      parse_mode: 'HTML' as const,
+      parse_mode: html ? ('HTML' as const) : undefined,
       message_thread_id: target.messageThreadId ?? undefined,
       reply_parameters: replyTo === undefined ? undefined : { message_id: replyTo },
     };
@@ -175,3 +186,8 @@ export class TelegramSender {
 
 /** Kept for callers that only have text (health notices, operator alerts). */
 export const senderTarget = (chatId: number): Target => ({ chatId, messageThreadId: null, isGroup: false });
+
+/** Text we built, minus its HTML: what goes out when Telegram cannot parse the original. */
+export function plainText(html: string): string {
+  return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}

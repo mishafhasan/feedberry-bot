@@ -176,3 +176,38 @@ test('M8: /status answers the admin only', async () => {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('M8: an unparseable post is resent as plain text, not dropped', async () => {
+  const api = await fakeBotApi({}, { failParseOnce: true });
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-parse-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const db = openDb(join(dir, 'bot.db'));
+
+  try {
+    const { source, chat } = setUp(db);
+    const post = insertPosts(db, source.id, [
+      { guid: 'p-1', link: 'https://instagram.com/p/1', title: 'Bold <title>', publishedAt: Date.parse('2025-10-24T10:00:00Z'), summary: null, media: [] },
+    ])[0];
+    assert.ok(post);
+    markPendingDelivery(db, post.id, chat.id);
+    enqueue(db, { kind: 'deliver_post', targetId: source.id, priority: PRIORITY.manual });
+
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });
+    await bot.init();
+    await runOnce({ db, http, cfg, media: noMedia, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 1 }, Date.now());
+
+    const sends = api.calls.filter((c) => c.method === 'sendMessage');
+    assert.equal(sends.length, 2, 'one rejected attempt and one plain-text resend');
+    assert.equal(sends[0]?.body.parse_mode, 'HTML');
+    assert.equal(sends[1]?.body.parse_mode, undefined, 'the retry drops parse_mode');
+    assert.doesNotMatch(String(sends[1]?.body.text), /&lt;|&gt;|&amp;/, 'HTML entities are undone for the plain resend');
+    assert.match(String(sends[1]?.body.text), /Bold <title>/, 'the literal text survives the round trip');
+
+    const delivery = db.prepare('SELECT status FROM deliveries WHERE post_id = ?').get(post.id) as { status: string };
+    assert.equal(delivery.status, 'sent');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});

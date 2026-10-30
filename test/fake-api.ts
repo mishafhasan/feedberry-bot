@@ -25,12 +25,17 @@ export interface FakeApi {
 export const BOT_USER = { id: 999, is_bot: true, first_name: 'FeedBerry', username: 'feedberry_bot' };
 
 /** Fake Bot API: records calls, answers from fixtures, never touches the network. */
-export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number; forbidChat?: number } = {}): Promise<FakeApi> {
+export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number; forbidChat?: number; failParseOnce?: boolean } = {}): Promise<FakeApi> {
   const calls: Call[] = [];
   let messageId = 100;
   let floodPending = options.fail429Once !== undefined;
+  let parsePending = options.failParseOnce === true;
 
   const resultFor = (method: string, body: Record<string, any>): unknown | { __error: string } => {
+    if (method === 'sendMessage' && parsePending) {
+      parsePending = false;
+      return { __error: "Bad Request: can't parse entities: Unsupported start tag" } as never;
+    }
     if (method === 'sendMessage' && floodPending) {
       // §9.2 fixture: the first send is flood-limited, retry_after is in seconds.
       floodPending = false;
