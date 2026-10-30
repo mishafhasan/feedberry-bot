@@ -6,6 +6,8 @@ import { getSource, type SourceRow } from '../db/repos/sources.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
+import { probeDuration } from '../media/probe.ts';
+import type { Thumbnailer } from '../media/thumb.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
@@ -28,6 +30,8 @@ export interface RunDeps {
   sender: TelegramSender;
   cfg: Config;
   media: MediaEngine;
+  /** ffmpeg frame at 1 s, or null when ffmpeg is absent (R7/R8 fall to a link card). */
+  thumbnail: Thumbnailer;
 }
 
 export interface RunResult {
@@ -85,7 +89,8 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       const post = getPost(deps.db, delivery.post_id ?? 0);
       if (!post) continue;
 
-      const dir = workDirFor(`post-${post.id}-${row.chat_id}`);
+      // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
+      const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
         const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir), target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
@@ -123,14 +128,24 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   const kind = classifyMedia(items, hadFeedMedia);
   if (items.length === 0) return renderPost(post, kind, []);
 
+  let files;
   try {
-    const files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-    return renderPost(post, kind, files);
+    files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
   } catch (err) {
-    if (isCoded(err) && err.code === E.TOO_LARGE) throw err; // recorded, M6 turns it into R7/R8
+    // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
     log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
     return renderPost(post, 'link_only', []);
   }
+
+  if (kind !== 'video') return renderPost(post, kind, files);
+
+  const video = files[0];
+  if (!video) return renderPost(post, 'link_only', []);
+
+  // §8.6: ffprobe, then the feed's hint, then unknown (R9 keeps the size rule).
+  const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
+  const thumbnail = await deps.thumbnail(video.path, dir);
+  return renderPost(post, kind, files, { durationSec, thumbnail });
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

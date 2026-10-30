@@ -61,7 +61,7 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
   try {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
     await bot.init();
-    const deps = { db, http, cfg, media: noMedia, sender: new TelegramSender(bot.api), workerConcurrency: 2 };
+    const deps = { db, http, cfg, media: noMedia, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 2 };
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
     const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };

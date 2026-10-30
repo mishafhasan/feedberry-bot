@@ -12,6 +12,8 @@ export type MessagePlan =
   | { kind: 'text'; text: string }
   | { kind: 'link_only'; text: string }
   | { kind: 'photo' | 'video' | 'animation' | 'audio'; file: string; caption: string }
+  /** R7/R8: thumbnail photo, then the source link. */
+  | { kind: 'thumbnail'; file: string; caption: string; link: string }
   /** R3/R4: one `sendMediaGroup` per 10 items, same kind only. */
   | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string }
   /** R5: photo and video mixed, so each item is its own message. */

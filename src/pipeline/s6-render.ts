@@ -3,8 +3,14 @@ import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '
 import { renderVideo } from '../render/video.ts';
 import type { PostKind } from './s3-classify.ts';
 
-/** Stage 6 (R1/R2/R3/R5/R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
-export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[]): MessagePlan {
+/** R9/R7/R8 need facts about the downloaded video; other rows ignore them. */
+export interface RenderExtras {
+  durationSec?: number | null;
+  thumbnail?: string | null;
+}
+
+/** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
+export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras = {}): MessagePlan {
   const caption = bodyOf(post);
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
 
@@ -21,7 +27,12 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[]): M
     }
     case 'video': {
       const file = files[0];
-      return file ? renderVideo(file, caption, post.url ?? '') : { kind: 'text', text: clampMessage(caption) };
+      if (!file) return { kind: 'text', text: clampMessage(caption) };
+      return renderVideo(file, caption, {
+        durationSec: extras.durationSec ?? null,
+        thumbnail: extras.thumbnail ?? null,
+        link: post.url ?? '',
+      });
     }
     case 'album':
       return files.length > 0 ? { kind, items: asItems, caption } : { kind: 'text', text: clampMessage(caption) };
@@ -41,7 +52,8 @@ export function renderDownload(files: MediaFile[], title: string, link: string):
   if (files.length === 1) {
     const only = files[0];
     if (!only) return { kind: 'link_only', text: esc(link) };
-    if (only.kind === 'video') return renderVideo(only, caption, link);
+    // A link the user asked for is uploaded when it fits; the duration rule is for scheduled posts.
+    if (only.kind === 'video') return renderVideo(only, caption, { durationSec: null, thumbnail: null, link });
     return { kind: only.kind === 'animation' ? 'animation' : 'photo', file: only.path, caption };
   }
   return kinds.size > 1 ? { kind: 'sequential', items: asItems, caption } : { kind: 'album', items: asItems, caption };

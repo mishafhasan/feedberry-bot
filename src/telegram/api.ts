@@ -32,6 +32,8 @@ export class TelegramSender {
         return this.sendAlbum(target, plan.items, plan.caption);
       case 'sequential':
         return this.sendSequential(target, plan.items, plan.caption);
+      case 'thumbnail':
+        return this.sendThumbnail(target, plan.file, plan.caption, plan.link);
       default:
         return this.sendSingle(target, plan.kind, plan.file, plan.caption);
     }
@@ -72,6 +74,14 @@ export class TelegramSender {
       ids.push(next.message_id);
       replyTo = next.message_id;
     }
+    return ids;
+  }
+
+  /** R7/R8: the preview image carries the caption, the link follows as its own message. */
+  private async sendThumbnail(target: Target, file: string, caption: string, link: string): Promise<number[]> {
+    const ids = await this.sendSingle(target, 'photo', file, caption);
+    const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, link, this.textBody(target)));
+    ids.push(message.message_id);
     return ids;
   }
 

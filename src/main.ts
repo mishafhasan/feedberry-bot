@@ -4,6 +4,7 @@ import { parseConfig, type Config } from './config.ts';
 import { openDb, schemaVersion } from './db/index.ts';
 import { startWorker } from './jobs/worker.ts';
 import { cobaltEngine } from './media/cobalt.ts';
+import { ffmpegThumbnail } from './media/thumb.ts';
 import { log } from './obs/log.ts';
 import { TelegramSender } from './telegram/api.ts';
 
@@ -26,6 +27,7 @@ const worker = startWorker({
   http,
   cfg,
   media: cobaltEngine,
+  thumbnail: ffmpegThumbnail,
   sender: new TelegramSender(bot.api),
   workerConcurrency: cfg.limits.workerConcurrency,
 });

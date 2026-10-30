@@ -7,6 +7,8 @@ export interface MediaItem {
   url: string;
   /** A carousel item: it must be downloaded through the picker branch, not as a single stream. */
   picker: boolean;
+  /** Feed/platform duration hint (§8.6 step 2); null when nobody knows. */
+  durationSec?: number | null;
 }
 
 export interface ResolvedMedia {

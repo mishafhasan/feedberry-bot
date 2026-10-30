@@ -92,7 +92,7 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine });
     await bot.init();
-    const result = await deliverPending({ db, http, cfg, media: engine, sender: new TelegramSender(bot.api) }, source.id);
+    const result = await deliverPending({ db, http, cfg, media: engine, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
 
     assert.equal(result.delivered, 5, 'all five posts delivered');
     assert.equal(result.failed, 0);
