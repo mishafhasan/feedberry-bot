@@ -7,7 +7,7 @@ chat — your DM, a group, a channel, or a forum topic — as a normal Telegram 
 readable article text, no watermarks, no ads.
 
 - Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/)
-- Status: **M5 of 9** (media: cobalt, albums, caption splitting, Download Mode). Nothing here pretends to work before it does.
+- Status: **M6 of 9** (video: 3-minute rule, 50 MB wall; articles arrive in M7). Nothing here pretends to work before it does.
 
 ## How it works
 

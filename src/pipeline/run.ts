@@ -5,6 +5,8 @@ import { getPost, insertPosts } from '../db/repos/posts.ts';
 import { getSource, type SourceRow } from '../db/repos/sources.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
 import { log } from '../obs/log.ts';
+import { extractArticle } from '../article/readability.ts';
+import { publishArticle, telegraphClient, type TelegraphClient } from '../article/telegraph.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { probeDuration } from '../media/probe.ts';
 import type { Thumbnailer } from '../media/thumb.ts';
@@ -19,7 +21,7 @@ import { fetchFeed } from './s2-feed.ts';
 import { classifyMedia } from './s3-classify.ts';
 import { unseenItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
-import { renderPost } from './s6-render.ts';
+import { renderArticle, renderArticleFallback, renderPost } from './s6-render.ts';
 import { deliver } from './s7-deliver.ts';
 import { recordCheck, recordDelivery } from './s8-record.ts';
 import { cleanupWorkDir, workDirFor } from './s9-cleanup.ts';
@@ -32,6 +34,8 @@ export interface RunDeps {
   media: MediaEngine;
   /** ffmpeg frame at 1 s, or null when ffmpeg is absent (R7/R8 fall to a link card). */
   thumbnail: Thumbnailer;
+  /** Telegra.ph (ADR-007); tests inject a recorder, production uses the real client. */
+  telegraph?: TelegraphClient;
 }
 
 export interface RunResult {
@@ -82,6 +86,7 @@ function persistNew(db: Db, sourceId: number, feed: ParsedFeed, freshItems: Feed
 export async function deliverPending(deps: RunDeps, sourceId: number, now = Date.now()): Promise<{ delivered: number; failed: number }> {
   let delivered = 0;
   let failed = 0;
+  const platform = getSource(deps.db, sourceId)?.platform ?? 'rss';
 
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
@@ -92,7 +97,7 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
-        const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir), target);
+        const ids = await deliver(deps.sender, await planForDelivery(deps, post, dir, platform), target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         delivered++;
       } catch (err) {
@@ -110,10 +115,13 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
 }
 
 const MEDIA_TIMEOUT_MS = 120_000;
+/** R13 fires below this many readable characters (§8.1). */
+const ARTICLE_MIN_CHARS = 400;
 
 /** Stages 3 → 5 → 6 for one post; any media failure degrades to a link card, never a lost post. */
-async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string): Promise<MessagePlan> {
-  const hadFeedMedia = payloadOf(post.payload_json).media.length > 0;
+async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string): Promise<MessagePlan> {
+  const payload = payloadOf(post.payload_json);
+  const hadFeedMedia = payload.media.length > 0;
   const signal = mediaSignal(MEDIA_TIMEOUT_MS);
 
   let items: MediaItem[] = [];
@@ -125,7 +133,8 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
     }
   }
 
-  const kind = classifyMedia(items, hadFeedMedia);
+  const kind = classifyMedia(items, hadFeedMedia, { platform, hasBody: Boolean(payload.summary) });
+  if (kind === 'article') return planArticle(deps, post);
   if (items.length === 0) return renderPost(post, kind, []);
 
   let files;
@@ -146,6 +155,18 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
   const thumbnail = await deps.thumbnail(video.path, dir);
   return renderPost(post, kind, files, { durationSec, thumbnail });
+}
+
+/** R12/R13: fetch, extract, publish to Telegra.ph; anything thin or broken falls back to the link. */
+async function planArticle(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>): Promise<MessagePlan> {
+  try {
+    const article = await extractArticle(deps.http, post.url ?? '');
+    if (article.textLength < ARTICLE_MIN_CHARS) return renderArticleFallback(post, article.title);
+    return renderArticle(article, await publishArticle(deps.telegraph ?? telegraphClient, article));
+  } catch (err) {
+    log('warn', 'article_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
+    return renderArticleFallback(post, null);
+  }
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({
