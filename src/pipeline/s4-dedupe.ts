@@ -4,7 +4,7 @@ import type { FeedItem } from '../platform/feed/native.ts';
 import type { SourceRef } from '../platform/registry.ts';
 import { tx } from '../db/index.ts';
 import { markPendingDelivery } from '../db/repos/deliveries.ts';
-import { insertPosts } from '../db/repos/posts.ts';
+import { insertPosts, listGuids } from '../db/repos/posts.ts';
 import { countSubscriptionsForUser, findSubscription, insertSubscription } from '../db/repos/subscriptions.ts';
 import { upsertSource } from '../db/repos/sources.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
@@ -25,6 +25,12 @@ export interface AddSourceInput {
 /** OQ-11: the limit is per user and counts subscriptions, exactly what S1 prints. */
 export function assertWithinSourceLimit(db: Db, userId: number, limit: number): void {
   if (countSubscriptionsForUser(db, userId) >= limit) throw new Coded(E.SOURCE_LIMIT, `limit ${limit}`);
+}
+
+/** Stage 4 read half (§5.4): the feed items whose guid this source has never recorded. */
+export function unseenItems(db: Db, sourceId: number, items: FeedItem[]): FeedItem[] {
+  const known = new Set(listGuids(db, sourceId));
+  return items.filter((item) => !known.has(item.guid));
 }
 
 /**

@@ -109,3 +109,22 @@ export function getSourceCard(db: Db, userId: number, sourceId: number): SourceC
     )
     .get(userId, sourceId) as unknown as SourceCard | undefined;
 }
+
+export interface DeliveryTargetRow {
+  chat_id: number;
+  tg_chat_id: number;
+  message_thread_id: number | null;
+  type: string;
+}
+
+/** Stage 7 targets: every active subscription whose chat may still receive posts (§9.4). */
+export function deliveryTargets(db: Db, sourceId: number): DeliveryTargetRow[] {
+  return db
+    .prepare(
+      `SELECT c.id AS chat_id, c.tg_chat_id, c.message_thread_id, c.type
+       FROM subscriptions sub JOIN chats c ON c.id = sub.chat_id
+       WHERE sub.source_id = ? AND sub.deliver = 1 AND c.can_post = 1
+       ORDER BY c.id`,
+    )
+    .all(sourceId) as unknown as DeliveryTargetRow[];
+}

@@ -4,10 +4,9 @@
  */
 import type { ErrorCode } from '../platform/errors.ts';
 import type { Platform } from '../platform/registry.ts';
+import { esc } from '../render/plan.ts';
 
-export function esc(value: string | number): string {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+export { esc };
 
 export interface S1Text {
   userId: number;
@@ -141,7 +140,7 @@ export const actionToast = {
   enabled: 'Source enabled.',
   deleted: 'Source deleted.',
   /** M3 stub: the manual_check worker lands in M4 (§4.6). */
-  checkStub: 'Source checks arrive in M4.',
+  checkQueued: 'Queued for a check — the source will be polled within a minute.',
 } as const;
 
 const PLATFORM_ICON: Record<Platform, string> = {

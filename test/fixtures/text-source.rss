@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Text Blog</title>
+    <link>https://blog.example.test/</link>
+    <description>A blog with text posts only</description>
+    <item>
+      <title>First post</title>
+      <link>https://blog.example.test/first</link>
+      <guid isPermaLink="false">t-1</guid>
+      <pubDate>Wed, 22 Oct 2025 10:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Body of the first post.</p>]]></description>
+    </item>
+    <item>
+      <title>Second post</title>
+      <link>https://blog.example.test/second</link>
+      <guid isPermaLink="false">t-2</guid>
+      <pubDate>Thu, 23 Oct 2025 10:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Body of the second post.</p>]]></description>
+    </item>
+  </channel>
+</rss>

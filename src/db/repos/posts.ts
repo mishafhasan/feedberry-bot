@@ -34,3 +34,13 @@ export function insertPosts(db: Db, sourceId: number, items: FeedItem[], now = D
 export function postByGuid(db: Db, sourceId: number, guid: string): PostRow | undefined {
   return db.prepare('SELECT * FROM posts WHERE source_id = ? AND guid = ?').get(sourceId, guid) as unknown as PostRow | undefined;
 }
+
+export function getPost(db: Db, id: number): PostRow | undefined {
+  return db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as unknown as PostRow | undefined;
+}
+
+/** Stage 4's input: the guids already recorded for a source. */
+export function listGuids(db: Db, sourceId: number): string[] {
+  const rows = db.prepare('SELECT guid FROM posts WHERE source_id = ?').all(sourceId) as Array<{ guid: string }>;
+  return rows.map((row) => row.guid);
+}

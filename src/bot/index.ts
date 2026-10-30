@@ -21,9 +21,13 @@ export interface CreateBotOptions {
 /** RSSHub and the Bluesky AppView are ours to call; anything else a user typed goes through SSRF checks. */
 const TRUSTED_PREFIXES = ['https://public.api.bsky.app/'];
 
+export function networkFor(cfg: Config): Http {
+  return (url, opts) => (isTrusted(url, cfg) ? trustedFetch(url, opts) : safeFetch(url, opts));
+}
+
 export function createBot({ cfg, db, apiRoot, http }: CreateBotOptions): Bot {
   const bot = new Bot(cfg.botToken, apiRoot ? { client: { apiRoot } } : undefined);
-  const network: Http = http ?? ((url, opts) => (isTrusted(url, cfg) ? trustedFetch(url, opts) : safeFetch(url, opts)));
+  const network: Http = http ?? networkFor(cfg);
   const deps = { cfg, db, http: network };
 
   bot.command('start', async (ctx) => {

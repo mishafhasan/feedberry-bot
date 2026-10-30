@@ -13,6 +13,7 @@ import type { SourceRef } from '../platform/registry.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
+import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type PendingSource, type S7State } from './fsm.ts';
 import { errorKeyboard } from './keyboards.ts';
 import { s1View } from './screens/s1.ts';
@@ -71,7 +72,7 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data.startsWith(cb.page)) return renderS7(ctx, deps, userId, idOf(data, cb.page), getSession(userId).s7?.platform ?? null, getSession(userId).s7?.headerId ?? null);
   if (data.startsWith(cb.filter)) return changeFilter(ctx, deps, userId, data.slice(cb.filter.length));
   if (data.startsWith(cb.on) || data.startsWith(cb.off)) return toggle(ctx, deps, userId, data);
-  if (data.startsWith(cb.check)) return; // M3 stub: the manual_check worker arrives in M4
+  if (data.startsWith(cb.check)) return queueCheck(deps, userId, idOf(data, cb.check));
   if (data.startsWith(cb.del)) return askDelete(ctx, deps, userId, idOf(data, cb.del));
   if (data.startsWith(cb.delOk)) return confirmDelete(ctx, deps, userId, idOf(data, cb.delOk));
   if (data.startsWith(cb.delNo)) {
@@ -297,6 +298,13 @@ async function toggle(ctx: Context, deps: BotDeps, userId: number, data: string)
   await paint(ctx, s7CardView(card));
 }
 
+/** S9 (§4.6): a priority-100 job that never moves next_slot_at. */
+async function queueCheck(deps: BotDeps, userId: number, sourceId: number): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  if (!ownsSource(deps.db, user.id, sourceId)) return;
+  enqueue(deps.db, { kind: 'manual_check', targetId: sourceId, priority: PRIORITY.manual });
+}
+
 /** S10: the confirm is a separate message, so a mis-tap cannot delete anything (ADR-016). */
 async function askDelete(ctx: Context, deps: BotDeps, userId: number, sourceId: number): Promise<void> {
   const user = ensureUser(deps.db, userId);
@@ -406,7 +414,7 @@ async function restarted(ctx: Context, userId: number): Promise<void> {
 function toastFor(data: string): string | undefined {
   if (data.startsWith(cb.on)) return actionToast.enabled;
   if (data.startsWith(cb.off)) return actionToast.disabled;
-  if (data.startsWith(cb.check)) return actionToast.checkStub;
+  if (data.startsWith(cb.check)) return actionToast.checkQueued;
   if (data.startsWith(cb.delOk)) return actionToast.deleted;
   switch (data) {
     case cb.sources:
