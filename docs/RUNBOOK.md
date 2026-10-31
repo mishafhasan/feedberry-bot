@@ -58,6 +58,9 @@ docker compose start bot
 A restore is a file copy; there is no migration step to forget. `PRAGMA user_version` in the file
 records the schema version, and the bot upgrades v1 → v2 on boot if it ever finds an old backup.
 
+The same drill runs in CI without Docker: `test/integration/m9.test.ts` takes a `VACUUM INTO`
+snapshot of a live database, copies it back and asserts the schema version and the row counts.
+
 ## 5. Oracle caveats (primary host)
 
 - **Capacity errors at create time are normal** for the free A1 shape. Retry in another availability

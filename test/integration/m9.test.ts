@@ -4,13 +4,13 @@
  * operator-only and lives in docs/RUNBOOK.md.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
-import { openDb, type Db } from '../../src/db/index.ts';
+import { openDb, schemaVersion, type Db } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { markPendingDelivery } from '../../src/db/repos/deliveries.ts';
 import { recordEvent } from '../../src/db/repos/events.ts';
@@ -190,6 +190,56 @@ test('M9: 20 sources × 2 chats drain without a failure', async () => {
   } finally {
     db.close();
     await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M9 restore drill: an online backup restores to the same state', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-restore-'));
+  const livePath = join(dir, 'bot.db');
+  const backupPath = join(dir, 'backup.db');
+  const live = openDb(livePath);
+
+  try {
+    const user = ensureUser(live, USER_ID);
+    const chat = ensurePrivateChat(live, user.id, USER_ID);
+    const source = upsertSource(live, {
+      platform: 'rss',
+      canonicalUrl: 'https://blog.example.test',
+      externalId: 'blog',
+      feedUrl: 'https://blog.example.test/feed',
+      strategy: 'native_rss',
+      title: 'Blog',
+      avatarUrl: null,
+    });
+    insertSubscription(live, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+    insertPosts(live, source.id, [
+      { guid: 'r-1', link: 'https://blog.example.test/1', title: 'One', publishedAt: 1, summary: 'body', media: [] },
+    ]);
+
+    // VACUUM INTO is the in-process equivalent of `sqlite3 .backup`: a consistent snapshot of a live file.
+    live.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+    const before = {
+      users: count(live, 'SELECT COUNT(*) AS n FROM users'),
+      sources: count(live, 'SELECT COUNT(*) AS n FROM sources'),
+      subscriptions: count(live, 'SELECT COUNT(*) AS n FROM subscriptions'),
+      posts: count(live, 'SELECT COUNT(*) AS n FROM posts'),
+    };
+    live.close();
+
+    // Restore = copy the file back; the schema version travels inside it.
+    copyFileSync(backupPath, livePath);
+    const restored = openDb(livePath);
+    const after = {
+      users: count(restored, 'SELECT COUNT(*) AS n FROM users'),
+      sources: count(restored, 'SELECT COUNT(*) AS n FROM sources'),
+      subscriptions: count(restored, 'SELECT COUNT(*) AS n FROM subscriptions'),
+      posts: count(restored, 'SELECT COUNT(*) AS n FROM posts'),
+    };
+    assert.equal(schemaVersion(restored), 2, 'the restored file keeps its schema version');
+    assert.deepEqual(after, before, '/status would report the same counts after the restore');
+    restored.close();
+  } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
