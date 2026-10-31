@@ -39,11 +39,15 @@ export function getPost(db: Db, id: number): PostRow | undefined {
   return db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as unknown as PostRow | undefined;
 }
 
-/** Stage 4's input: every guid and url already recorded for a source. */
-export function listSeen(db: Db, sourceId: number): { guids: string[]; urls: string[] } {
-  const rows = db.prepare('SELECT guid, url FROM posts WHERE source_id = ?').all(sourceId) as Array<{ guid: string; url: string | null }>;
-  return {
-    guids: rows.map((row) => row.guid),
-    urls: rows.map((row) => row.url).filter((url): url is string => url !== null),
-  };
+/** Stage 4's input: what this source has already recorded, raw so the pipeline owns the rules. */
+export function listSeenRows(
+  db: Db,
+  sourceId: number,
+): Array<{ guid: string; url: string | null; published_at: number | null; payload_json: string | null }> {
+  return db.prepare('SELECT guid, url, published_at, payload_json FROM posts WHERE source_id = ?').all(sourceId) as Array<{
+    guid: string;
+    url: string | null;
+    published_at: number | null;
+    payload_json: string | null;
+  }>;
 }

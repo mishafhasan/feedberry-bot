@@ -55,8 +55,10 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     const firstPosts = count(db, "SELECT COUNT(*) AS n FROM posts p JOIN sources s ON s.id = p.source_id WHERE s.canonical_url = 'https://instagram.com/cristiano'");
     assert.equal(firstPosts, 7);
 
-    await add('cristiano');
-    assert.match(api.last('sendMessage')?.body.text ?? '', /already in your list/, 'E_DUPLICATE');
+    // A duplicate is recognised the moment the link arrives, before any preview or save.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/cristiano/'));
+    assert.match(api.last('sendMessage')?.body.text ?? '', /already in your sources/, 'E_DUPLICATE');
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 1, 'a duplicate writes nothing');
 
     await add('messi');
@@ -67,12 +69,15 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 2, 'the refused add writes nothing');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM sources WHERE canonical_url LIKE '%neymar%'"), 0);
 
-    // S7: the list opens from S1 as a header plus one card message per source.
+    // S7: one message holds the header, both cards and their actions.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:sources'));
-    assert.match(api.last('editMessageText')?.body.text ?? '', /Source list · Private messages\nShowing 1–2 of 2/);
-    assert.match(api.last('sendMessage')?.body.text ?? '', /id: #\d+, source checked: never/);
+    const list = api.last('editMessageText');
+    assert.match(list?.body.text ?? '', /Source list · Private messages\nShowing 1–2 of 2/);
+    assert.match(list?.body.text ?? '', /id: #\d+, source checked: never/, 'every source is listed in the same message');
+    const listButtons = (list?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
+    assert.ok(listButtons.some((button) => button.callback_data.startsWith('src:off:')), 'the actions live in that message too');
 
-    // S8: the toggle flips the flag and the toast is answered before the card is rewritten.
+    // S8: the toggle flips the flag and the toast is answered before the list is rewritten.
     const cristiano = db.prepare("SELECT id FROM sources WHERE canonical_url = 'https://instagram.com/cristiano'").get() as { id: number };
     const mark = api.calls.length;
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:off:${cristiano.id}`));
@@ -80,6 +85,7 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(toggleCalls[0]?.method, 'answerCallbackQuery');
     assert.equal(toggleCalls[0]?.body.text, 'Source disabled — new posts will not arrive.');
     assert.equal((db.prepare('SELECT enabled FROM sources WHERE id = ?').get(cristiano.id) as { enabled: number }).enabled, 0);
+    assert.equal(api.last('editMessageText')?.body.text?.includes('Source list'), true, 'the same message was refreshed, not duplicated');
 
     // S10 → S11: confirm in its own message, then cascade.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:del:${cristiano.id}`));

@@ -62,6 +62,7 @@ const EN = {
   'prompt.downloadList': 'Supported sites: websites/blogs, Instagram, X/Twitter, Bluesky, TikTok, Snapchat, Tumblr, Pinterest, Facebook, YouTube, Threads.',
   'done.download': '✅ Delivered.',
   'prompt.postLink': '🔗 This is a post link.',
+  'notice.alreadySource': '📁 «{title}» is already in your sources.',
 
   'supported.title': '🌐 Supported sites',
   'supported.rows': '📡 Websites & blogs — any site with a feed\n📸 Instagram — profiles and posts\n📘 Facebook — pages, videos and reels\n🧵 Threads — profiles and posts\n✖️ X / Twitter — posts\n🎵 TikTok — profiles and video links\n🦋 Bluesky — profiles and posts\n👻 Snapchat — Download Mode only\n📝 Tumblr — blogs and posts\n📌 Pinterest — profiles and pins\n▶️ YouTube — channels, Shorts and videos',
@@ -97,6 +98,10 @@ const EN = {
   'btn.off': 'Off',
   'btn.on': 'On',
   'btn.all': 'All',
+  'btn.openSources': '📁 My Sources',
+  'btn.hideMenu': '✖️ Hide menu',
+  'notice.menuHidden': 'Menu hidden. Send /start to bring it back.',
+  'notice.menuReady': 'Menu ready — tap a button any time.',
 
   'err.E_LINK_INVALID': "That link isn't a supported source.",
   'err.E_NO_FEED': "Couldn't find a feed for this page.",

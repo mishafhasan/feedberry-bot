@@ -3,20 +3,23 @@ import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } from '../db/repos/chats.ts';
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
-import { deleteSourceIfOrphan, getSource, setSourceEnabled } from '../db/repos/sources.ts';
-import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser } from '../db/repos/subscriptions.ts';
+import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled } from '../db/repos/sources.ts';
+import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, subscribedByUser } from '../db/repos/subscriptions.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
-import { detectSource, profileOfPost, type SourceRef } from '../platform/registry.ts';
+import { detectSource, isWebsitePage, profileOfPost, type SourceRef } from '../platform/registry.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
+import { planArticle } from '../pipeline/article-plan.ts';
+import type { TelegraphClient } from '../article/telegraph.ts';
+import { hiddenMenu, menuLabels } from './reply-menu.ts';
 import { recordDelivery } from '../pipeline/s8-record.ts';
 import { cleanupWorkDir, workDirFor } from '../pipeline/s9-cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
@@ -24,7 +27,7 @@ import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
-import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
+import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
 import { s2View } from './screens/s2.ts';
@@ -32,11 +35,11 @@ import { s3View } from './screens/s3.ts';
 import { s4View } from './screens/s4.ts';
 import { s5View } from './screens/s5.ts';
 import { s6View } from './screens/s6.ts';
-import { s7CardView, s7HeaderView, PAGE_SIZE } from './screens/s7.ts';
+import { s7View, PAGE_SIZE } from './screens/s7.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
-import { langFor, type Lang } from './i18n/index.ts';
-import { actionToast, downloadDone, downloadPrompt, errorText, genericToast, postLinkPrompt, sourceBody } from './texts.ts';
+import { langFor, t, type Lang } from './i18n/index.ts';
+import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, postLinkPrompt, sourceBody } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -72,6 +75,8 @@ export interface BotDeps {
   http: Http;
   media: MediaEngine;
   sender: TelegramSender;
+  /** Telegra.ph publisher; tests inject a recorder, production uses the real client. */
+  telegraph?: TelegraphClient;
 }
 
 interface View {
@@ -138,7 +143,6 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
     case cb.back:
       return goBack(ctx, deps, userId);
     case cb.home:
-      await dropCards(ctx, getSession(userId));
       resetSession(userId);
       return paint(ctx, mainMenu(userId, deps));
     case cb.retry:
@@ -152,6 +156,41 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return paint(ctx, { text: downloadPrompt(lang), keyboard: backKeyboard(lang) });
     default:
       log('warn', 'callback_unknown', { data, user: userId });
+  }
+}
+
+/** A reply-keyboard tap arrives as text; this maps it back to the same actions. */
+export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: number, text: string): Promise<boolean> {
+  const lang = langOf(deps, userId);
+  const action = menuLabels(lang).get(text.trim());
+  if (!action) return false;
+
+  switch (action) {
+    case 'hide':
+      await ctx.reply(t(lang, 'notice.menuHidden'), { reply_markup: hiddenMenu });
+      return true;
+    case 'add': {
+      setSession(userId, { state: 'awaiting_source_link', mode: undefined, error: undefined });
+      const view = s2View(deps.cfg.telegramBeta, lang);
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return true;
+    }
+    case 'sources':
+      await renderS7(ctx, deps, userId, 0, null, null);
+      return true;
+    case 'supported': {
+      const view = s12View(lang);
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return true;
+    }
+    case 'help': {
+      const view = s13View(lang);
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return true;
+    }
+    case 'download':
+      await startDownload(ctx, deps, userId);
+      return true;
   }
 }
 
@@ -189,7 +228,7 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   }
 
   ensureUser(deps.db, userId);
-  if (ref.strategy !== 'single_post') return runResolve(ctx, deps, userId, text);
+  if (ref.strategy !== 'single_post' && !isWebsitePage(ref)) return runResolve(ctx, deps, userId, text);
 
   setSession(userId, { state: 'choosing', chooser: { link: text } });
   await ctx.reply(postLinkPrompt(langOf(deps, userId)), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileOfPost(text) !== null, langOf(deps, userId)) });
@@ -237,6 +276,16 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     // §12.4: one source-add per 10 s.
     if (!allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
     const ref = resolveProfile(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+
+    // Checked before any fetch: a source the user already follows needs no preview, only a pointer.
+    const known = findSourceByUrl(deps.db, ref.canonicalUrl);
+    if (known && subscribedByUser(deps.db, user.id, known.id)) {
+      const lang = langOf(deps, userId);
+      setSession(userId, { state: 'idle', error: undefined });
+      await ctx.reply(t(lang, 'notice.alreadySource', { title: esc(known.title ?? ref.externalId) }), { parse_mode: 'HTML', reply_markup: openSourcesKeyboard(lang) });
+      return;
+    }
+
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
@@ -342,7 +391,7 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
   }
 }
 
-/** S7 (§7.2 menu:sources): the S1 message becomes the header, every card is its own message. */
+/** S7 (§7.2 menu:sources): one message holds the list, its actions and the pager. */
 async function openSources(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
   const headerId = ctx.callbackQuery?.message?.message_id ?? null;
   await renderS7(ctx, deps, userId, 0, null, headerId);
@@ -353,6 +402,7 @@ async function changeFilter(ctx: Context, deps: BotDeps, userId: number, platfor
   await renderS7(ctx, deps, userId, 0, active, getSession(userId).s7?.headerId ?? null);
 }
 
+/** Every action re-renders this one message, so the list never drifts from the database. */
 async function renderS7(ctx: Context, deps: BotDeps, userId: number, page: number, platform: string | null, headerId: number | null): Promise<void> {
   const user = ensureUser(deps.db, userId);
   const chatId = ctx.chat?.id;
@@ -365,9 +415,17 @@ async function renderS7(ctx: Context, deps: BotDeps, userId: number, page: numbe
     ({ rows, total } = listSourceCards(deps.db, user.id, platform, PAGE_SIZE, pageIndex * PAGE_SIZE));
   }
 
-  const view = s7HeaderView({ offset: pageIndex * PAGE_SIZE, count: rows.length, total, platforms: platformsForUser(deps.db, user.id), active: platform, page: pageIndex, lang: langOf(deps, userId) });
+  const view = s7View({
+    cards: rows,
+    offset: pageIndex * PAGE_SIZE,
+    total,
+    platforms: platformsForUser(deps.db, user.id),
+    active: platform,
+    page: pageIndex,
+    lang: langOf(deps, userId),
+  });
 
-  // The header reuses the message the user tapped when we have it; otherwise it is a new message.
+  // The list reuses the message the user tapped when we have it; otherwise it is a new message.
   let resolvedHeaderId = headerId;
   if (resolvedHeaderId === null) {
     resolvedHeaderId = (await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard })).message_id;
@@ -376,33 +434,17 @@ async function renderS7(ctx: Context, deps: BotDeps, userId: number, page: numbe
       await ctx.api.editMessageText(chatId, resolvedHeaderId, view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
     } catch (err) {
       if (!notModified(err)) {
-        // The old header was deleted or is too old to edit; send a fresh one.
+        // The old message was deleted or is too old to edit; send a fresh one.
         resolvedHeaderId = (await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard })).message_id;
       }
     }
   }
 
-    await dropCards(ctx, getSession(userId));
-
-  const cardIds: number[] = [];
-  for (const card of rows) {
-    const cardView = s7CardView(card, Date.now(), langOf(deps, userId));
-    cardIds.push((await ctx.reply(cardView.text, { parse_mode: 'HTML', reply_markup: cardView.keyboard })).message_id);
-  }
-
-  const state: S7State = { headerId: resolvedHeaderId, cardIds, page: pageIndex, platform };
+  const state: S7State = { headerId: resolvedHeaderId, page: pageIndex, platform };
   setSession(userId, { s7: state, state: 'idle' });
 }
 
-async function dropCards(ctx: Context, session: { s7?: S7State }): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (chatId === undefined || !session.s7) return;
-  for (const id of session.s7.cardIds) {
-    await ctx.api.deleteMessage(chatId, id).catch(() => {});
-  }
-}
-
-/** S8: toggling flips `sources.enabled` and rewrites that one card. */
+/** S8: toggling flips `sources.enabled` and re-renders the list in place. */
 async function toggle(ctx: Context, deps: BotDeps, userId: number, data: string): Promise<void> {
   const enabled = data.startsWith(cb.on);
   const sourceId = idOf(data, enabled ? cb.on : cb.off);
@@ -410,9 +452,8 @@ async function toggle(ctx: Context, deps: BotDeps, userId: number, data: string)
   if (!ownsSource(deps.db, user.id, sourceId)) return;
 
   setSourceEnabled(deps.db, sourceId, enabled);
-  const card = getSourceCard(deps.db, user.id, sourceId);
-  if (!card) return;
-  await paint(ctx, s7CardView(card, Date.now(), langOf(deps, userId)));
+  const state = getSession(userId).s7;
+  await renderS7(ctx, deps, userId, state?.page ?? 0, state?.platform ?? null, state?.headerId ?? null);
 }
 
 /** S9 (§4.6): a priority-100 job that never moves next_slot_at, capped at 30 per hour. */
@@ -455,7 +496,6 @@ async function confirmDelete(ctx: Context, deps: BotDeps, userId: number, source
 
 async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
   const session = getSession(userId);
-  await dropCards(ctx, session);
   setSession(userId, { s7: undefined });
 
   if (session.state === 'add_mode' && session.pending) {
@@ -534,7 +574,9 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
 
   try {
     const ref = detectSource(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
-    if (ref.strategy !== 'single_post') throw new Coded(E.POST_REQUIRED, 'profile link in download mode');
+    // A website page is a post too: only a real profile on a known platform is refused here.
+    const websitePage = ref.platform === 'rss';
+    if (ref.strategy !== 'single_post' && !websitePage) throw new Coded(E.POST_REQUIRED, 'profile link in download mode');
 
     const since = Date.now() - 24 * 60 * 60 * 1000;
     if (countDownloadsSince(deps.db, user.id, since) >= deps.cfg.limits.maxDownloadsPerDay) {
@@ -544,12 +586,31 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
+    const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
+
+    // A blog or website arrives as an Instant View article, exactly like a scheduled one.
+    if (websitePage) {
+      const article = await planArticle({ http: deps.http, telegraph: deps.telegraph }, {
+        url: ref.canonicalUrl,
+        title: null,
+        publishedAt: null,
+        sourceTitle: new URL(ref.canonicalUrl).hostname.replace(/^www\./, ''),
+      });
+      if (!article) throw new Coded(E.FEED_DOWN, 'article extraction failed');
+      const ids = await deps.sender.send(article, target);
+      recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
+      log('info', 'download_article', { user: userId, parts: ids.length });
+      setSession(userId, { state: 'idle', mode: undefined });
+      await ctx.reply(downloadDone(langOf(deps, userId)), { parse_mode: 'HTML', reply_markup: downloadResultKeyboard(langOf(deps, userId)) });
+      return;
+    }
+
     const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
     try {
       const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
       const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-      const ids = await deps.sender.send(renderDownload(files, resolved.title ?? '', ref.canonicalUrl), targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type));
+      const ids = await deps.sender.send(renderDownload(files, resolved.title ?? '', ref.canonicalUrl), target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_done', { user: userId, parts: ids.length });
     } finally {

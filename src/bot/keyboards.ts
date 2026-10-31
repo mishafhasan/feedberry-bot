@@ -52,6 +52,11 @@ export function downloadResultKeyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.downloadMore'), 'dl:more').row().text(t(lang, 'btn.home'), 'nav:home');
 }
 
+/** Already subscribed: the next useful step is the list, not a Retry. */
+export function openSourcesKeyboard(lang: Lang = 'en'): InlineKeyboard {
+  return new InlineKeyboard().text(t(lang, 'btn.openSources'), 'menu:sources').row().text(t(lang, 'btn.home'), 'nav:home');
+}
+
 /** A pasted link the bot cannot use: explain once, offer Help, never a Retry that would re-fail. */
 export function noticeKeyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.help'), 'menu:help').row().text(t(lang, 'btn.home'), 'nav:home');
@@ -102,8 +107,15 @@ const CHIPS: Record<string, string> = {
   snapchat: 'SC',
 };
 
-/** S7 header: platform chips, a pager when needed, then Back. */
-export function s7Keyboard(platforms: string[], active: string | null, page: number, pages: number, lang: Lang = 'en'): InlineKeyboard {
+/** S7: filters, pager, then one action row per source — all in the same message. */
+export function s7Keyboard(
+  cards: Array<{ id: number; enabled: boolean }>,
+  platforms: string[],
+  active: string | null,
+  page: number,
+  pages: number,
+  lang: Lang = 'en',
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (platforms.length > 0) {
     keyboard.text(active === null ? `● ${t(lang, 'btn.all')}` : t(lang, 'btn.all'), 'src:filter:all');
@@ -118,15 +130,15 @@ export function s7Keyboard(platforms: string[], active: string | null, page: num
     if (page < pages - 1) keyboard.text('›', `src:page:${page + 1}`);
     keyboard.row();
   }
+  // The source id labels each action, because every row lives beside the others now.
+  for (const card of cards) {
+    keyboard
+      .text(`#${card.id} ${card.enabled ? t(lang, 'btn.off') : t(lang, 'btn.on')}`, `${card.enabled ? 'src:off' : 'src:on'}:${card.id}`)
+      .text(`#${card.id} ⟳`, `src:check:${card.id}`)
+      .text(`#${card.id} 🗑`, `src:del:${card.id}`)
+      .row();
+  }
   return keyboard.text(t(lang, 'btn.back'), 'nav:back');
-}
-
-/** S7 card: [Off|On] [⟳] [🗑] exactly as the screenshot. */
-export function cardKeyboard(sourceId: number, enabled: boolean, lang: Lang = 'en'): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(enabled ? t(lang, 'btn.off') : t(lang, 'btn.on'), `${enabled ? 'src:off' : 'src:on'}:${sourceId}`)
-    .text('⟳', `src:check:${sourceId}`)
-    .text('🗑', `src:del:${sourceId}`);
 }
 
 /** S10: destructive action needs its own confirm button (ADR-016). */

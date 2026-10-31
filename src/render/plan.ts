@@ -9,7 +9,8 @@ export interface MediaFile {
 }
 
 export type MessagePlan =
-  | { kind: 'text'; text: string }
+  /** `previewUrl` pins the link preview to one URL (the Instant View page, not the original). */
+  | { kind: 'text'; text: string; previewUrl?: string }
   | { kind: 'link_only'; text: string }
   | { kind: 'photo' | 'video' | 'animation' | 'audio'; file: string; caption: string }
   /** R7/R8: thumbnail photo, then the source link. `remote` means Telegram fetches it itself. */

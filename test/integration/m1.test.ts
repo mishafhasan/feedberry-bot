@@ -51,7 +51,16 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     const beforeRestart = api.calls.length;
     await restarted.handleUpdate(startUpdate(4, USER_ID));
 
-    assert.match(api.callsSince(beforeRestart)[0]?.body.text ?? '', /Sources: 0 \/ 250/);
+    // /start sends the reply keyboard first, then S1: find S1 rather than assume its position.
+    const afterRestart = api.callsSince(beforeRestart);
+    assert.ok(
+      afterRestart.some((call) => call.body.reply_markup && 'keyboard' in (call.body.reply_markup as object)),
+      'the custom reply keyboard is attached to /start',
+    );
+    assert.match(
+      afterRestart.map((call) => String(call.body.text ?? '')).find((text) => text.includes('Sources:')) ?? '',
+      /Sources: 0 \/ 250/,
+    );
     const users = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
     assert.equal(users.n, 1, 'first contact persisted once, not on every /start');
   } finally {

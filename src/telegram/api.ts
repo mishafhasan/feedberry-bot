@@ -26,6 +26,7 @@ export class TelegramSender {
   async send(plan: MessagePlan, target: Target): Promise<number[]> {
     switch (plan.kind) {
       case 'text':
+        return this.sendTextParts(target, plan.text, plan.previewUrl);
       case 'link_only':
         return this.sendTextParts(target, plan.text);
       case 'album':
@@ -41,22 +42,22 @@ export class TelegramSender {
     return this.sendTextParts(target, text);
   }
 
-  private async sendTextParts(target: Target, text: string): Promise<number[]> {
+  private async sendTextParts(target: Target, text: string, previewUrl?: string): Promise<number[]> {
     try {
-      return await this.sendParts(target, text, true);
+      return await this.sendParts(target, text, true, previewUrl);
     } catch (err) {
       // §8.2 rule 5: a post that cannot be parsed is resent as plain text, never dropped.
       if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
       log('warn', 'tg_parse_fallback', { chat: target.chatId });
-      return this.sendParts(target, plainText(text), false);
+      return this.sendParts(target, plainText(text), false, previewUrl);
     }
   }
 
-  private async sendParts(target: Target, text: string, html: boolean): Promise<number[]> {
+  private async sendParts(target: Target, text: string, html: boolean, previewUrl?: string): Promise<number[]> {
     const ids: number[] = [];
     let replyTo: number | undefined;
     for (const part of splitMessage(text, MESSAGE_LIMIT)) {
-      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo, html)));
+      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo, html, previewUrl)));
       ids.push(message.message_id);
       replyTo = message.message_id;
     }
@@ -149,11 +150,12 @@ export class TelegramSender {
     }
   }
 
-  private textBody(target: Target, replyTo?: number, html = true) {
+  private textBody(target: Target, replyTo?: number, html = true, previewUrl?: string) {
     return {
       parse_mode: html ? ('HTML' as const) : undefined,
       message_thread_id: target.messageThreadId ?? undefined,
       reply_parameters: replyTo === undefined ? undefined : { message_id: replyTo },
+      link_preview_options: previewUrl === undefined ? undefined : { url: previewUrl },
     };
   }
 

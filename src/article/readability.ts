@@ -11,6 +11,8 @@ export interface Article {
   /** Readable text length; R13 fires below 400 characters. */
   textLength: number;
   url: string;
+  /** What the page declares as its own publication time, when it declares one. */
+  publishedAt: number | null;
 }
 
 /** Telegraph understands a small HTML subset; anything else is stripped before conversion. */
@@ -42,7 +44,14 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
     html,
     textLength: textOf(html).length,
     url: res.url,
+    publishedAt: parseDate(parsed.publishedTime),
   };
+}
+
+function parseDate(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 /** formatbot1's rule set: absolutize, drop style/sprite paths, drop anything not http(s). */

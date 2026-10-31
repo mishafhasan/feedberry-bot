@@ -27,10 +27,9 @@ export interface PendingSource {
 
 export type LastError = { kind: 'source'; link: string } | { kind: 'download'; link: string } | { kind: 'chat'; tgChatId: number };
 
-/** S7 is a header message plus one message per card; ids are kept to replace them on re-render. */
+/** S7 is one message, edited in place; its id is kept so a refresh can reuse it. */
 export interface S7State {
   headerId: number | null;
-  cardIds: number[];
   page: number;
   platform: string | null;
 }

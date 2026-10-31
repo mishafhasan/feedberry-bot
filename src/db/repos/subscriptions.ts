@@ -39,6 +39,11 @@ export function findSubscription(db: Db, sourceId: number, chatId: number): Subs
 }
 
 /** OQ-11: the 250 limit counts subscriptions, which is what S1 prints. */
+/** True when any of this user's chats already follows the source. */
+export function subscribedByUser(db: Db, userId: number, sourceId: number): boolean {
+  return db.prepare('SELECT 1 AS n FROM subscriptions WHERE user_id = ? AND source_id = ? LIMIT 1').get(userId, sourceId) !== undefined;
+}
+
 export function countSubscriptionsForUser(db: Db, userId: number): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM subscriptions WHERE user_id = ?').get(userId) as { n: number };
   return row.n;

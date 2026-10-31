@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { log } from '../obs/log.ts';
 import { Coded, E } from '../platform/errors.ts';
@@ -18,23 +20,96 @@ export interface TelegraphClient {
 export const MAX_CONTENT_BYTES = 65_000;
 const MAX_TITLE = 256;
 const MAX_AUTHOR = 128;
+const API = 'https://api.telegra.ph';
+const TIMEOUT_MS = 20_000;
+
+interface TelegraphReply {
+  ok?: boolean;
+  error?: string;
+  result?: { url?: string; access_token?: string };
+}
+
+async function callTelegraph(method: string, body: unknown): Promise<TelegraphReply> {
+  const res = await fetch(`${API}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  return (await res.json().catch(() => ({}))) as TelegraphReply;
+}
+
+/**
+ * Telegra.ph requires an access token to publish. The operator may supply one in
+ * TELEGRAPH_TOKEN; otherwise the bot creates its own account once and keeps the token
+ * beside the database, so a restart reuses it instead of minting a new account.
+ * shortcut: only the first token is used, multi-token rotation needs a real secrets store.
+ */
+let cachedToken: string | null = null;
+
+function tokenFile(): string | null {
+  const dbPath = process.env.DB_PATH;
+  if (!dbPath || dbPath === ':memory:') return null;
+  return join(dirname(dbPath), 'telegraph-token.txt');
+}
+
+async function createAccount(): Promise<string> {
+  const reply = await callTelegraph('createAccount', { short_name: 'feedberry', author_name: 'FeedBerry' });
+  const token = reply.result?.access_token;
+  if (!reply.ok || !token) throw new Coded(E.TELEGRAPH, reply.error ?? 'createAccount failed');
+  log('info', 'telegraph_account', { created: true });
+  return token;
+}
+
+async function accessToken(fresh = false): Promise<string> {
+  const fromEnv = (process.env.TELEGRAPH_TOKEN ?? '').trim();
+  if (fromEnv) return fromEnv;
+  if (cachedToken && !fresh) return cachedToken;
+
+  const file = fresh ? null : tokenFile();
+  if (file) {
+    try {
+      const stored = readFileSync(file, 'utf8').trim();
+      if (stored) {
+        cachedToken = stored;
+        return stored;
+      }
+    } catch {
+      // no file yet: fall through and create the account
+    }
+  }
+
+  cachedToken = await createAccount();
+  if (file) {
+    try {
+      writeFileSync(file, cachedToken, 'utf8');
+    } catch (err) {
+      // A read-only volume must not cost the user the article.
+      log('warn', 'telegraph_token_save_failed', { cause: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return cachedToken;
+}
 
 export const telegraphClient: TelegraphClient = {
   async createPage(page) {
-    const body = {
+    const body = (token: string) => ({
+      access_token: token,
       title: page.title.slice(0, MAX_TITLE),
       author_name: page.authorName.slice(0, MAX_AUTHOR),
       content: page.content,
       return_content: false,
-    };
-    const res = await fetch('https://api.telegra.ph/createPage', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
     });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: { url?: string }; error?: string };
-    if (!res.ok || !json.ok || !json.result?.url) throw new Coded(E.TELEGRAPH, json.error ?? `telegraph replied ${res.status}`);
-    return json.result.url;
+
+    let reply = await callTelegraph('createPage', body(await accessToken()));
+    // A revoked or stale stored token is recoverable: mint one new account and retry once.
+    if (reply.error === 'ACCESS_TOKEN_INVALID') {
+      log('warn', 'telegraph_token_stale', {});
+      reply = await callTelegraph('createPage', body(await accessToken(true)));
+    }
+    const url = reply.result?.url;
+    if (!reply.ok || !url) throw new Coded(E.TELEGRAPH, reply.error ?? 'createPage failed');
+    return url;
   },
 };
 

@@ -16,6 +16,8 @@ export interface RenderExtras {
   sourceTitle?: string | null;
   /** The reader's timezone for the `⏱️ Time:` line; UTC until a user timezone is stored. */
   tz?: string;
+  /** Used when the feed carried no title; the media engine usually knows one. */
+  titleFallback?: string | null;
 }
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
@@ -50,16 +52,14 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], ex
 }
 
 /** R12: the Instant View link, opened by Telegraph (ADR-007, OQ-13/OQ-14). */
-export function renderArticle(article: Article, ivUrl: string): MessagePlan {
+export function renderArticle(article: Article, ivUrl: string, header: string): MessagePlan {
   const lead = leadOf(article.html);
-  return { kind: 'text', text: [`<b>${esc(article.title)}</b>`, esc(lead), esc(ivUrl)].filter(Boolean).join('\n\n') };
-}
-
-/** R13: the extraction was thin or failed, so the reader gets the original link. */
-export function renderArticleFallback(post: PostRow, title: string | null): MessagePlan {
-  const payload = payloadOf(post.payload_json);
-  const heading = title ?? payload.title;
-  return { kind: 'link_only', text: `${esc(heading)}\n\n${esc(post.url ?? '')}` };
+  return {
+    kind: 'text',
+    text: [header, `<b>${esc(article.title)}</b>`, esc(lead), esc(ivUrl)].filter(Boolean).join('\n\n'),
+    // The header link points at the original post; the preview must open the Instant View copy.
+    previewUrl: ivUrl,
+  };
 }
 
 /** Download mode has no `posts` row, so the title comes from the engine and the link is the input. */
@@ -82,7 +82,7 @@ export function renderDownload(files: MediaFile[], title: string, link: string):
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
   const payload = payloadOf(post.payload_json);
-  const title = esc(payload.title);
+  const title = esc(payload.title || extras.titleFallback || '');
   const body = payload.summary && payload.summary !== payload.title ? `${title}\n\n${esc(payload.summary)}` : title;
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
   return body ? `${header}\n\n${body}` : header;

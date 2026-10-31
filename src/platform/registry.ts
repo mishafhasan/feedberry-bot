@@ -138,6 +138,9 @@ export function profileOfPost(link: string): string | null {
   const owner = seg[0] ? user(seg[0]) : '';
 
   switch (platform) {
+    case undefined:
+      // No known platform means a plain website, and a site follows from its origin.
+      return `${u.protocol}//${normalizeHost(u.hostname)}`;
     case 'x':
       return seg[1] === 'status' && owner ? `https://x.com/${owner}` : null;
     case 'threads':
@@ -152,8 +155,24 @@ export function profileOfPost(link: string): string | null {
       return seg[0]?.startsWith('@') ? `https://youtube.com/@${owner}` : null;
     case 'tumblr':
       return `https://${normalizeHost(u.hostname)}`;
+    case 'rss':
+      // A website page belongs to the site itself, which is what a subscription follows.
+      return `${u.protocol}//${normalizeHost(u.hostname)}`;
     default:
       return null;
+  }
+}
+
+/**
+ * A bare website with no feed hint and a real path is one article, not a site to follow: it can be
+ * downloaded once, and its origin is what a subscription would follow instead.
+ */
+export function isWebsitePage(ref: SourceRef): boolean {
+  if (ref.platform !== 'rss' || ref.feedUrl !== null) return false;
+  try {
+    return new URL(ref.canonicalUrl).pathname.replace(/\/+$/, '') !== '';
+  } catch {
+    return false;
   }
 }
 
