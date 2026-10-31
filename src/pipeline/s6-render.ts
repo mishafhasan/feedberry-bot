@@ -83,7 +83,8 @@ export function renderDownload(files: MediaFile[], title: string, link: string):
 function bodyOf(post: PostRow, extras: RenderExtras): string {
   const payload = payloadOf(post.payload_json);
   const title = esc(payload.title || extras.titleFallback || '');
-  const body = payload.summary && payload.summary !== payload.title ? `${title}\n\n${esc(payload.summary)}` : title;
+  // Skip when the body is the title again: feeds that repeat one in the other would double it.
+  const summary = payload.summary && payload.summary !== payload.title ? esc(payload.summary) : '';
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
-  return body ? `${header}\n\n${body}` : header;
+  return [header, title, summary].filter((part) => part !== '').join('\n\n');
 }

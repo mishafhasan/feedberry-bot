@@ -12,11 +12,16 @@ import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
+import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
+import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
+import { ensureUser } from '../../src/db/repos/users.ts';
 import type { MediaEngine } from '../../src/media/cobalt.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { unseenItems } from '../../src/pipeline/s4-dedupe.ts';
+import { runFetchSource } from '../../src/pipeline/run.ts';
+import { TelegramSender } from '../../src/telegram/api.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
@@ -135,6 +140,47 @@ test('a website link pasted in idle offers both download and subscribe', async (
     const actions = buttonData(chooser);
     assert.ok(actions.includes('dl:post'), 'download it once');
     assert.ok(actions.includes('add:post'), 'or follow the site, because the URL names it');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a long post body reaches Telegram whole, not cut at 400 characters', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-body-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const marker = 'END-OF-THE-POST-BODY';
+  const body = `${'sentence '.repeat(150)}${marker}`;
+  const feed = `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Blog</title>
+    <item><title>Long read</title><link>https://blog.example.test/long</link><guid>l-1</guid>
+    <description>Short teaser</description>
+    <content:encoded><![CDATA[${body}]]></content:encoded>
+    <pubDate>Sat, 25 Oct 2026 10:00:00Z</pubDate></item></channel></rss>`;
+  const httpFeed: Http = async (url) => ({ status: 200, url, contentType: 'application/rss+xml', body: feed });
+
+  try {
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, {
+      // A social source: no article extraction, so the feed body is what the reader sees.
+      platform: 'instagram',
+      canonicalUrl: 'https://instagram.com/longreads',
+      externalId: 'longreads',
+      feedUrl: 'http://rsshub.test/instagram/user/longreads',
+      strategy: 'rsshub',
+      title: 'Long Reads',
+      avatarUrl: null,
+    });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: Date.now() - 1000 });
+
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http: httpFeed, media: engine, telegraph: telegraph() });
+    await bot.init();
+    await runFetchSource({ db, http: httpFeed, cfg: cfgFor(), media: engine, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
+
+    const sent = [...api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text)), ...api.calls.filter((call) => call.method === 'sendPhoto').map((call) => String(call.body.caption))].join('\n');
+    assert.ok(sent.includes(marker), `the whole body arrived, not the 400-character preview (saw ${sent.slice(0, 120)}…)`);
   } finally {
     db.close();
     await api.close();

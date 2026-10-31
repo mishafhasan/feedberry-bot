@@ -85,13 +85,19 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
     const guid = text(firstTag(block, 'guid') ?? firstTag(block, 'id')) || link;
     if (!guid || seen.has(guid)) continue;
     seen.add(guid);
-    const summary = stripTags(firstTag(block, 'description') ?? firstTag(block, 'summary') ?? firstTag(block, 'content:encoded') ?? firstTag(block, 'content'));
+    // A feed may carry a short `description` beside the full `content:encoded`. The longest is
+    // the post; picking the first tag drops the caption entirely on CMS feeds.
+    const bodies = ['description', 'summary', 'content:encoded', 'content']
+      .map((tag) => stripTags(firstTag(block, tag)))
+      .filter((candidate) => candidate !== '');
+    const summary = bodies.sort((left, right) => right.length - left.length)[0] ?? '';
     items.push({
       guid,
       link,
-      title: stripTags(firstTag(block, 'title')) || summary.slice(0, 80) || link,
+      // No invented title: the renderer owns the fallbacks, and a copy of the body would repeat it.
+      title: stripTags(firstTag(block, 'title')),
       publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'updated')),
-      summary: summary ? summary.slice(0, 400) : null,
+      summary: summary ? summary.slice(0, SUMMARY_LIMIT) : null,
       media: mediaOf(block, baseUrl),
     });
   }
@@ -174,6 +180,9 @@ function stripTags(raw: string | null): string {
   if (!raw) return '';
   return text(decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).replace(/<[^>]*>/g, ' '));
 }
+
+/** A post's body is kept whole up to one message; the renderer splits anything longer. */
+export const SUMMARY_LIMIT = 4000;
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 

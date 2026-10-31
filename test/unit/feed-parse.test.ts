@@ -25,6 +25,39 @@ test('M2 feed parser: RSS 2.0 with CDATA, entities and enclosures', () => {
   assert.deepEqual(fourth?.media, [{ url: 'https://cdn.example.test/C4.jpg', type: 'photo' }]);
 });
 
+test('M2 feed parser: the whole post text is kept, from whichever tag carries it', () => {
+  const long = 'word '.repeat(200).trim(); // 999 characters, well past the old 400 cap
+  const feed = parseFeed(
+    `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Blog</title>
+      <item><title>Short header</title><link>https://blog.example.test/a</link><guid>a</guid>
+        <description>Read more</description>
+        <content:encoded><![CDATA[${long}]]></content:encoded>
+        <pubDate>Sat, 25 Oct 2026 10:00:00 GMT</pubDate></item>
+      <item><title>Only content</title><link>https://blog.example.test/b</link><guid>b</guid>
+        <content:encoded><![CDATA[Body without a description tag.]]></content:encoded>
+        <pubDate>Sat, 25 Oct 2026 11:00:00 GMT</pubDate></item>
+    </channel></rss>`,
+    'https://blog.example.test/rss',
+  );
+
+  assert.equal(feed.items[0]?.summary?.length, 999, 'the longer body wins over the short description');
+  assert.equal(feed.items[1]?.summary, 'Body without a description tag.', 'content:encoded alone is still the body');
+});
+
+test('M2 feed parser: an item with no title keeps its body instead of inventing a title from it', () => {
+  const feed = parseFeed(
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>
+      <item><link>https://blog.example.test/c</link><guid>c</guid>
+        <description>${'a '.repeat(300)}</description>
+        <pubDate>Sat, 25 Oct 2026 12:00:00 GMT</pubDate></item>
+    </channel></rss>`,
+    'https://blog.example.test/rss',
+  );
+
+  assert.equal(feed.items[0]?.title, '', 'no title is left empty rather than copied from the body');
+  assert.equal(feed.items[0]?.summary?.length, 599, 'and a body past the old cap of 400 survives');
+});
+
 test('M2 feed parser: Atom entries', () => {
   const atom = `<?xml version="1.0"?>
     <feed xmlns="http://www.w3.org/2005/Atom">
