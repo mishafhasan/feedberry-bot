@@ -63,7 +63,7 @@ const LONG = `${'word '.repeat(205)}`.trim(); // 1025 characters
 test('M5: photo, album 3, album 11, split caption, video', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m5-'));
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test' });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
 
   try {
@@ -129,7 +129,7 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
 test('M5 download mode: post link delivers media with post_id NULL, profile link and quota are refused', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-dl-'));
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', MAX_DOWNLOADS_PER_DAY: '1' });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '1' });
   const db = openDb(join(dir, 'bot.db'));
   let updateId = 10;
 

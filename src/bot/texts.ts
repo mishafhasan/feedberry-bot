@@ -64,6 +64,9 @@ export function s2Text(telegramBeta: boolean): string {
 
 export const genericToast = {
   unknown: 'That button is no longer available.',
+  /** §12.4 abuse quotas: a toast, never an exception. */
+  slowDown: 'Slow down a moment.',
+  checksExhausted: 'Too many checks this hour — try again later.',
 } as const;
 
 /** S1 Download Mode prompt (ADR-013): the next message must be a post link. */
@@ -192,6 +195,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   E_TG_UNKNOWN: 'Something went wrong. Retry?',
   E_POST_REQUIRED: 'Send a post link, not a profile.',
   E_DOWNLOAD_LIMIT: 'The daily download limit is reached. Try again tomorrow.',
+  E_SLOW_DOWN: 'One at a time — try again in a few seconds.',
 };
 
 export function errorText(code: ErrorCode, limit?: number): string {

@@ -44,7 +44,7 @@ const itemLines = (text: string): string[] => text.split('\n').filter((line) => 
 test('M2: profile → S3 → S4 with five ascending titles and verified destinations', async () => {
   const api = await fakeBotApi(apiChats);
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m2-'));
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
 
   try {

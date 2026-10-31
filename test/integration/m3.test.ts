@@ -28,7 +28,7 @@ const count = (db: Db, sql: string, ...args: Array<string | number>): number => 
 test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m3-'));
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, MAX_SOURCES_PER_USER: '2' });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_SOURCES_PER_USER: '2' });
   const db = openDb(join(dir, 'bot.db'));
   let updateId = 10;
 

@@ -54,7 +54,7 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
   feedBody = BASE;
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m4-'));
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
   let updateId = 10;
 

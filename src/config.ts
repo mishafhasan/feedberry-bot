@@ -10,6 +10,10 @@ export interface Limits {
   maxSourceAgeDays: number;
   workerConcurrency: number;
   maxDownloadsPerDay: number;
+  /** §12.4 abuse quotas: one callback per 2 s, one source-add per 10 s, 30 checks per hour. */
+  callbackIntervalMs: number;
+  addIntervalMs: number;
+  checksPerHour: number;
 }
 
 export interface Config {
@@ -47,6 +51,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
       maxSourceAgeDays: int(env.MAX_SOURCE_AGE_DAYS, 30, 'MAX_SOURCE_AGE_DAYS'),
       workerConcurrency: int(env.WORKER_CONCURRENCY, 2, 'WORKER_CONCURRENCY'),
       maxDownloadsPerDay: int(env.MAX_DOWNLOADS_PER_DAY, 30, 'MAX_DOWNLOADS_PER_DAY'),
+      callbackIntervalMs: atLeastZero(env.CALLBACK_INTERVAL_MS, 2000, 'CALLBACK_INTERVAL_MS'),
+      addIntervalMs: atLeastZero(env.ADD_INTERVAL_MS, 10_000, 'ADD_INTERVAL_MS'),
+      checksPerHour: atLeastZero(env.CHECKS_PER_HOUR, 30, 'CHECKS_PER_HOUR'),
     },
     trialEnabled: flag(env.TRIAL_ENABLED),
     telegramBeta: flag(env.TELEGRAM_BETA),
@@ -62,6 +69,14 @@ function int(raw: string | undefined, fallback: number | undefined, name: string
   }
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} must be a positive integer, got "${value}".`);
+  return n;
+}
+
+function atLeastZero(raw: string | undefined, fallback: number, name: string): number {
+  const value = (raw ?? '').trim();
+  if (!value) return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a non-negative integer, got "${value}".`);
   return n;
 }
 

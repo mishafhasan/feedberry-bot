@@ -15,7 +15,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m1-'));
   const dbPath = join(dir, 'bot.db');
-  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test' });
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
 
   let db = openDb(dbPath);
   try {

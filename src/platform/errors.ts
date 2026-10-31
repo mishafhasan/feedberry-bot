@@ -22,6 +22,8 @@ export const E = {
   POST_REQUIRED: 'E_POST_REQUIRED',
   /** MAX_DOWNLOADS_PER_DAY reached (§12.4). */
   DOWNLOAD_LIMIT: 'E_DOWNLOAD_LIMIT',
+  /** Abuse quota tripped: one source-add per 10 s (§12.4). */
+  SLOW_DOWN: 'E_SLOW_DOWN',
 } as const;
 
 export type ErrorCode = (typeof E)[keyof typeof E];

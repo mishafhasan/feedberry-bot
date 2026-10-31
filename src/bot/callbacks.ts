@@ -23,6 +23,7 @@ import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
+import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
 import { backKeyboard, errorKeyboard } from './keyboards.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
@@ -76,13 +77,21 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
 
   // Answer before any network work: otherwise the client keeps its spinner running.
   const toast = toastFor(data);
+
+  // §12.4: one callback per interval; a tripped quota is a toast, not an exception.
+  if (!allowCallback(userId, deps.cfg.limits.callbackIntervalMs)) {
+    await ctx.answerCallbackQuery({ text: genericToast.slowDown });
+    return;
+  }
+
+  if (data.startsWith(cb.check)) return queueCheck(ctx, deps, userId, idOf(data, cb.check), toast);
+
   await ctx.answerCallbackQuery(toast === undefined ? undefined : { text: toast });
 
   if (data.startsWith(cb.dest)) return pickDest(ctx, deps, userId, idOf(data, cb.dest));
   if (data.startsWith(cb.page)) return renderS7(ctx, deps, userId, idOf(data, cb.page), getSession(userId).s7?.platform ?? null, getSession(userId).s7?.headerId ?? null);
   if (data.startsWith(cb.filter)) return changeFilter(ctx, deps, userId, data.slice(cb.filter.length));
   if (data.startsWith(cb.on) || data.startsWith(cb.off)) return toggle(ctx, deps, userId, data);
-  if (data.startsWith(cb.check)) return queueCheck(deps, userId, idOf(data, cb.check));
   if (data.startsWith(cb.del)) return askDelete(ctx, deps, userId, idOf(data, cb.del));
   if (data.startsWith(cb.delOk)) return confirmDelete(ctx, deps, userId, idOf(data, cb.delOk));
   if (data.startsWith(cb.delNo)) {
@@ -133,6 +142,8 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
   let working: number | undefined;
 
   try {
+    // §12.4: one source-add per 10 s.
+    if (!allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
     const ref = resolveProfile(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl).text, { parse_mode: 'HTML' })).message_id;
@@ -311,9 +322,14 @@ async function toggle(ctx: Context, deps: BotDeps, userId: number, data: string)
   await paint(ctx, s7CardView(card));
 }
 
-/** S9 (§4.6): a priority-100 job that never moves next_slot_at. */
-async function queueCheck(deps: BotDeps, userId: number, sourceId: number): Promise<void> {
+/** S9 (§4.6): a priority-100 job that never moves next_slot_at, capped at 30 per hour. */
+async function queueCheck(ctx: Context, deps: BotDeps, userId: number, sourceId: number, toast: string | undefined): Promise<void> {
   const user = ensureUser(deps.db, userId);
+  if (!allowCheck(user.id, deps.cfg.limits.checksPerHour)) {
+    await ctx.answerCallbackQuery({ text: genericToast.checksExhausted });
+    return;
+  }
+  await ctx.answerCallbackQuery(toast === undefined ? undefined : { text: toast });
   if (!ownsSource(deps.db, user.id, sourceId)) return;
   enqueue(deps.db, { kind: 'manual_check', targetId: sourceId, priority: PRIORITY.manual });
 }
