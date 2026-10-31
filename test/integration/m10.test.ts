@@ -87,7 +87,7 @@ test('M10 menu: five buttons, /supported_sites and /language answer, language is
     await bot.init();
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
-    const s1 = api.last('sendMessage');
+    const s1 = api.last('sendRichMessage');
     const rows = (s1?.body.reply_markup as { inline_keyboard: unknown[][] } | undefined)?.inline_keyboard ?? [];
     assert.equal(rows.length, 3, 'three rows: two pairs then the full-width Download Mode');
     assert.equal(rows.flat().length, 5, 'five buttons');
@@ -105,19 +105,19 @@ test('M10 menu: five buttons, /supported_sites and /language answer, language is
     assert.match(String(api.last('sendMessage')?.body.text), /Send a post link/);
 
     await bot.handleUpdate(commandUpdate(6, USER_ID, 'my_sources'));
-    assert.match(String(api.last('sendMessage')?.body.text), /Source list · Private messages/);
+    assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html), /Source list · Private messages/);
 
     // Switching to Russian stores the locale and repaints S1 in Russian.
     await bot.handleUpdate(callbackUpdate(7, USER_ID, 'lang:ru'));
     assert.equal(ensureUser(db, USER_ID).locale, 'ru');
-    assert.match(String(api.last('editMessageText')?.body.text), /Источники:/);
-    assert.match(String(api.last('editMessageText')?.body.text), /Ваш ID/);
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html), /Источники:/);
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html), /Ваш ID/);
 
     // A fresh bot on the same file still speaks Russian: the locale lives in the database.
     const restarted = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
     await restarted.init();
     await restarted.handleUpdate(startUpdate(8, USER_ID));
-    assert.match(String(api.last('sendMessage')?.body.text), /Источники: 0 \/ 250/, 'the language survives a restart');
+    assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html), /Источники: 0 \/ 250/, 'the language survives a restart');
   } finally {
     db.close();
     await api.close();

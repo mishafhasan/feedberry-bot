@@ -89,3 +89,13 @@ test('M2 feed parser: rel=alternate discovery picks the RSS link', () => {
   assert.equal(discoverAlternate(html, 'https://example.com/blog'), 'https://example.com/feed.xml');
   assert.equal(discoverAlternate('<html><head></head></html>', 'https://example.com'), null);
 });
+
+test('M2 feed parser: a caption keeps the paragraphs it was written in', () => {
+  const rss =
+    '<rss version="2.0"><channel><title>t</title><item><guid>g1</guid><link>https://example.com/1</link>' +
+    '<title>Altman on RAM…</title><description><![CDATA[<p>Altman on RAM.</p><p>Then the podcast.</p><p>And the backlash.</p>]]></description>' +
+    '</item></channel></rss>';
+  const summary = parseFeed(rss, 'https://www.instagram.com/evolving.ai/').items[0]?.summary ?? '';
+
+  assert.equal(summary, ['Altman on RAM.', 'Then the podcast.', 'And the backlash.'].join('\u000A\u000A'));
+});

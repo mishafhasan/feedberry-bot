@@ -150,7 +150,7 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
     });
     await waitFor(
       'S1 after /start',
-      () => calls.some((call) => call.method === 'sendMessage' && String(call.body.text).includes('Sources: 1 / 250')),
+      () => calls.some((call) => call.method === 'sendRichMessage' && String(call.body.rich_message?.html).includes('Sources: 1 / 250')),
       20_000,
     );
 

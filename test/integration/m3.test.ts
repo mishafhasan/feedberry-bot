@@ -69,13 +69,24 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 2, 'the refused add writes nothing');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM sources WHERE canonical_url LIKE '%neymar%'"), 0);
 
-    // S7: one message holds the header, both cards and their actions.
+    // S7: one rich message holds the header, both cards and a button row under each card.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:sources'));
     const list = api.last('editMessageText');
-    assert.match(list?.body.text ?? '', /Source list · Private messages\nShowing 1–2 of 2/);
-    assert.match(list?.body.text ?? '', /id: #\d+, source checked: never/, 'every source is listed in the same message');
-    const listButtons = (list?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
-    assert.ok(listButtons.some((button) => button.callback_data.startsWith('src:off:')), 'the actions live in that message too');
+    const html = String(list?.body.rich_message?.html ?? '');
+    assert.match(html, /<b>Source list · Private messages<\/b><br\/>Showing 1–2 of 2/);
+    assert.match(html, /id: #\d+, source checked: never/, 'every source is listed in the same message');
+    assert.match(html, /<a href="https:\/\/instagram\.com\/cristiano">Cristiano Ronaldo<\/a>/, 'the card title links to the source');
+    assert.match(
+      html,
+      /<tg-button-row align="left"><tg-button type="callback_data" style="danger" data="src:off:\d+">Off<\/tg-button>/,
+      'the pills sit inside the message, not in the keyboard',
+    );
+    assert.ok(html.indexOf('src:check:') < html.indexOf('src:filter:all'), 'filters come after the card rows');
+    assert.deepEqual(
+      (list?.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard,
+      [[{ text: '← Back', callback_data: 'nav:back' }]],
+      'only Back stays a keyboard row',
+    );
 
     // S8: the toggle flips the flag and the toast is answered before the list is rewritten.
     const cristiano = db.prepare("SELECT id FROM sources WHERE canonical_url = 'https://instagram.com/cristiano'").get() as { id: number };
@@ -85,7 +96,7 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(toggleCalls[0]?.method, 'answerCallbackQuery');
     assert.equal(toggleCalls[0]?.body.text, 'Source disabled — new posts will not arrive.');
     assert.equal((db.prepare('SELECT enabled FROM sources WHERE id = ?').get(cristiano.id) as { enabled: number }).enabled, 0);
-    assert.equal(api.last('editMessageText')?.body.text?.includes('Source list'), true, 'the same message was refreshed, not duplicated');
+    assert.equal(String(api.last('editMessageText')?.body.rich_message?.html ?? '').includes('Source list'), true, 'the same message was refreshed, not duplicated');
 
     // S10 → S11: confirm in its own message, then cascade.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:del:${cristiano.id}`));
@@ -99,8 +110,8 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 1, 'the other source is untouched');
 
     // S7 shows the remaining card.
-    const header = api.calls.filter((c) => c.method === 'editMessageText' && /Source list/.test(c.body.text ?? '')).at(-1);
-    assert.match(header?.body.text ?? '', /Showing 1–1 of 1/);
+    const header = api.calls.filter((c) => c.method === 'editMessageText' && /Source list/.test(c.body.rich_message?.html ?? '')).at(-1);
+    assert.match(String(header?.body.rich_message?.html ?? ''), /Showing 1–1 of 1/);
   } finally {
     db.close();
     await api.close();

@@ -25,12 +25,13 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     await bot.init(); // production calls this from bot.start()
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
-    const s1 = api.last('sendMessage');
+    const s1 = api.last('sendRichMessage');
     assert.ok(s1);
-    assert.match(s1.body.text, /Sources: 0 \/ 250/);
-    assert.doesNotMatch(s1.body.text, /Trial ends/, 'OQ-7: trial line hidden');
+    const s1Html = String(s1.body.rich_message?.html ?? '');
+    assert.match(s1Html, /Sources: 0 \/ 250/);
+    assert.match(s1Html, /<b>FeedBerry<\/b>/, 'the dictionary bold markers become real bold');
+    assert.doesNotMatch(s1Html, /Trial ends/, 'OQ-7: trial line hidden');
     assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 5, 'five S1 buttons in three rows');
-    assert.equal(s1.body.parse_mode, 'HTML');
 
     const beforeAdd = api.calls.length;
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));
@@ -40,7 +41,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     assert.match(addCalls[1]?.body.text ?? '', /Adding a source/);
 
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'nav:back'));
-    assert.match(api.last('editMessageText')?.body.text ?? '', /FeedBerry\*\* - fresh posts/);
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html ?? ''), /<b>FeedBerry<\/b> - fresh posts/);
 
     // Restart: a fresh process means a fresh DB handle and a fresh Bot on the same file.
     db.close();
@@ -58,7 +59,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
       'the custom reply keyboard is attached to /start',
     );
     assert.match(
-      afterRestart.map((call) => String(call.body.text ?? '')).find((text) => text.includes('Sources:')) ?? '',
+      afterRestart.map((call) => String(call.body.rich_message?.html ?? '')).find((text) => text.includes('Sources:')) ?? '',
       /Sources: 0 \/ 250/,
     );
     const users = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
