@@ -44,7 +44,7 @@ const MEDIA: Record<string, MediaItem[]> = {
 
 const engine: MediaEngine = {
   async resolve(url) {
-    return { items: MEDIA[url] ?? [], title: 'Cobalt post' };
+    return { items: MEDIA[url] ?? [], title: 'Cobalt post', artist: null };
   },
   async download(item, dir) {
     mkdirSync(dir, { recursive: true });
@@ -86,7 +86,7 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
       { guid: 'p-a11', link: 'https://blog.example.test/album11', title: 'Eleven photos', summary: null },
       { guid: 'p-long', link: 'https://blog.example.test/caption', title: 'Long caption', summary: LONG },
       { guid: 'p-video', link: 'https://blog.example.test/video', title: 'A video', summary: null },
-    ].map((raw) => ({ ...raw, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] as const }));
+    ].map((raw) => ({ ...raw, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] }));
 
     for (const entry of insertPosts(db, source.id, posts)) markPendingDelivery(db, entry.id, chat.id);
 

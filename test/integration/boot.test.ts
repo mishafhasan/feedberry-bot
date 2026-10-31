@@ -80,7 +80,7 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
   const rsshub = createServer((req, res) => {
     if (req.url === '/feed') {
       res.writeHead(200, { 'content-type': 'application/rss+xml' });
-      res.end(FEED);
+      res.end(feedXml);
       return;
     }
     res.writeHead(404);
@@ -91,6 +91,9 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
   const dbPath = join(dir, 'bot.db');
   const tgUrl = await listen(telegram);
   const rsshubUrl = await listen(rsshub);
+  // The post link points at the local stand-in: a real answer in milliseconds beats DNS for a
+  // reserved `.test` host, which can stall the article/media stages past this test's budget.
+  const feedXml = FEED.replace('https://blog.example.test/first', `${rsshubUrl}/post`);
   let child: ReturnType<typeof spawn> | undefined;
 
   try {

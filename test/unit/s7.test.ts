@@ -41,13 +41,13 @@ test('S7 rich message: a rule, then each card with its pills directly under it',
     [
       '<p><b>Source list · Private messages</b><br/>Showing 1–2 of 2</p>',
       '<hr/>',
-      '<p><tg-emoji emoji-id="5355097780228470775">📸</tg-emoji> <b><a href="https://instagram.com/cristiano">Cristiano Ronaldo</a></b><br/>id: #538644, source checked: 41s</p>',
+      '<p><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji> <b><a href="https://instagram.com/cristiano">Cristiano Ronaldo</a></b><br/>id: #538644, source checked: 41s</p>',
       '<tg-button-row align="left"><tg-button type="callback_data" style="danger" data="src:off:538644">Off</tg-button><tg-button type="callback_data" data="src:check:538644">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:538644">🗑</tg-button></tg-button-row>',
       '<hr/>',
-      '<p><tg-emoji emoji-id="5355148941878900494">✖️</tg-emoji> <b><a href="https://x.com/godly">godly</a></b><br/>id: #637556, source checked: 10m</p>',
+      '<p><tg-emoji emoji-id="6282804857829074968">✖️</tg-emoji> <b><a href="https://x.com/godly">godly</a></b><br/>id: #637556, source checked: 10m</p>',
       '<tg-button-row align="left"><tg-button type="callback_data" style="success" data="src:on:637556">On</tg-button><tg-button type="callback_data" data="src:check:637556">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:637556">🗑</tg-button></tg-button-row>',
       '<hr/>',
-      '<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="src:filter:all">All</tg-button><tg-button type="callback_data" data="src:filter:instagram"><tg-emoji emoji-id="5355097780228470775">📸</tg-emoji> IG</tg-button><tg-button type="callback_data" data="src:filter:x"><tg-emoji emoji-id="5355148941878900494">✖️</tg-emoji> X</tg-button></tg-button-row>',
+      '<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="src:filter:all">All</tg-button><tg-button type="callback_data" data="src:filter:instagram"><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji> IG</tg-button><tg-button type="callback_data" data="src:filter:x"><tg-emoji emoji-id="6282804857829074968">✖️</tg-emoji> X</tg-button></tg-button-row>',
     ].join(''),
   );
 });

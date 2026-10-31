@@ -41,7 +41,7 @@ const http: Http = async (url) => {
 
 const noMedia: MediaEngine = {
   async resolve() {
-    return { items: [], title: null };
+    return { items: [], title: null, artist: null };
   },
   async download() {
     throw new Error('no media');
