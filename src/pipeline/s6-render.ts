@@ -9,6 +9,8 @@ import type { PostKind } from './s3-classify.ts';
 export interface RenderExtras {
   durationSec?: number | null;
   thumbnail?: string | null;
+  /** true when `thumbnail` is a platform poster URL rather than a local frame. */
+  thumbnailRemote?: boolean;
 }
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
@@ -33,6 +35,7 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], ex
       return renderVideo(file, caption, {
         durationSec: extras.durationSec ?? null,
         thumbnail: extras.thumbnail ?? null,
+        thumbnailRemote: extras.thumbnailRemote ?? false,
         link: post.url ?? '',
       });
     }

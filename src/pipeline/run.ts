@@ -25,6 +25,7 @@ import { classifyMedia } from './s3-classify.ts';
 import { unseenItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
 import { renderArticle, renderArticleFallback, renderPost } from './s6-render.ts';
+import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
 import { deliver } from './s7-deliver.ts';
 import { recordDelivery, recordFailure, recordSuccess } from './s8-record.ts';
 import { cleanupWorkDir, workDirFor } from './s9-cleanup.ts';
@@ -208,8 +209,15 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
 
   // §8.6: ffprobe, then the feed's hint, then unknown (R9 keeps the size rule).
   const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
-  const thumbnail = await deps.thumbnail(video.path, dir);
-  return renderPost(post, kind, files, { durationSec, thumbnail });
+
+  // Only a clip that cannot be uploaded needs a preview; anything else stays a plain video.
+  const needsPreview = video.size > MAX_UPLOAD_BYTES || (durationSec !== null && durationSec >= LONG_VIDEO_SEC);
+  if (!needsPreview) return renderPost(post, kind, files, { durationSec });
+
+  // The platform poster the feed already carries beats a frame grab; ffmpeg is the fallback.
+  const poster = payload.media.find((item) => item.type === 'photo')?.url ?? null;
+  const thumbnail = poster ?? (await deps.thumbnail(video.path, dir));
+  return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null });
 }
 
 /** R12/R13: fetch, extract, publish to Telegra.ph; anything thin or broken falls back to the link. */

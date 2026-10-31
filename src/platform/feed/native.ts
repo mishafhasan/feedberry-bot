@@ -126,7 +126,9 @@ function mediaOf(block: string, baseUrl: string): FeedMedia[] {
   for (const tag of block.match(/<(enclosure|media:content|media:thumbnail)\b[^>]*>/gi) ?? []) {
     const url = attr(tag, 'url');
     if (!url) continue;
-    media.push({ url: new URL(decodeText(url), baseUrl).toString(), type: kindOf(attr(tag, 'type')) });
+    // A `media:thumbnail` is always a picture, even when it carries no type attribute.
+    const type = /^<media:thumbnail/i.test(tag) ? 'photo' : kindOf(attr(tag, 'type'));
+    media.push({ url: new URL(decodeText(url), baseUrl).toString(), type });
   }
   return media;
 }

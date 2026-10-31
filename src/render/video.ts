@@ -7,7 +7,9 @@ export const LONG_VIDEO_SEC = 180;
 
 export interface VideoFacts {
   durationSec: number | null;
+  /** Platform poster first, then the ffmpeg frame; a URL means Telegram fetches it. */
   thumbnail: string | null;
+  thumbnailRemote?: boolean;
   link: string;
 }
 
@@ -24,6 +26,8 @@ export function renderVideo(file: MediaFile, caption: string, facts: VideoFacts)
   if (!long && !tooBig) return { kind: 'video', file: file.path, caption };
 
   // R7/R8: thumbnail + caption + link, or just the link when no thumbnail can be made.
-  if (facts.thumbnail) return { kind: 'thumbnail', file: facts.thumbnail, caption, link: facts.link };
+  if (facts.thumbnail) {
+    return { kind: 'thumbnail', file: facts.thumbnail, caption, link: facts.link, remote: facts.thumbnailRemote === true };
+  }
   return { kind: 'link_only', text: `${clampMessage(caption, 4000)}\n\n${esc(facts.link)}` };
 }

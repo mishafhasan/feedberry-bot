@@ -38,6 +38,7 @@ const MEDIA: Record<string, MediaItem & { bytes?: number }> = {
   'https://blog.example.test/video-2m': video(120),
   'https://blog.example.test/video-4m10': video(250),
   'https://blog.example.test/video-61mb': video(120, OVER_50MB),
+  'https://blog.example.test/video-poster': video(250),
 };
 
 const engine: MediaEngine = {
@@ -62,7 +63,9 @@ const engine: MediaEngine = {
 };
 
 /** ffmpeg is not assumed in CI, so the frame grabber is stubbed with the photo fixture. */
+let thumbCalls = 0;
 const thumbnail: Thumbnailer = async (_video, dir) => {
+  thumbCalls++;
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'thumb.jpg');
   copyFileSync(PHOTO, path);
@@ -99,28 +102,43 @@ test('M6: 2-minute video uploads, 4-minute and 51 MB videos become thumbnail + l
       { guid: 'v-61', link: 'https://blog.example.test/video-61mb', title: 'Over fifty megabytes' },
     ].map((raw) => ({ ...raw, summary: null, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] as const }));
 
+    // A fourth clip whose feed item already carries the platform poster.
+    posts.push({
+      guid: 'v-poster',
+      link: 'https://blog.example.test/video-poster',
+      title: 'A poster clip',
+      summary: null,
+      publishedAt: Date.parse('2025-10-24T10:00:00Z'),
+      media: [{ url: 'https://cdn.test/poster.jpg', type: 'photo' }],
+    });
+
     for (const entry of insertPosts(db, source.id, posts)) markPendingDelivery(db, entry.id, chat.id);
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine });
     await bot.init();
     const result = await deliverPending({ db, http, cfg, media: engine, thumbnail, sender: new TelegramSender(bot.api) }, source.id);
 
-    assert.equal(result.delivered, 3, 'all three posts ship, none is a failure');
+    assert.equal(result.delivered, 4, 'all four posts ship, none is a failure');
     assert.equal(result.failed, 0);
 
     const videos = api.calls.filter((c) => c.method === 'sendVideo');
     assert.equal(videos.length, 1, 'only the 2-minute clip is uploaded (R6)');
 
     const photos = api.calls.filter((c) => c.method === 'sendPhoto');
-    assert.equal(photos.length, 2, 'the 4-minute and 51 MB clips arrive as thumbnails (R7/R8)');
+    assert.equal(photos.length, 3, 'the 4-minute, 51 MB and poster clips arrive as previews (R7/R8)');
+    assert.ok(
+      photos.some((call) => call.body.photo === 'https://cdn.test/poster.jpg'),
+      'the platform poster is sent by URL, no frame grab needed',
+    );
+    assert.equal(thumbCalls, 2, 'ffmpeg runs only where the feed had no poster');
 
-    const links = api.calls.filter((c) => c.method === 'sendMessage' && /blog\.example\.test\/video-(4m10|61mb)$/.test(String(c.body.text)));
-    assert.equal(links.length, 2, 'each preview is followed by its source link');
+    const links = api.calls.filter((c) => c.method === 'sendMessage' && /blog\.example\.test\/video-(4m10|61mb|poster)$/.test(String(c.body.text)));
+    assert.equal(links.length, 3, 'each preview is followed by its source link');
 
     const perPost = db.prepare("SELECT p.guid, d.status FROM deliveries d JOIN posts p ON p.id = d.post_id ORDER BY p.guid").all() as Array<{ guid: string; status: string }>;
     assert.deepEqual(
       perPost.map((row) => row.status),
-      ['sent', 'sent', 'sent'],
+      ['sent', 'sent', 'sent', 'sent'],
       'too-large is a silent success, not a failure',
     );
   } finally {

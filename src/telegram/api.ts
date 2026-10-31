@@ -33,7 +33,7 @@ export class TelegramSender {
       case 'sequential':
         return this.sendSequential(target, plan.items, plan.caption);
       case 'thumbnail':
-        return this.sendThumbnail(target, plan.file, plan.caption, plan.link);
+        return this.sendThumbnail(target, plan.file, plan.caption, plan.link, plan.remote === true);
       default:
         return this.sendSingle(target, plan.kind, plan.file, plan.caption);
     }
@@ -66,10 +66,11 @@ export class TelegramSender {
   }
 
   /** R2/R6/R9/R10/R11: one media message, caption split into that caption plus reply-chained texts. */
-  private async sendSingle(target: Target, kind: 'photo' | 'video' | 'animation' | 'audio', file: string, caption: string): Promise<number[]> {
+  private async sendSingle(target: Target, kind: 'photo' | 'video' | 'animation' | 'audio', file: string, caption: string, remote = false): Promise<number[]> {
     const parts = splitMessage(caption, CAPTION_LIMIT);
     const first = parts[0] ?? '';
-    const input = new InputFile(file);
+    // A URL is sent as-is (Telegram fetches it); a local path is uploaded.
+    const input = remote ? file : new InputFile(file);
     const message = await this.run(target, 1, async () => {
       const body = this.mediaBody(target, first);
       if (kind === 'photo') return this.api.sendPhoto(target.chatId, input, body);
@@ -89,8 +90,8 @@ export class TelegramSender {
   }
 
   /** R7/R8: the preview image carries the caption, the link follows as its own message. */
-  private async sendThumbnail(target: Target, file: string, caption: string, link: string): Promise<number[]> {
-    const ids = await this.sendSingle(target, 'photo', file, caption);
+  private async sendThumbnail(target: Target, file: string, caption: string, link: string, remote = false): Promise<number[]> {
+    const ids = await this.sendSingle(target, 'photo', file, caption, remote);
     const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, link, this.textBody(target)));
     ids.push(message.message_id);
     return ids;
