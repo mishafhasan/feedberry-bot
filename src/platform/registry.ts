@@ -122,6 +122,41 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
   throw new Coded(E.LINK_INVALID, `unhandled platform ${platform as string}`);
 }
 
+/**
+ * The account a post link belongs to, when the URL spells it out. Instagram short links, YouTube
+ * watch URLs and Pinterest pins do not, so they return null and only Download Mode is offered.
+ */
+export function profileOfPost(link: string): string | null {
+  let u: URL;
+  try {
+    u = parse(link);
+  } catch {
+    return null;
+  }
+  const platform = platformForHost(normalizeHost(u.hostname));
+  const seg = u.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const owner = seg[0] ? user(seg[0]) : '';
+
+  switch (platform) {
+    case 'x':
+      return seg[1] === 'status' && owner ? `https://x.com/${owner}` : null;
+    case 'threads':
+      return seg[1] === 'post' && owner ? `https://threads.com/@${owner}` : null;
+    case 'tiktok':
+      return seg[0]?.startsWith('@') ? `https://tiktok.com/@${owner}` : null;
+    case 'facebook':
+      return owner ? `https://facebook.com/${owner}` : null;
+    case 'bluesky':
+      return seg[1] ? `https://bsky.app/profile/${seg[1]}` : null;
+    case 'youtube':
+      return seg[0]?.startsWith('@') ? `https://youtube.com/@${owner}` : null;
+    case 'tumblr':
+      return `https://${normalizeHost(u.hostname)}`;
+    default:
+      return null;
+  }
+}
+
 function parse(link: string): URL {
   let u: URL;
   try {

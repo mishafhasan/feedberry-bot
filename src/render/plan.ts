@@ -14,10 +14,8 @@ export type MessagePlan =
   | { kind: 'photo' | 'video' | 'animation' | 'audio'; file: string; caption: string }
   /** R7/R8: thumbnail photo, then the source link. `remote` means Telegram fetches it itself. */
   | { kind: 'thumbnail'; file: string; caption: string; link: string; remote?: boolean }
-  /** R3/R4: one `sendMediaGroup` per 10 items, same kind only. */
-  | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string }
-  /** R5: photo and video mixed, so each item is its own message. */
-  | { kind: 'sequential'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string };
+  /** R3/R4: one `sendMediaGroup` per 10 items. Photos and videos may share a group. */
+  | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string };
 
 /** What a `posts.payload_json` row carries from stage 2 to the renderer. */
 export interface PostPayload {

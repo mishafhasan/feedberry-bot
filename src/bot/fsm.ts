@@ -5,7 +5,7 @@ import type { Platform, Strategy } from '../platform/registry.ts';
  * In-memory FSM (ARCHITECTURE §7.1, OQ-15). Keyed by Telegram user id: a restart forgets
  * where a user was, which is safe because every screen can be re-rendered from the DB.
  */
-export type FsmState = 'idle' | 'awaiting_source_link' | 'checking' | 'preview' | 'add_mode' | 'done' | 'error' | 'confirming_delete';
+export type FsmState = 'idle' | 'awaiting_source_link' | 'checking' | 'preview' | 'add_mode' | 'done' | 'error' | 'confirming_delete' | 'choosing';
 
 /** What S4 showed, kept for 60 s so M3's add step does not refetch (plan §4 M2.5). */
 export interface PendingSource {
@@ -44,6 +44,8 @@ export interface Session {
   destChatId?: number;
   error?: LastError;
   s7?: S7State;
+  /** A post link pasted outside a flow, waiting on the download/add choice. */
+  chooser?: { link: string };
 }
 
 export const PREVIEW_TTL_MS = 60_000;

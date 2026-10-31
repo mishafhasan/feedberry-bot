@@ -30,8 +30,6 @@ export class TelegramSender {
         return this.sendTextParts(target, plan.text);
       case 'album':
         return this.sendAlbum(target, plan.items, plan.caption);
-      case 'sequential':
-        return this.sendSequential(target, plan.items, plan.caption);
       case 'thumbnail':
         return this.sendThumbnail(target, plan.file, plan.caption, plan.link, plan.remote === true);
       default:
@@ -119,16 +117,6 @@ export class TelegramSender {
       const next = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo)));
       ids.push(next.message_id);
       replyTo = next.message_id;
-    }
-    return ids;
-  }
-
-  /** R5: photo and video cannot share a group, so each item is its own message. */
-  private async sendSequential(target: Target, items: Array<{ file: string; kind: 'photo' | 'video' }>, caption: string): Promise<number[]> {
-    const ids: number[] = [];
-    for (const [index, item] of items.entries()) {
-      const sent = await this.sendSingle(target, item.kind, item.file, index === 0 ? caption : '');
-      ids.push(...sent);
     }
     return ids;
   }

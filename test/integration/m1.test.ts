@@ -29,7 +29,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     assert.ok(s1);
     assert.match(s1.body.text, /Sources: 0 \/ 250/);
     assert.doesNotMatch(s1.body.text, /Trial ends/, 'OQ-7: trial line hidden');
-    assert.equal(s1.body.reply_markup.inline_keyboard.length, 3, 'three S1 buttons');
+    assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 5, 'five S1 buttons in three rows');
     assert.equal(s1.body.parse_mode, 'HTML');
 
     const beforeAdd = api.calls.length;
@@ -40,7 +40,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     assert.match(addCalls[1]?.body.text ?? '', /Adding a source/);
 
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'nav:back'));
-    assert.match(api.last('editMessageText')?.body.text ?? '', /FeedBerry — fresh posts/);
+    assert.match(api.last('editMessageText')?.body.text ?? '', /FeedBerry\*\* - fresh posts/);
 
     // Restart: a fresh process means a fresh DB handle and a fresh Bot on the same file.
     db.close();

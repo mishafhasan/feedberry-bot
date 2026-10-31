@@ -4,7 +4,7 @@ import type { FeedItem } from '../platform/feed/native.ts';
 import type { SourceRef } from '../platform/registry.ts';
 import { tx } from '../db/index.ts';
 import { markPendingDelivery } from '../db/repos/deliveries.ts';
-import { insertPosts, listGuids } from '../db/repos/posts.ts';
+import { insertPosts, listSeen } from '../db/repos/posts.ts';
 import { countSubscriptionsForUser, findSubscription, insertSubscription } from '../db/repos/subscriptions.ts';
 import { upsertSource } from '../db/repos/sources.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
@@ -27,10 +27,32 @@ export function assertWithinSourceLimit(db: Db, userId: number, limit: number): 
   if (countSubscriptionsForUser(db, userId) >= limit) throw new Coded(E.SOURCE_LIMIT, `limit ${limit}`);
 }
 
-/** Stage 4 read half (§5.4): the feed items whose guid this source has never recorded. */
+/**
+ * Stage 4 read half (§5.4): the feed items this source has never recorded.
+ * The guid is not enough — RSSHub regenerates it and some feeds append tracking params — so the
+ * normalized link is checked too.
+ */
 export function unseenItems(db: Db, sourceId: number, items: FeedItem[]): FeedItem[] {
-  const known = new Set(listGuids(db, sourceId));
-  return items.filter((item) => !known.has(item.guid));
+  const seen = listSeen(db, sourceId);
+  const guids = new Set(seen.guids);
+  const urls = new Set(seen.urls.map(normalizeUrl));
+  return items.filter((item) => !guids.has(item.guid) && !(item.link !== null && urls.has(normalizeUrl(item.link))));
+}
+
+/** Same post, different spelling: drop the scheme, `www.`, the fragment, tracking params and a trailing slash. */
+export function normalizeUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return url.trim();
+  }
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (/^(utm_|fbclid$|gclid$|mc_|ref$)/i.test(key)) parsed.searchParams.delete(key);
+  }
+  const search = parsed.searchParams.toString();
+  const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+  return `${host}${parsed.pathname.replace(/\/+$/, '')}${search ? `?${search}` : ''}`;
 }
 
 /**

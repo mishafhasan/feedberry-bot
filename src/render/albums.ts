@@ -1,4 +1,4 @@
-/** §8.3: `sendMediaGroup` takes 2–10 items, and mixed kinds are not allowed in one group. */
+/** §8.3: `sendMediaGroup` takes 2–10 items. Photos and videos can share one group. */
 export const ALBUM_MAX = 10;
 
 export function chunk<T>(items: T[], size = ALBUM_MAX): T[][] {

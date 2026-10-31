@@ -2,6 +2,7 @@ import type { PostRow } from '../db/repos/posts.ts';
 import type { Article } from '../article/readability.ts';
 import { leadOf } from '../article/readability.ts';
 import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/plan.ts';
+import { postHeader } from '../render/caption.ts';
 import { renderVideo } from '../render/video.ts';
 import type { PostKind } from './s3-classify.ts';
 
@@ -11,11 +12,13 @@ export interface RenderExtras {
   thumbnail?: string | null;
   /** true when `thumbnail` is a platform poster URL rather than a local frame. */
   thumbnailRemote?: boolean;
+  /** Every post opens with the source it came from, so the renderer needs its title. */
+  sourceTitle?: string | null;
 }
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
 export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras = {}): MessagePlan {
-  const caption = bodyOf(post);
+  const caption = bodyOf(post, extras);
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
 
   switch (kind) {
@@ -41,10 +44,6 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], ex
     }
     case 'album':
       return files.length > 0 ? { kind, items: asItems, caption } : { kind: 'text', text: clampMessage(caption) };
-    case 'mixed':
-      return files.length > 0 ? { kind: 'sequential', items: asItems, caption } : { kind: 'text', text: clampMessage(caption) };
-    case 'article':
-      return renderArticleFallback(post, null);
   }
 }
 
@@ -63,7 +62,7 @@ export function renderArticleFallback(post: PostRow, title: string | null): Mess
 
 /** Download mode has no `posts` row, so the title comes from the engine and the link is the input. */
 export function renderDownload(files: MediaFile[], title: string, link: string): MessagePlan {
-  const caption = esc(title);
+  const caption = postHeader({ sourceTitle: title || null, url: link, publishedAt: null });
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
   if (files.length === 0) return { kind: 'link_only', text: esc(link) };
 
@@ -76,11 +75,13 @@ export function renderDownload(files: MediaFile[], title: string, link: string):
     if (only.kind === 'video') return renderVideo(only, caption, { durationSec: null, thumbnail: null, link });
     return { kind: only.kind === 'animation' ? 'animation' : 'photo', file: only.path, caption };
   }
-  return kinds.size > 1 ? { kind: 'sequential', items: asItems, caption } : { kind: 'album', items: asItems, caption };
+  return { kind: 'album', items: asItems, caption };
 }
 
-function bodyOf(post: PostRow): string {
+function bodyOf(post: PostRow, extras: RenderExtras): string {
   const payload = payloadOf(post.payload_json);
   const title = esc(payload.title);
-  return payload.summary && payload.summary !== payload.title ? `${title}\n\n${esc(payload.summary)}` : title;
+  const body = payload.summary && payload.summary !== payload.title ? `${title}\n\n${esc(payload.summary)}` : title;
+  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at });
+  return body ? `${header}\n\n${body}` : header;
 }

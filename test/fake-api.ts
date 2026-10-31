@@ -174,6 +174,22 @@ export function textUpdate(updateId: number, userId: number, text: string): Upda
   };
 }
 
+/** A slash command. grammY matches `bot_command` entities, so a bare text update is not enough. */
+export function commandUpdate(updateId: number, userId: number, command: string): Update {
+  const text = `/${command}`;
+  return {
+    update_id: updateId,
+    message: {
+      message_id: 2,
+      date: 0,
+      chat: PRIVATE_CHAT(userId),
+      from: FROM(userId),
+      text,
+      entities: [{ type: 'bot_command', offset: 0, length: text.length }],
+    },
+  };
+}
+
 export function callbackUpdate(updateId: number, userId: number, data: string, chatId = userId): Update {
   return {
     update_id: updateId,
