@@ -91,3 +91,11 @@ The agent never runs these; the operator does, once per release, with real links
 | Instagram profile on a datacenter IP | either S4, or `E_COOKIE_REQUIRED` — never a silent failure |
 | YouTube 4-minute video | thumbnail + link, no upload |
 | One Wired/TechCrunch link | a `telegra.ph` link that opens in Instant View |
+
+## 8. Two operator-only escape hatches
+
+- **`t.me/iv?url=…&rhash=…`** works only for domains you own and have an approved Instant View
+template for (OQ-13). The bot never uses it: every article becomes a Telegra.ph page instead.
+- **Tier 3 anti-bot** (RSSHub's `chromium-bundled` image) is a per-host choice, not a code path.
+  Swap the image in `docker-compose.yml` if a SPA-only route you need stops working; expect
+  ~300–600 MB of RSS (ADR-011). The default image deliberately ships without Chromium.
