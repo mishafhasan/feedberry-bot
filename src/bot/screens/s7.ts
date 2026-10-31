@@ -1,14 +1,15 @@
 import type { InlineKeyboard } from 'grammy';
 import type { SourceCard } from '../../db/repos/subscriptions.ts';
-import { s7Keyboard } from '../keyboards.ts';
-import { rangeLabel, s7CardText, s7HeaderText } from '../texts.ts';
+import { backKeyboard } from '../keyboards.ts';
+import { rangeLabel, s7ActionRow, s7CardHtml, s7FilterRows, s7HeaderHtml, s7PagerRow, S7_DIVIDER } from '../texts.ts';
 import type { Lang } from '../i18n/index.ts';
 
 /** S7 is one message: every card, its actions and the pager share a single message. */
 export const PAGE_SIZE = 5;
 
+/** Rich message body (Bot API 10.3) plus the only keyboard: Back. */
 export interface S7View {
-  text: string;
+  html: string;
   keyboard: InlineKeyboard;
 }
 
@@ -26,24 +27,30 @@ export function s7View(params: {
   const now = params.now ?? Date.now();
   const pages = Math.max(1, Math.ceil(params.total / PAGE_SIZE));
 
-  const blocks = params.cards.map((card) =>
-    s7CardText(
-      { platform: card.platform, sourceId: card.source_id, title: card.title, lastCheckAt: card.last_check_at, lastOkAt: card.last_ok_at },
-      now,
-      lang,
-    ),
-  );
-  const heading = s7HeaderText(rangeLabel(params.offset, params.cards.length, params.total, lang), lang);
+  // The reference rules off the header, then puts each card's pills directly under that card.
+  const parts = [s7HeaderHtml(rangeLabel(params.offset, params.cards.length, params.total, lang), lang)];
+  if (params.cards.length > 0) parts.push(S7_DIVIDER);
+  for (const card of params.cards) {
+    parts.push(
+      s7CardHtml(
+        {
+          platform: card.platform,
+          sourceId: card.source_id,
+          title: card.title,
+          url: card.canonical_url,
+          lastCheckAt: card.last_check_at,
+          lastOkAt: card.last_ok_at,
+        },
+        now,
+        lang,
+      ),
+      s7ActionRow({ id: card.source_id, enabled: card.enabled === 1 }, lang),
+      S7_DIVIDER,
+    );
+  }
+  parts.push(...s7FilterRows(params.platforms, params.active, lang));
+  const pager = s7PagerRow(params.page, pages);
+  if (pager !== null) parts.push(pager);
 
-  return {
-    text: blocks.length > 0 ? `${heading}\n\n${blocks.join('\n\n')}` : heading,
-    keyboard: s7Keyboard(
-      params.cards.map((card) => ({ id: card.source_id, enabled: card.enabled === 1 })),
-      params.platforms,
-      params.active,
-      params.page,
-      pages,
-      lang,
-    ),
-  };
+  return { html: parts.join(''), keyboard: backKeyboard(lang) };
 }

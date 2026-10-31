@@ -59,6 +59,7 @@ export interface SourceCard {
   subscription_id: number;
   source_id: number;
   platform: string;
+  canonical_url: string;
   title: string | null;
   avatar_url: string | null;
   enabled: number;
@@ -80,7 +81,7 @@ export function listSourceCards(db: Db, userId: number, platform: string | null,
 
   const rows = db
     .prepare(
-      `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.title, s.avatar_url, s.enabled,
+      `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.canonical_url, s.title, s.avatar_url, s.enabled,
               s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes
        FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
        WHERE sub.user_id = ?${filter}
@@ -107,7 +108,7 @@ export function ownsSource(db: Db, userId: number, sourceId: number): boolean {
 export function getSourceCard(db: Db, userId: number, sourceId: number): SourceCard | undefined {
   return db
     .prepare(
-      `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.title, s.avatar_url, s.enabled,
+      `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.canonical_url, s.title, s.avatar_url, s.enabled,
               s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes
        FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
        WHERE sub.user_id = ? AND s.id = ?`,

@@ -424,18 +424,19 @@ async function renderS7(ctx: Context, deps: BotDeps, userId: number, page: numbe
     page: pageIndex,
     lang: langOf(deps, userId),
   });
+  const rich = { reply_markup: view.keyboard, message_thread_id: ctx.msg?.message_thread_id };
 
   // The list reuses the message the user tapped when we have it; otherwise it is a new message.
   let resolvedHeaderId = headerId;
   if (resolvedHeaderId === null) {
-    resolvedHeaderId = (await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard })).message_id;
+    resolvedHeaderId = (await ctx.api.sendRichMessage(chatId, { html: view.html }, rich)).message_id;
   } else {
     try {
-      await ctx.api.editMessageText(chatId, resolvedHeaderId, view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      await ctx.api.editMessageText(chatId, resolvedHeaderId, { html: view.html }, { reply_markup: view.keyboard });
     } catch (err) {
       if (!notModified(err)) {
         // The old message was deleted or is too old to edit; send a fresh one.
-        resolvedHeaderId = (await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard })).message_id;
+        resolvedHeaderId = (await ctx.api.sendRichMessage(chatId, { html: view.html }, rich)).message_id;
       }
     }
   }

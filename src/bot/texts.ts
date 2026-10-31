@@ -110,19 +110,80 @@ export function rangeLabel(offset: number, count: number, total: number, lang: L
   return t(lang, 's7.showing', { from: offset + 1, to: offset + count, total });
 }
 
-export function s7HeaderText(shown: string, lang: Lang = 'en'): string {
-  return `${t(lang, 's7.title')}\n${shown}`;
+/** Rich messages (Bot API 10.3) draw a real rule; S7 puts one between every card. */
+export const S7_DIVIDER = '<hr/>';
+
+/** Platform chips keep the reference's short codes. */
+export const CHIPS: Record<string, string> = {
+  rss: 'RSS',
+  instagram: 'IG',
+  facebook: 'FB',
+  x: 'X',
+  threads: 'TH',
+  tiktok: 'TT',
+  tumblr: 'TB',
+  pinterest: 'PT',
+  youtube: 'YT',
+  bluesky: 'BS',
+  telegram: 'TG',
+  snapchat: 'SC',
+};
+
+const CHIPS_PER_ROW = 4;
+
+export function s7HeaderHtml(shown: string, lang: Lang = 'en'): string {
+  return `<p><b>${t(lang, 's7.title')}</b><br/>${shown}</p>`;
 }
 
-/** One S7 card: `id: #<id>, source checked: <age>` (§7.3). */
-export function s7CardText(
-  card: { platform: string; sourceId: number; title: string | null; lastCheckAt: number | null; lastOkAt: number | null },
+/** One S7 card: its pills follow it as a rich button row, so the id line stays under the title. */
+export function s7CardHtml(
+  card: { platform: string; sourceId: number; title: string | null; url: string | null; lastCheckAt: number | null; lastOkAt: number | null },
   now = Date.now(),
   lang: Lang = 'en',
 ): string {
   const age = humanAge(card.lastCheckAt ?? card.lastOkAt, now, lang);
-  const name = `${platformIcon(card.platform)} <b>${esc(card.title ?? `#${card.sourceId}`)}</b>`;
-  return t(lang, 's7.card', { title: name, id: card.sourceId, age });
+  const label = esc(card.title ?? `#${card.sourceId}`);
+  const name = `${platformIcon(card.platform)} <b>${card.url === null ? label : `<a href="${esc(card.url)}">${label}</a>`}</b>`;
+  return `<p>${t(lang, 's7.card', { title: name, id: card.sourceId, age }).replace('\n', '<br/>')}</p>`;
+}
+
+/** The pills under one card: red Off, neutral refresh, red trash — the reference's row. */
+export function s7ActionRow(card: { id: number; enabled: boolean }, lang: Lang = 'en'): string {
+  const toggle = card.enabled ? 'src:off' : 'src:on';
+  const style = card.enabled ? 'danger' : 'success';
+  const label = card.enabled ? t(lang, 'btn.off') : t(lang, 'btn.on');
+  return `<tg-button-row align="left"><tg-button type="callback_data" style="${style}" data="${toggle}:${card.id}">${label}</tg-button><tg-button type="callback_data" data="src:check:${card.id}">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:${card.id}">🗑</tg-button></tg-button-row>`;
+}
+
+/** Filters sit under the cards; four chips per row, the active one in the accent color. */
+export function s7FilterRows(platforms: string[], active: string | null, lang: Lang = 'en'): string[] {
+  if (platforms.length === 0) return [];
+  const chips = [
+    { label: t(lang, 'btn.all'), data: 'src:filter:all', on: active === null },
+    ...platforms.map((platform) => ({
+      label: `${platformIcon(platform)} ${CHIPS[platform] ?? platform.slice(0, 2).toUpperCase()}`,
+      data: `src:filter:${platform}`,
+      on: platform === active,
+    })),
+  ];
+  const rows: string[] = [];
+  for (let index = 0; index < chips.length; index += CHIPS_PER_ROW) {
+    const buttons = chips
+      .slice(index, index + CHIPS_PER_ROW)
+      .map((chip) => `<tg-button type="callback_data"${chip.on ? ' style="primary"' : ''} data="${chip.data}">${esc(chip.label)}</tg-button>`)
+      .join('');
+    rows.push(`<tg-button-row align="left">${buttons}</tg-button-row>`);
+  }
+  return rows;
+}
+
+/** ‹ › only when there is another page. */
+export function s7PagerRow(page: number, pages: number): string | null {
+  if (pages <= 1) return null;
+  const buttons: string[] = [];
+  if (page > 0) buttons.push(`<tg-button type="callback_data" data="src:page:${page - 1}">‹</tg-button>`);
+  if (page < pages - 1) buttons.push(`<tg-button type="callback_data" data="src:page:${page + 1}">›</tg-button>`);
+  return `<tg-button-row align="center">${buttons.join('')}</tg-button-row>`;
 }
 
 /** `41s`, `10m`, `2h`, `3d` — the screenshot's shape. */

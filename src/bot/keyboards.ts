@@ -1,6 +1,5 @@
 import { InlineKeyboard } from 'grammy';
 import { t, type Lang } from './i18n/index.ts';
-import { platformIcon } from './texts.ts';
 
 /** Interface-language names are never translated: a user finds their own language best in it. */
 export const LANGUAGES: Array<{ code: Lang; label: string }> = [
@@ -90,55 +89,6 @@ export function s5Keyboard(lang: Lang = 'en'): InlineKeyboard {
 
 export function s6Keyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.back'), 'nav:back');
-}
-
-const CHIPS: Record<string, string> = {
-  rss: 'RSS',
-  instagram: 'IG',
-  facebook: 'FB',
-  x: 'X',
-  threads: 'TH',
-  tiktok: 'TT',
-  tumblr: 'TB',
-  pinterest: 'PT',
-  youtube: 'YT',
-  bluesky: 'BS',
-  telegram: 'TG',
-  snapchat: 'SC',
-};
-
-/** S7: filters, pager, then one action row per source — all in the same message. */
-export function s7Keyboard(
-  cards: Array<{ id: number; enabled: boolean }>,
-  platforms: string[],
-  active: string | null,
-  page: number,
-  pages: number,
-  lang: Lang = 'en',
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  if (platforms.length > 0) {
-    keyboard.text(active === null ? `● ${t(lang, 'btn.all')}` : t(lang, 'btn.all'), 'src:filter:all');
-    for (const platform of platforms.slice(0, 6)) {
-      const label = `${platformIcon(platform)} ${CHIPS[platform] ?? platform.slice(0, 2).toUpperCase()}`;
-      keyboard.text(platform === active ? `● ${label}` : label, `src:filter:${platform}`);
-    }
-    keyboard.row();
-  }
-  if (pages > 1) {
-    if (page > 0) keyboard.text('‹', `src:page:${page - 1}`);
-    if (page < pages - 1) keyboard.text('›', `src:page:${page + 1}`);
-    keyboard.row();
-  }
-  // The source id labels each action, because every row lives beside the others now.
-  for (const card of cards) {
-    keyboard
-      .text(`#${card.id} ${card.enabled ? t(lang, 'btn.off') : t(lang, 'btn.on')}`, `${card.enabled ? 'src:off' : 'src:on'}:${card.id}`)
-      .text(`#${card.id} ⟳`, `src:check:${card.id}`)
-      .text(`#${card.id} 🗑`, `src:del:${card.id}`)
-      .row();
-  }
-  return keyboard.text(t(lang, 'btn.back'), 'nav:back');
 }
 
 /** S10: destructive action needs its own confirm button (ADR-016). */

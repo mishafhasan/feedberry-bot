@@ -60,6 +60,7 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       case 'deleteMessage':
         return true;
       case 'sendMessage':
+      case 'sendRichMessage':
       case 'editMessageText':
       case 'sendPhoto':
         return { message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' } };
