@@ -52,6 +52,11 @@ export function downloadResultKeyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.downloadMore'), 'dl:more').row().text(t(lang, 'btn.home'), 'nav:home');
 }
 
+/** A pasted link the bot cannot use: explain once, offer Help, never a Retry that would re-fail. */
+export function noticeKeyboard(lang: Lang = 'en'): InlineKeyboard {
+  return new InlineKeyboard().text(t(lang, 'btn.help'), 'menu:help').row().text(t(lang, 'btn.home'), 'nav:home');
+}
+
 /** A pasted post link: download it, and subscribe to the account when the URL names it. */
 export function postLinkKeyboard(hasProfile: boolean, lang: Lang = 'en'): InlineKeyboard {
   const keyboard = new InlineKeyboard().text(t(lang, 'btn.downloadPost'), 'dl:post');

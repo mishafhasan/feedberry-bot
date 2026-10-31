@@ -110,6 +110,12 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
     const groupSizes = groups.map((call) => (call.body.media as unknown[]).length).sort((a, b) => a - b);
     assert.deepEqual(groupSizes, [1, 3, 10], 'the 11-item album is chunked 10 + 1, never 11');
 
+    // B1: the header rides on the media caption, and on the first item of an album.
+    assert.match(String(photos[0]?.body.caption ?? ''), /🌐 <a href="[^"]+">Blog<\/a>/);
+    const three = groups.find((call) => (call.body.media as unknown[]).length === 3);
+    const albumCaption = String((three?.body.media as Array<{ caption?: string }>)[0]?.caption ?? '');
+    assert.match(albumCaption, /⏱️ Time: \d{2}\/\d{2} \d{2}:\d{2}/, 'the album carries one caption, on its first item');
+
     // §8.2: a 1025-character caption splits into two numbered parts, the second as a reply
     const long = photos.find((call) => /\(1\/2\)$/.test(String(call.body.caption)));
     assert.ok(long, 'the first caption part ends with (1/2)');
@@ -141,9 +147,13 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:download'));
     assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link/);
 
-    // A profile is not a post.
+    // A profile is not a post, and Retry re-runs the same download rather than dropping it.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/cristiano/'));
     assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link, not a profile\./);
+    const errorButtons = (api.last('sendMessage')?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
+    assert.ok(errorButtons.some((button) => button.callback_data === 'err:retry'), 'the failure offers Retry');
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'err:retry'));
+    assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link, not a profile\./, 'Retry replays the download, not the source flow');
 
     // A post link goes through stages 1 and 3-7.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));

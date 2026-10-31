@@ -135,6 +135,11 @@ test('M6: 2-minute video uploads, 4-minute and 51 MB videos become thumbnail + l
     const links = api.calls.filter((c) => c.method === 'sendMessage' && /blog\.example\.test\/video-(4m10|61mb|poster)$/.test(String(c.body.text)));
     assert.equal(links.length, 3, 'each preview is followed by its source link');
 
+    // A preview caption carries the same source header as an uploaded video.
+    const previewCaption = String(photos[0]?.body.caption ?? '');
+    assert.match(previewCaption, /🌐 /, 'the thumbnail caption names the source');
+    assert.match(previewCaption, /⏱️ Time: /, 'and the publish time');
+
     const perPost = db.prepare("SELECT p.guid, d.status FROM deliveries d JOIN posts p ON p.id = d.post_id ORDER BY p.guid").all() as Array<{ guid: string; status: string }>;
     assert.deepEqual(
       perPost.map((row) => row.status),

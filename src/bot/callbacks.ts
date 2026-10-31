@@ -24,7 +24,7 @@ import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
-import { backKeyboard, downloadResultKeyboard, errorKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
+import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
 import { s2View } from './screens/s2.ts';
@@ -181,7 +181,10 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   } catch (err) {
     // Ordinary chatter in a private chat is not an error; only something that looks like a link is.
     if (!/^\s*https?:\/\//i.test(text)) return;
-    await showError(ctx, deps, userId, err, { kind: 'source', link: text });
+    // A link we cannot use is a one-line notice: a Retry button here would only fail again.
+    setSession(userId, { state: 'idle', error: undefined });
+    const lang = langOf(deps, userId);
+    await ctx.reply(errorText(isCoded(err) ? err.code : E.TG_UNKNOWN, undefined, lang), { parse_mode: 'HTML', reply_markup: noticeKeyboard(lang) });
     return;
   }
 

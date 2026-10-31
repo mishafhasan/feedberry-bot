@@ -14,6 +14,8 @@ export interface RenderExtras {
   thumbnailRemote?: boolean;
   /** Every post opens with the source it came from, so the renderer needs its title. */
   sourceTitle?: string | null;
+  /** The reader's timezone for the `⏱️ Time:` line; UTC until a user timezone is stored. */
+  tz?: string;
 }
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
@@ -82,6 +84,6 @@ function bodyOf(post: PostRow, extras: RenderExtras): string {
   const payload = payloadOf(post.payload_json);
   const title = esc(payload.title);
   const body = payload.summary && payload.summary !== payload.title ? `${title}\n\n${esc(payload.summary)}` : title;
-  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at });
+  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
   return body ? `${header}\n\n${body}` : header;
 }

@@ -98,11 +98,26 @@ test('M10 menu: five buttons, /supported_sites and /language answer, language is
     await bot.handleUpdate(commandUpdate(3, USER_ID, 'language'));
     assert.match(String(api.last('sendMessage')?.body.text), /language/);
 
+    await bot.handleUpdate(commandUpdate(4, USER_ID, 'about'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Your ID: 555/);
+
+    await bot.handleUpdate(commandUpdate(5, USER_ID, 'download'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Send a post link/);
+
+    await bot.handleUpdate(commandUpdate(6, USER_ID, 'my_sources'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Source list · Private messages/);
+
     // Switching to Russian stores the locale and repaints S1 in Russian.
-    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'lang:ru'));
+    await bot.handleUpdate(callbackUpdate(7, USER_ID, 'lang:ru'));
     assert.equal(ensureUser(db, USER_ID).locale, 'ru');
     assert.match(String(api.last('editMessageText')?.body.text), /Источники:/);
     assert.match(String(api.last('editMessageText')?.body.text), /Ваш ID/);
+
+    // A fresh bot on the same file still speaks Russian: the locale lives in the database.
+    const restarted = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await restarted.init();
+    await restarted.handleUpdate(startUpdate(8, USER_ID));
+    assert.match(String(api.last('sendMessage')?.body.text), /Источники: 0 \/ 250/, 'the language survives a restart');
   } finally {
     db.close();
     await api.close();
@@ -185,6 +200,64 @@ test('M10 dedupe: a new guid with the same link is not delivered twice', async (
     await runFetchSource(deps, source.id);
     assert.equal(api.calls.filter((call) => call.method === 'sendMessage').length, afterFirst, 'the second fetch delivers nothing');
     assert.ok(getSource(db, source.id));
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M10 free text: a profile link goes straight to the source preview', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-profile-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const feed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Cristiano</title>
+    <item><title>Latest post</title><link>https://instagram.com/p/1</link><guid>i-1</guid>
+    <pubDate>Sat, 25 Oct 2026 10:00:00 GMT</pubDate><description>Body</description></item>
+  </channel></rss>`;
+  const httpProfile: Http = async (url) => {
+    if (!url.includes('/instagram/user/cristiano')) throw new Error(`unexpected fetch ${url}`);
+    return { status: 200, url, contentType: 'application/rss+xml', body: feed };
+  };
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http: httpProfile, media: engine });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.instagram.com/cristiano/'));
+
+    const preview = api.last('sendMessage');
+    assert.match(String(preview?.body.text), /Latest post/, 'the profile preview lists the latest post');
+    const buttons = (preview?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data?: string }>> }).inline_keyboard.flat();
+    assert.ok(
+      buttons.some((button) => String(button.callback_data ?? '').startsWith('add:dest:')),
+      'and offers the destinations, so Add to My Sources is one tap away',
+    );
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M10 free text: an unusable link is a one-line notice with Help, not a Retry screen', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-notice-'));
+  const db = openDb(join(dir, 'bot.db'));
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/elonmusk'));
+
+    const notice = api.last('sendMessage');
+    assert.match(String(notice?.body.text), /login/, 'the reason is stated in one line');
+    const buttons = (notice?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
+    assert.ok(buttons.some((button) => button.callback_data === 'menu:help'), 'Help is offered');
+    assert.ok(!buttons.some((button) => button.callback_data === 'err:retry'), 'no Retry that would fail again');
   } finally {
     db.close();
     await api.close();
