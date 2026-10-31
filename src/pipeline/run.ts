@@ -8,8 +8,7 @@ import { deliveryTargets } from '../db/repos/subscriptions.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
-import { extractArticle } from '../article/readability.ts';
-import { publishArticle, telegraphClient, type TelegraphClient } from '../article/telegraph.ts';
+import type { TelegraphClient } from '../article/telegraph.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { probeDuration } from '../media/probe.ts';
 import type { Thumbnailer } from '../media/thumb.ts';
@@ -22,9 +21,10 @@ import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { fetchFeed } from './s2-feed.ts';
 import { classifyMedia } from './s3-classify.ts';
+import { planArticle } from './article-plan.ts';
 import { unseenItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
-import { renderArticle, renderArticleFallback, renderPost } from './s6-render.ts';
+import { renderPost } from './s6-render.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
 import { deliver } from './s7-deliver.ts';
 import { recordDelivery, recordFailure, recordSuccess } from './s8-record.ts';
@@ -131,7 +131,9 @@ function persistNew(db: Db, sourceId: number, feed: ParsedFeed, freshItems: Feed
 export async function deliverPending(deps: RunDeps, sourceId: number, now = Date.now()): Promise<{ delivered: number; failed: number }> {
   let delivered = 0;
   let failed = 0;
-  const platform = getSource(deps.db, sourceId)?.platform ?? 'rss';
+  const source = getSource(deps.db, sourceId);
+  const platform = source?.platform ?? 'rss';
+  const sourceTitle = source?.title ?? null;
 
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
@@ -143,7 +145,7 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
         const hookContext: HookContext = { sourceId, chatId: row.chat_id, postId: post.id, url: post.url };
-        const plan = await applyHooks('render', hookContext, await planForDelivery(deps, post, dir, platform));
+        const plan = await applyHooks('render', hookContext, await planForDelivery(deps, post, dir, platform, sourceTitle));
         const ids = await deliver(deps.sender, plan, target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         recordEvent(deps.db, { level: 'info', code: 'send_ok', sourceId, chatId: row.chat_id, detail: `${ids.length} parts`, at: now });
@@ -171,27 +173,40 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
 }
 
 const MEDIA_TIMEOUT_MS = 120_000;
-/** R13 fires below this many readable characters (§8.1). */
-const ARTICLE_MIN_CHARS = 400;
 
 /** Stages 3 → 5 → 6 for one post; any media failure degrades to a link card, never a lost post. */
-async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string): Promise<MessagePlan> {
+async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string, sourceTitle: string | null): Promise<MessagePlan> {
   const payload = payloadOf(post.payload_json);
   const hadFeedMedia = payload.media.length > 0;
   const signal = mediaSignal(MEDIA_TIMEOUT_MS);
 
+  // R12: a website or blog post is an article when the page yields readable text. Trying this first
+  // also skips cobalt, whose og:image made every blog post look like a photo with a headline.
+  if (platform === 'rss' && post.url) {
+    const article = await planArticle({ http: deps.http, telegraph: deps.telegraph }, {
+      url: post.url,
+      title: payload.title || null,
+      publishedAt: post.published_at,
+      sourceTitle,
+    });
+    if (article) return article;
+  }
+
   let items: MediaItem[] = [];
+  let engineTitle: string | null = null;
   if (post.url) {
     try {
-      items = (await deps.media.resolve(post.url, signal)).items;
+      const resolved = await deps.media.resolve(post.url, signal);
+      items = resolved.items;
+      // The feed often ships an empty title; the engine fetched one anyway, so keep it.
+      engineTitle = resolved.title ?? null;
     } catch (err) {
       log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  const kind = classifyMedia(items, hadFeedMedia, { platform, hasBody: Boolean(payload.summary) });
-  if (kind === 'article') return planArticle(deps, post);
-  if (items.length === 0) return renderPost(post, kind, []);
+  const kind = classifyMedia(items, hadFeedMedia);
+  if (items.length === 0) return renderPost(post, kind, [], { sourceTitle, titleFallback: engineTitle });
 
   let files;
   try {
@@ -199,37 +214,25 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
     log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
-    return renderPost(post, 'link_only', []);
+    return renderPost(post, 'link_only', [], { sourceTitle, titleFallback: engineTitle });
   }
 
-  if (kind !== 'video') return renderPost(post, kind, files);
+  if (kind !== 'video') return renderPost(post, kind, files, { sourceTitle, titleFallback: engineTitle });
 
   const video = files[0];
-  if (!video) return renderPost(post, 'link_only', []);
+  if (!video) return renderPost(post, 'link_only', [], { sourceTitle, titleFallback: engineTitle });
 
   // §8.6: ffprobe, then the feed's hint, then unknown (R9 keeps the size rule).
   const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
 
   // Only a clip that cannot be uploaded needs a preview; anything else stays a plain video.
   const needsPreview = video.size > MAX_UPLOAD_BYTES || (durationSec !== null && durationSec >= LONG_VIDEO_SEC);
-  if (!needsPreview) return renderPost(post, kind, files, { durationSec });
+  if (!needsPreview) return renderPost(post, kind, files, { durationSec, sourceTitle, titleFallback: engineTitle });
 
   // The platform poster the feed already carries beats a frame grab; ffmpeg is the fallback.
   const poster = payload.media.find((item) => item.type === 'photo')?.url ?? null;
   const thumbnail = poster ?? (await deps.thumbnail(video.path, dir));
-  return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null });
-}
-
-/** R12/R13: fetch, extract, publish to Telegra.ph; anything thin or broken falls back to the link. */
-async function planArticle(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>): Promise<MessagePlan> {
-  try {
-    const article = await extractArticle(deps.http, post.url ?? '');
-    if (article.textLength < ARTICLE_MIN_CHARS) return renderArticleFallback(post, article.title);
-    return renderArticle(article, await publishArticle(deps.telegraph ?? telegraphClient, article));
-  } catch (err) {
-    log('warn', 'article_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
-    return renderArticleFallback(post, null);
-  }
+  return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null, sourceTitle, titleFallback: engineTitle });
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

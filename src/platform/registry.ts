@@ -49,6 +49,8 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     case 'instagram': {
       const [first, second] = seg;
       if (first === 'p' || first === 'reel' || first === 'tv') return single(u, platform, second ?? '');
+      // A web share link spells the owner out: instagram.com/<user>/p/<code>.
+      if (second === 'p' || second === 'reel' || second === 'tv') return single(u, platform, seg[2] ?? '');
       if (first === 'stories') throw new Coded(E.COOKIE_REQUIRED, 'stories need a session (ADR-017)');
       return profile(platform, `https://instagram.com/${user(first)}`, user(first), rsshub(opts, `/instagram/user/${user(first)}`));
     }
@@ -120,6 +122,87 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
   }
 
   throw new Coded(E.LINK_INVALID, `unhandled platform ${platform as string}`);
+}
+
+/**
+ * The account a post link belongs to, when the URL spells it out. Instagram short links, YouTube
+ * watch URLs and Pinterest pins do not, so they return null and only Download Mode is offered.
+ */
+export function profileOfPost(link: string): string | null {
+  let u: URL;
+  try {
+    u = parse(link);
+  } catch {
+    return null;
+  }
+  const platform = platformForHost(normalizeHost(u.hostname));
+  const seg = u.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const owner = seg[0] ? user(seg[0]) : '';
+
+  switch (platform) {
+    case undefined:
+      // No known platform means a plain website, and a site follows from its origin.
+      return `${u.protocol}//${normalizeHost(u.hostname)}`;
+    case 'x':
+      return seg[1] === 'status' && owner ? `https://x.com/${owner}` : null;
+    case 'threads':
+      return seg[1] === 'post' && owner ? `https://threads.com/@${owner}` : null;
+    case 'tiktok':
+      return seg[0]?.startsWith('@') ? `https://tiktok.com/@${owner}` : null;
+    case 'instagram':
+      // A bare /p/<code> link does not name its owner; instagram.com/<user>/p/<code> does.
+      return seg[0] === 'p' || seg[0] === 'reel' || seg[0] === 'tv' || !seg[0] ? null : `https://instagram.com/${owner}`;
+    case 'facebook':
+      return owner ? `https://facebook.com/${owner}` : null;
+    case 'bluesky':
+      return seg[1] ? `https://bsky.app/profile/${seg[1]}` : null;
+    case 'youtube':
+      return seg[0]?.startsWith('@') ? `https://youtube.com/@${owner}` : null;
+    case 'tumblr':
+      return `https://${normalizeHost(u.hostname)}`;
+    case 'rss':
+      // A website page belongs to the site itself, which is what a subscription follows.
+      return `${u.protocol}//${normalizeHost(u.hostname)}`;
+    default:
+      return null;
+  }
+}
+
+/** A display name is not a handle: YouTube's artist is the channel title, not an @name. */
+const HANDLE = /^[A-Za-z0-9._-]{1,30}$/;
+
+/** The profile URL for an author a download named, when that platform has profile feeds. */
+export function profileFromAuthor(platform: Platform, author: string): string | null {
+  const name = author.replace(/^@/, '').trim();
+  if (!HANDLE.test(name)) return null;
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${name}`;
+    case 'threads':
+      return `https://threads.com/@${name}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${name}`;
+    case 'youtube':
+      return `https://youtube.com/@${name}`;
+    case 'bluesky':
+      return `https://bsky.app/profile/${name}`;
+    default:
+      // x needs instance tokens (ADR-017), so offering it would only fail later.
+      return null;
+  }
+}
+
+/**
+ * A bare website with no feed hint and a real path is one article, not a site to follow: it can be
+ * downloaded once, and its origin is what a subscription would follow instead.
+ */
+export function isWebsitePage(ref: SourceRef): boolean {
+  if (ref.platform !== 'rss' || ref.feedUrl !== null) return false;
+  try {
+    return new URL(ref.canonicalUrl).pathname.replace(/\/+$/, '') !== '';
+  } catch {
+    return false;
+  }
 }
 
 function parse(link: string): URL {

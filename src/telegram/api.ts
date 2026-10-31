@@ -26,12 +26,11 @@ export class TelegramSender {
   async send(plan: MessagePlan, target: Target): Promise<number[]> {
     switch (plan.kind) {
       case 'text':
+        return this.sendTextParts(target, plan.text, plan.previewUrl);
       case 'link_only':
         return this.sendTextParts(target, plan.text);
       case 'album':
         return this.sendAlbum(target, plan.items, plan.caption);
-      case 'sequential':
-        return this.sendSequential(target, plan.items, plan.caption);
       case 'thumbnail':
         return this.sendThumbnail(target, plan.file, plan.caption, plan.link, plan.remote === true);
       default:
@@ -43,22 +42,22 @@ export class TelegramSender {
     return this.sendTextParts(target, text);
   }
 
-  private async sendTextParts(target: Target, text: string): Promise<number[]> {
+  private async sendTextParts(target: Target, text: string, previewUrl?: string): Promise<number[]> {
     try {
-      return await this.sendParts(target, text, true);
+      return await this.sendParts(target, text, true, previewUrl);
     } catch (err) {
       // §8.2 rule 5: a post that cannot be parsed is resent as plain text, never dropped.
       if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
       log('warn', 'tg_parse_fallback', { chat: target.chatId });
-      return this.sendParts(target, plainText(text), false);
+      return this.sendParts(target, plainText(text), false, previewUrl);
     }
   }
 
-  private async sendParts(target: Target, text: string, html: boolean): Promise<number[]> {
+  private async sendParts(target: Target, text: string, html: boolean, previewUrl?: string): Promise<number[]> {
     const ids: number[] = [];
     let replyTo: number | undefined;
     for (const part of splitMessage(text, MESSAGE_LIMIT)) {
-      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo, html)));
+      const message = await this.run(target, 1, () => this.api.sendMessage(target.chatId, part, this.textBody(target, replyTo, html, previewUrl)));
       ids.push(message.message_id);
       replyTo = message.message_id;
     }
@@ -123,16 +122,6 @@ export class TelegramSender {
     return ids;
   }
 
-  /** R5: photo and video cannot share a group, so each item is its own message. */
-  private async sendSequential(target: Target, items: Array<{ file: string; kind: 'photo' | 'video' }>, caption: string): Promise<number[]> {
-    const ids: number[] = [];
-    for (const [index, item] of items.entries()) {
-      const sent = await this.sendSingle(target, item.kind, item.file, index === 0 ? caption : '');
-      ids.push(...sent);
-    }
-    return ids;
-  }
-
   /** Every send goes through the limiter and the 429 handler; nothing else may call the Api. */
   private async run<T>(target: Target, tokens: number, call: () => Promise<T>): Promise<T> {
     return this.limiter.run(target.chatId, target.isGroup, tokens, () => this.retrying(target, call));
@@ -161,11 +150,12 @@ export class TelegramSender {
     }
   }
 
-  private textBody(target: Target, replyTo?: number, html = true) {
+  private textBody(target: Target, replyTo?: number, html = true, previewUrl?: string) {
     return {
       parse_mode: html ? ('HTML' as const) : undefined,
       message_thread_id: target.messageThreadId ?? undefined,
       reply_parameters: replyTo === undefined ? undefined : { message_id: replyTo },
+      link_preview_options: previewUrl === undefined ? undefined : { url: previewUrl },
     };
   }
 

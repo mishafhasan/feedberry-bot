@@ -1,27 +1,56 @@
 import type { InlineKeyboard } from 'grammy';
 import type { SourceCard } from '../../db/repos/subscriptions.ts';
-import { cardKeyboard, s7Keyboard } from '../keyboards.ts';
-import { rangeLabel, s7CardText, s7HeaderText } from '../texts.ts';
+import { backKeyboard } from '../keyboards.ts';
+import { rangeLabel, s7ActionRow, s7CardHtml, s7FilterRows, s7HeaderHtml, s7PagerRow, S7_DIVIDER } from '../texts.ts';
+import type { Lang } from '../i18n/index.ts';
 
-/** S7 is a header message plus one message per card, because each card owns its buttons. */
+/** S7 is one message: every card, its actions and the pager share a single message. */
 export const PAGE_SIZE = 5;
 
-export interface S7HeaderView {
-  text: string;
+/** Rich message body (Bot API 10.3) plus the only keyboard: Back. */
+export interface S7View {
+  html: string;
   keyboard: InlineKeyboard;
 }
 
-export function s7HeaderView(params: { offset: number; count: number; total: number; platforms: string[]; active: string | null; page: number }): S7HeaderView {
+export function s7View(params: {
+  cards: SourceCard[];
+  offset: number;
+  total: number;
+  platforms: string[];
+  active: string | null;
+  page: number;
+  lang?: Lang;
+  now?: number;
+}): S7View {
+  const lang = params.lang ?? 'en';
+  const now = params.now ?? Date.now();
   const pages = Math.max(1, Math.ceil(params.total / PAGE_SIZE));
-  return {
-    text: s7HeaderText(rangeLabel(params.offset, params.count, params.total)),
-    keyboard: s7Keyboard(params.platforms, params.active, params.page, pages),
-  };
-}
 
-export function s7CardView(card: SourceCard, now = Date.now()): { text: string; keyboard: InlineKeyboard } {
-  return {
-    text: s7CardText({ platform: card.platform, sourceId: card.source_id, title: card.title, lastCheckAt: card.last_check_at, lastOkAt: card.last_ok_at }, now),
-    keyboard: cardKeyboard(card.source_id, card.enabled === 1),
-  };
+  // The reference rules off the header, then puts each card's pills directly under that card.
+  const parts = [s7HeaderHtml(rangeLabel(params.offset, params.cards.length, params.total, lang), lang)];
+  if (params.cards.length > 0) parts.push(S7_DIVIDER);
+  for (const card of params.cards) {
+    parts.push(
+      s7CardHtml(
+        {
+          platform: card.platform,
+          sourceId: card.source_id,
+          title: card.title,
+          url: card.canonical_url,
+          lastCheckAt: card.last_check_at,
+          lastOkAt: card.last_ok_at,
+        },
+        now,
+        lang,
+      ),
+      s7ActionRow({ id: card.source_id, enabled: card.enabled === 1 }, lang),
+      S7_DIVIDER,
+    );
+  }
+  parts.push(...s7FilterRows(params.platforms, params.active, lang));
+  const pager = s7PagerRow(params.page, pages);
+  if (pager !== null) parts.push(pager);
+
+  return { html: parts.join(''), keyboard: backKeyboard(lang) };
 }

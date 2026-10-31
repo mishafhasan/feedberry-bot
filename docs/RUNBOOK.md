@@ -82,6 +82,9 @@ snapshot of a live database, copies it back and asserts the schema version and t
 - Quotas: `MAX_SOURCES_PER_USER` (250), `MAX_CHATS_PER_USER` (20), `MAX_DOWNLOADS_PER_DAY` (30).
 - A `403` at delivery demotes the chat (`chats.can_post = 0`) instead of retrying forever.
 - Retention: posts `MAX_SOURCE_AGE_DAYS` (30), events 30 days, run by the daily `cleanup` job.
+- Instant View: set `TELEGRAPH_TOKEN` to pin one Telegra.ph account. Left empty, the bot creates an
+  account once and writes `telegraph-token.txt` next to `bot.db`. That token is the bot's own
+  publishing credential, not a user login; delete the file to rotate it.
 
 ## 7. Platform smoke (operator only)
 

@@ -150,22 +150,27 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
     });
     await waitFor(
       'S1 after /start',
-      () => calls.some((call) => call.method === 'sendMessage' && String(call.body.text).includes('Sources: 1 / 250')),
+      () => calls.some((call) => call.method === 'sendRichMessage' && String(call.body.rich_message?.html).includes('Sources: 1 / 250')),
       20_000,
     );
 
     const delivered = calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text));
     assert.ok(delivered.some((text) => text.includes('Body of the first post.')), 'the feed body reached Telegram');
     assert.ok(output.includes('fetch_done'), `expected a fetch log, got: ${output.slice(0, 400)}`);
+
+    // Stage 8 writes the row just after the send leaves. Poll for it while the writer is alive:
+    // a killed process can leave a WAL the next connection refuses to replay under I/O load.
+    await waitFor('the delivery row', () => {
+      const db = openDb(dbPath);
+      const rows = db.prepare('SELECT status FROM deliveries').all() as Array<{ status: string }>;
+      db.close();
+      assert.ok(rows.length <= 1, `one row per (post, chat), found ${JSON.stringify(rows)}`);
+      return rows.length === 1 && rows[0].status === 'sent';
+    }, 10_000);
   } finally {
     child?.kill();
-    await sleep(300);
-    const db = openDb(dbPath);
-    const row = db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number };
-    db.close();
     await new Promise<void>((resolve) => telegram.close(() => resolve()));
     await new Promise<void>((resolve) => rsshub.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    assert.equal(row.n, 1, 'the delivery was recorded before the process was stopped');
   }
 });

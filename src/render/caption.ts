@@ -1,3 +1,5 @@
+import { esc } from './plan.ts';
+
 /**
  * §8.2 part 1: cut on a word boundary, never inside an HTML tag, and number every part only when
  * the text really was split (a single part never carries `(1/1)`).
@@ -29,4 +31,29 @@ export function splitMessage(text: string, limit: number): string[] {
 function openTagIndex(slice: string): number {
   const open = slice.lastIndexOf('<');
   return open > slice.lastIndexOf('>') ? open : -1;
+}
+
+/**
+ * Every delivered post opens with where it came from and when the site published it, so a
+ * forwarded post is traceable without opening it.
+ */
+export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; tz?: string }): string {
+  const name = esc(params.sourceTitle ?? 'Source');
+  const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
+  const when = params.publishedAt === null ? null : mmddhhmm(params.publishedAt, params.tz);
+  return [`🌐 ${title}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+}
+
+/** `MM/DD HH:MM` in the given timezone (UTC until a user timezone is stored). */
+export function mmddhhmm(ms: number, tz = 'UTC'): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(ms);
+  const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '--';
+  return `${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
 }

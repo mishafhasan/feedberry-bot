@@ -3,6 +3,7 @@ dist/
 .env
 data/
 tmp/
+rsshub-cache/
 *.db
 *.db-wal
 *.db-shm

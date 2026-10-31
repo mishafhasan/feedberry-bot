@@ -5,7 +5,7 @@ import type { Platform, Strategy } from '../platform/registry.ts';
  * In-memory FSM (ARCHITECTURE §7.1, OQ-15). Keyed by Telegram user id: a restart forgets
  * where a user was, which is safe because every screen can be re-rendered from the DB.
  */
-export type FsmState = 'idle' | 'awaiting_source_link' | 'checking' | 'preview' | 'add_mode' | 'done' | 'error' | 'confirming_delete';
+export type FsmState = 'idle' | 'awaiting_source_link' | 'checking' | 'preview' | 'add_mode' | 'done' | 'error' | 'confirming_delete' | 'choosing';
 
 /** What S4 showed, kept for 60 s so M3's add step does not refetch (plan §4 M2.5). */
 export interface PendingSource {
@@ -27,10 +27,9 @@ export interface PendingSource {
 
 export type LastError = { kind: 'source'; link: string } | { kind: 'download'; link: string } | { kind: 'chat'; tgChatId: number };
 
-/** S7 is a header message plus one message per card; ids are kept to replace them on re-render. */
+/** S7 is one message, edited in place; its id is kept so a refresh can reuse it. */
 export interface S7State {
   headerId: number | null;
-  cardIds: number[];
   page: number;
   platform: string | null;
 }
@@ -44,6 +43,8 @@ export interface Session {
   destChatId?: number;
   error?: LastError;
   s7?: S7State;
+  /** A link waiting on the download/add choice; `profile` is set when a download named the account. */
+  chooser?: { link: string; profile?: string };
 }
 
 export const PREVIEW_TTL_MS = 60_000;

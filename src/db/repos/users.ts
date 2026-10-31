@@ -13,3 +13,8 @@ export function ensureUser(db: Db, tgUserId: number, now = Date.now()): UserRow 
   db.prepare('INSERT INTO users (tg_user_id, created_at) VALUES (?, ?) ON CONFLICT(tg_user_id) DO NOTHING').run(tgUserId, now);
   return db.prepare('SELECT * FROM users WHERE tg_user_id = ?').get(tgUserId) as unknown as UserRow;
 }
+
+/** The bot's interface language lives on the user row, so it survives a restart. */
+export function setLocale(db: Db, tgUserId: number, locale: string): void {
+  db.prepare('UPDATE users SET locale = ? WHERE tg_user_id = ?').run(locale, tgUserId);
+}

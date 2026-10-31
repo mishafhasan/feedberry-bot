@@ -55,8 +55,10 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     const firstPosts = count(db, "SELECT COUNT(*) AS n FROM posts p JOIN sources s ON s.id = p.source_id WHERE s.canonical_url = 'https://instagram.com/cristiano'");
     assert.equal(firstPosts, 7);
 
-    await add('cristiano');
-    assert.match(api.last('sendMessage')?.body.text ?? '', /already in your list/, 'E_DUPLICATE');
+    // A duplicate is recognised the moment the link arrives, before any preview or save.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/cristiano/'));
+    assert.match(api.last('sendMessage')?.body.text ?? '', /already in your sources/, 'E_DUPLICATE');
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 1, 'a duplicate writes nothing');
 
     await add('messi');
@@ -67,12 +69,26 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 2, 'the refused add writes nothing');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM sources WHERE canonical_url LIKE '%neymar%'"), 0);
 
-    // S7: the list opens from S1 as a header plus one card message per source.
+    // S7: one rich message holds the header, both cards and a button row under each card.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:sources'));
-    assert.match(api.last('editMessageText')?.body.text ?? '', /Source list · Private messages\nShowing 1–2 of 2/);
-    assert.match(api.last('sendMessage')?.body.text ?? '', /id: #\d+, source checked: never/);
+    const list = api.last('editMessageText');
+    const html = String(list?.body.rich_message?.html ?? '');
+    assert.match(html, /<b>Source list · Private messages<\/b><br\/>Showing 1–2 of 2/);
+    assert.match(html, /id: #\d+, source checked: never/, 'every source is listed in the same message');
+    assert.match(html, /<a href="https:\/\/instagram\.com\/cristiano">Cristiano Ronaldo<\/a>/, 'the card title links to the source');
+    assert.match(
+      html,
+      /<tg-button-row align="left"><tg-button type="callback_data" style="danger" data="src:off:\d+">Off<\/tg-button>/,
+      'the pills sit inside the message, not in the keyboard',
+    );
+    assert.ok(html.indexOf('src:check:') < html.indexOf('src:filter:all'), 'filters come after the card rows');
+    assert.deepEqual(
+      (list?.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard,
+      [[{ text: '← Back', callback_data: 'nav:back' }]],
+      'only Back stays a keyboard row',
+    );
 
-    // S8: the toggle flips the flag and the toast is answered before the card is rewritten.
+    // S8: the toggle flips the flag and the toast is answered before the list is rewritten.
     const cristiano = db.prepare("SELECT id FROM sources WHERE canonical_url = 'https://instagram.com/cristiano'").get() as { id: number };
     const mark = api.calls.length;
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:off:${cristiano.id}`));
@@ -80,6 +96,7 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(toggleCalls[0]?.method, 'answerCallbackQuery');
     assert.equal(toggleCalls[0]?.body.text, 'Source disabled — new posts will not arrive.');
     assert.equal((db.prepare('SELECT enabled FROM sources WHERE id = ?').get(cristiano.id) as { enabled: number }).enabled, 0);
+    assert.equal(String(api.last('editMessageText')?.body.rich_message?.html ?? '').includes('Source list'), true, 'the same message was refreshed, not duplicated');
 
     // S10 → S11: confirm in its own message, then cascade.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:del:${cristiano.id}`));
@@ -93,8 +110,8 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM subscriptions'), 1, 'the other source is untouched');
 
     // S7 shows the remaining card.
-    const header = api.calls.filter((c) => c.method === 'editMessageText' && /Source list/.test(c.body.text ?? '')).at(-1);
-    assert.match(header?.body.text ?? '', /Showing 1–1 of 1/);
+    const header = api.calls.filter((c) => c.method === 'editMessageText' && /Source list/.test(c.body.rich_message?.html ?? '')).at(-1);
+    assert.match(String(header?.body.rich_message?.html ?? ''), /Showing 1–1 of 1/);
   } finally {
     db.close();
     await api.close();

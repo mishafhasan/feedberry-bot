@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { Update } from 'grammy/types';
+import type { Chat, Update } from 'grammy/types';
 
 /** One recorded Bot API call, with the JSON body the bot sent. */
 export interface Call {
@@ -60,6 +60,7 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       case 'deleteMessage':
         return true;
       case 'sendMessage':
+      case 'sendRichMessage':
       case 'editMessageText':
       case 'sendPhoto':
         return { message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' } };
@@ -150,7 +151,7 @@ function parseMultipart(raw: string, contentType: string): Record<string, any> {
   return fields;
 }
 
-const PRIVATE_CHAT = (userId: number) => ({ id: userId, type: 'private' });
+const PRIVATE_CHAT = (userId: number): Chat.PrivateChat => ({ id: userId, type: 'private', first_name: 'Tester' });
 const FROM = (userId: number) => ({ id: userId, is_bot: false, first_name: 'Tester' });
 
 export function startUpdate(updateId: number, userId: number): Update {
@@ -174,6 +175,22 @@ export function textUpdate(updateId: number, userId: number, text: string): Upda
   };
 }
 
+/** A slash command. grammY matches `bot_command` entities, so a bare text update is not enough. */
+export function commandUpdate(updateId: number, userId: number, command: string): Update {
+  const text = `/${command}`;
+  return {
+    update_id: updateId,
+    message: {
+      message_id: 2,
+      date: 0,
+      chat: PRIVATE_CHAT(userId),
+      from: FROM(userId),
+      text,
+      entities: [{ type: 'bot_command', offset: 0, length: text.length }],
+    },
+  };
+}
+
 export function callbackUpdate(updateId: number, userId: number, data: string, chatId = userId): Update {
   return {
     update_id: updateId,
@@ -182,7 +199,11 @@ export function callbackUpdate(updateId: number, userId: number, data: string, c
       from: FROM(userId),
       chat_instance: 'ci',
       data,
-      message: { message_id: 42, date: 0, chat: { id: chatId, type: chatId === userId ? 'private' : 'channel' } },
+      message: {
+        message_id: 42,
+        date: 0,
+        chat: chatId === userId ? PRIVATE_CHAT(chatId) : { id: chatId, type: 'channel', title: 'Chat' },
+      },
     },
   };
 }

@@ -85,13 +85,19 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
     const guid = text(firstTag(block, 'guid') ?? firstTag(block, 'id')) || link;
     if (!guid || seen.has(guid)) continue;
     seen.add(guid);
-    const summary = stripTags(firstTag(block, 'description') ?? firstTag(block, 'summary') ?? firstTag(block, 'content:encoded') ?? firstTag(block, 'content'));
+    // A feed may carry a short `description` beside the full `content:encoded`. The longest is
+    // the post; picking the first tag drops the caption entirely on CMS feeds.
+    const bodies = ['description', 'summary', 'content:encoded', 'content']
+      .map((tag) => stripTags(firstTag(block, tag), true))
+      .filter((candidate) => candidate !== '');
+    const summary = bodies.sort((left, right) => right.length - left.length)[0] ?? '';
     items.push({
       guid,
       link,
-      title: stripTags(firstTag(block, 'title')) || summary.slice(0, 80) || link,
+      // No invented title: the renderer owns the fallbacks, and a copy of the body would repeat it.
+      title: stripTags(firstTag(block, 'title')),
       publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'updated')),
-      summary: summary ? summary.slice(0, 400) : null,
+      summary: summary ? summary.slice(0, SUMMARY_LIMIT) : null,
       media: mediaOf(block, baseUrl),
     });
   }
@@ -170,10 +176,24 @@ function attr(tag: string, name: string): string | null {
 }
 
 /** CDATA first, then tags, then entities — in that order or a CDATA block is eaten as markup. */
-function stripTags(raw: string | null): string {
+function stripTags(raw: string | null, keepParagraphs = false): string {
   if (!raw) return '';
-  return text(decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).replace(/<[^>]*>/g, ' '));
+  const html = decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
+  if (!keepParagraphs) return text(html.replace(/<[^>]*>/g, ' '));
+  // Block ends become a blank line, <br> a line, so a caption keeps the post's own paragraphs.
+  const spaced = html
+    .replace(/<\s*br\s*\/?>/gi, '\u000A')
+    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|tr)\s*>/gi, '\u000A\u000A')
+    .replace(/<[^>]*>/g, ' ');
+  return spaced
+    .replace(/[^\S\u000A]+/g, ' ')
+    .replace(/ *\u000A */g, '\u000A')
+    .replace(/\u000A{3,}/g, '\u000A\u000A')
+    .trim();
 }
+
+/** A post's body is kept whole up to one message; the renderer splits anything longer. */
+export const SUMMARY_LIMIT = 4000;
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 

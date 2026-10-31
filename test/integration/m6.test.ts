@@ -21,6 +21,7 @@ import { ensureUser } from '../../src/db/repos/users.ts';
 import type { MediaEngine, MediaItem } from '../../src/media/cobalt.ts';
 import type { Thumbnailer } from '../../src/media/thumb.ts';
 import type { Http } from '../../src/platform/http.ts';
+import type { FeedItem } from '../../src/platform/feed/native.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { fakeBotApi } from '../fake-api.ts';
@@ -96,11 +97,11 @@ test('M6: 2-minute video uploads, 4-minute and 51 MB videos become thumbnail + l
     });
     insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
 
-    const posts = [
+    const posts: FeedItem[] = [
       { guid: 'v-2m', link: 'https://blog.example.test/video-2m', title: 'Two minutes' },
       { guid: 'v-4m', link: 'https://blog.example.test/video-4m10', title: 'Four minutes' },
       { guid: 'v-61', link: 'https://blog.example.test/video-61mb', title: 'Over fifty megabytes' },
-    ].map((raw) => ({ ...raw, summary: null, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] as const }));
+    ].map((raw) => ({ ...raw, summary: null, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] }));
 
     // A fourth clip whose feed item already carries the platform poster.
     posts.push({
@@ -134,6 +135,11 @@ test('M6: 2-minute video uploads, 4-minute and 51 MB videos become thumbnail + l
 
     const links = api.calls.filter((c) => c.method === 'sendMessage' && /blog\.example\.test\/video-(4m10|61mb|poster)$/.test(String(c.body.text)));
     assert.equal(links.length, 3, 'each preview is followed by its source link');
+
+    // A preview caption carries the same source header as an uploaded video.
+    const previewCaption = String(photos[0]?.body.caption ?? '');
+    assert.match(previewCaption, /🌐 /, 'the thumbnail caption names the source');
+    assert.match(previewCaption, /⏱️ Time: /, 'and the publish time');
 
     const perPost = db.prepare("SELECT p.guid, d.status FROM deliveries d JOIN posts p ON p.id = d.post_id ORDER BY p.guid").all() as Array<{ guid: string; status: string }>;
     assert.deepEqual(
