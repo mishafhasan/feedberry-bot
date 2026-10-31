@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { Update } from 'grammy/types';
+import type { Chat, Update } from 'grammy/types';
 
 /** One recorded Bot API call, with the JSON body the bot sent. */
 export interface Call {
@@ -150,7 +150,7 @@ function parseMultipart(raw: string, contentType: string): Record<string, any> {
   return fields;
 }
 
-const PRIVATE_CHAT = (userId: number) => ({ id: userId, type: 'private' });
+const PRIVATE_CHAT = (userId: number): Chat.PrivateChat => ({ id: userId, type: 'private', first_name: 'Tester' });
 const FROM = (userId: number) => ({ id: userId, is_bot: false, first_name: 'Tester' });
 
 export function startUpdate(updateId: number, userId: number): Update {
@@ -198,7 +198,11 @@ export function callbackUpdate(updateId: number, userId: number, data: string, c
       from: FROM(userId),
       chat_instance: 'ci',
       data,
-      message: { message_id: 42, date: 0, chat: { id: chatId, type: chatId === userId ? 'private' : 'channel' } },
+      message: {
+        message_id: 42,
+        date: 0,
+        chat: chatId === userId ? PRIVATE_CHAT(chatId) : { id: chatId, type: 'channel', title: 'Chat' },
+      },
     },
   };
 }
