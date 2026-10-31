@@ -43,8 +43,8 @@ export interface Session {
   destChatId?: number;
   error?: LastError;
   s7?: S7State;
-  /** A post link pasted outside a flow, waiting on the download/add choice. */
-  chooser?: { link: string };
+  /** A link waiting on the download/add choice; `profile` is set when a download named the account. */
+  chooser?: { link: string; profile?: string };
 }
 
 export const PREVIEW_TTL_MS = 60_000;

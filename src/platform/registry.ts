@@ -168,10 +168,13 @@ export function profileOfPost(link: string): string | null {
   }
 }
 
+/** A display name is not a handle: YouTube's artist is the channel title, not an @name. */
+const HANDLE = /^[A-Za-z0-9._-]{1,30}$/;
+
 /** The profile URL for an author a download named, when that platform has profile feeds. */
 export function profileFromAuthor(platform: Platform, author: string): string | null {
   const name = author.replace(/^@/, '').trim();
-  if (!name) return null;
+  if (!HANDLE.test(name)) return null;
   switch (platform) {
     case 'instagram':
       return `https://instagram.com/${name}`;

@@ -242,12 +242,13 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
 
 /** The chooser from a pasted post link (`dl:post` / `add:post`). */
 async function choosePost(ctx: Context, deps: BotDeps, userId: number, download: boolean): Promise<void> {
-  const link = getSession(userId).chooser?.link;
-  if (!link) return restarted(ctx, deps, userId);
-  const profileUrl = download ? null : profileOfPost(link);
+  const chooser = getSession(userId).chooser;
+  if (!chooser) return restarted(ctx, deps, userId);
+  // After a download the chooser already carries the profile, which is not always derivable from a URL.
+  const profileUrl = download ? null : (chooser.profile ?? profileOfPost(chooser.link));
   setSession(userId, { state: 'idle', chooser: undefined });
   if (profileUrl) await runResolve(ctx, deps, userId, profileUrl);
-  else await runDownload(ctx, deps, userId, link);
+  else await runDownload(ctx, deps, userId, chooser.link);
 }
 
 /** `/download` and the S1 button do the same work; only the delivery differs (reply vs edit). */
@@ -627,7 +628,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     }
     // A bare post link does not name its account; the engine often does, so offer it here.
     const profile = author === null ? null : profileFromAuthor(ref.platform, author);
-    setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile } });
+    setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile, profile } });
     await ctx.reply(downloadDone(langOf(deps, userId)), {
       parse_mode: 'HTML',
       reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : author),

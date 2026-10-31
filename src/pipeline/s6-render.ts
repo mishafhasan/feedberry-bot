@@ -62,9 +62,13 @@ export function renderArticle(article: Article, ivUrl: string, header: string): 
   };
 }
 
-/** Download mode has no `posts` row, so the title comes from the engine and the link is the input. */
-export function renderDownload(files: MediaFile[], title: string, link: string): MessagePlan {
-  const caption = postHeader({ sourceTitle: title || null, url: link, publishedAt: null });
+/** Download mode has no `posts` row, so the engine supplies the text and the link is the input. */
+export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null }, link: string): MessagePlan {
+  // The account names the source; its caption is the post's own words underneath.
+  const artist = meta.artist ?? null;
+  const title = meta.title ?? null;
+  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: null });
+  const caption = artist !== null && title !== null ? `${header}\n\n${esc(title)}` : header;
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
   if (files.length === 0) return { kind: 'link_only', text: esc(link) };
 
@@ -82,9 +86,21 @@ export function renderDownload(files: MediaFile[], title: string, link: string):
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
   const payload = payloadOf(post.payload_json);
-  const title = esc(payload.title || extras.titleFallback || '');
-  // Skip when the body is the title again: feeds that repeat one in the other would double it.
-  const summary = payload.summary && payload.summary !== payload.title ? esc(payload.summary) : '';
+  const title = payload.title || extras.titleFallback || '';
+  const summary = payload.summary ?? '';
+  // Feeds put the post's opening in both fields, cut short in the title: print that text once.
+  const body = summary === '' ? [title] : cutsOff(title, summary) ? [summary] : cutsOff(summary, title) ? [title] : [title, summary];
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
-  return [header, title, summary].filter((part) => part !== '').join('\n\n');
+  return [header, ...body.map((part) => esc(part))].filter((part) => part !== '').join('\n\n');
+}
+
+/** `preview` is `full`, or its opening with the ellipsis a feed adds when it cuts the text. */
+function cutsOff(preview: string, full: string): boolean {
+  const head = flat(preview).replace(/[.…]+$/u, '').trim();
+  return head !== '' && flat(full).startsWith(head);
+}
+
+/** Titles arrive single-line, bodies keep their paragraphs: compare both on flattened text. */
+function flat(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }

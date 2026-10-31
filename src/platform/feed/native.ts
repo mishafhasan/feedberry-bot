@@ -88,7 +88,7 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
     // A feed may carry a short `description` beside the full `content:encoded`. The longest is
     // the post; picking the first tag drops the caption entirely on CMS feeds.
     const bodies = ['description', 'summary', 'content:encoded', 'content']
-      .map((tag) => stripTags(firstTag(block, tag)))
+      .map((tag) => stripTags(firstTag(block, tag), true))
       .filter((candidate) => candidate !== '');
     const summary = bodies.sort((left, right) => right.length - left.length)[0] ?? '';
     items.push({
@@ -176,9 +176,20 @@ function attr(tag: string, name: string): string | null {
 }
 
 /** CDATA first, then tags, then entities — in that order or a CDATA block is eaten as markup. */
-function stripTags(raw: string | null): string {
+function stripTags(raw: string | null, keepParagraphs = false): string {
   if (!raw) return '';
-  return text(decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).replace(/<[^>]*>/g, ' '));
+  const html = decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
+  if (!keepParagraphs) return text(html.replace(/<[^>]*>/g, ' '));
+  // Block ends become a blank line, <br> a line, so a caption keeps the post's own paragraphs.
+  const spaced = html
+    .replace(/<\s*br\s*\/?>/gi, '\u000A')
+    .replace(/<\s*\/\s*(?:p|div|li|h[1-6]|blockquote|tr)\s*>/gi, '\u000A\u000A')
+    .replace(/<[^>]*>/g, ' ');
+  return spaced
+    .replace(/[^\S\u000A]+/g, ' ')
+    .replace(/ *\u000A */g, '\u000A')
+    .replace(/\u000A{3,}/g, '\u000A\u000A')
+    .trim();
 }
 
 /** A post's body is kept whole up to one message; the renderer splits anything longer. */
