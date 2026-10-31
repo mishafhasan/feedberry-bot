@@ -47,8 +47,11 @@ export function errorKeyboard(lang: Lang = 'en'): InlineKeyboard {
 }
 
 /** A finished download offers the next one instead of dropping the user back to silence. */
-export function downloadResultKeyboard(lang: Lang = 'en'): InlineKeyboard {
-  return new InlineKeyboard().text(t(lang, 'btn.downloadMore'), 'dl:more').row().text(t(lang, 'btn.home'), 'nav:home');
+export function downloadResultKeyboard(lang: Lang = 'en', author: string | null = null): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  // The account behind a bare post link is only known after the download, so it is offered here.
+  if (author !== null) keyboard.text(`➕ @${author}`, 'add:post').row();
+  return keyboard.text(t(lang, 'btn.downloadMore'), 'dl:more').row().text(t(lang, 'btn.home'), 'nav:home');
 }
 
 /** Already subscribed: the next useful step is the list, not a Retry. */

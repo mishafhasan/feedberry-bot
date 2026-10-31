@@ -11,7 +11,7 @@ import type { MediaEngine } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
-import { detectSource, isWebsitePage, profileOfPost, type SourceRef } from '../platform/registry.ts';
+import { detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type SourceRef } from '../platform/registry.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
@@ -84,6 +84,12 @@ interface View {
   keyboard: InlineKeyboard;
 }
 
+/** S1 and S7 are rich messages: the body carries the formatting, the keyboard only navigation. */
+interface RichView {
+  html: string;
+  keyboard: InlineKeyboard;
+}
+
 /** The interface language of one user; every text and keyboard is built with it. */
 function langOf(deps: BotDeps, tgUserId: number): Lang {
   return langFor(ensureUser(deps.db, tgUserId).locale);
@@ -144,7 +150,7 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return goBack(ctx, deps, userId);
     case cb.home:
       resetSession(userId);
-      return paint(ctx, mainMenu(userId, deps));
+      return paintRich(ctx, mainMenu(userId, deps));
     case cb.retry:
       return retry(ctx, deps, userId);
     case cb.download:
@@ -262,7 +268,7 @@ async function setLanguage(ctx: Context, deps: BotDeps, userId: number, code: st
   ensureUser(deps.db, userId);
   setLocale(deps.db, userId, code);
   log('info', 'locale_set', { user: userId, locale: code });
-  await paint(ctx, mainMenu(userId, deps));
+  await paintRich(ctx, mainMenu(userId, deps));
 }
 
 async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
@@ -518,7 +524,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
     return paint(ctx, s2View(deps.cfg.telegramBeta, langOf(deps, userId)));
   }
   resetSession(userId);
-  return paint(ctx, mainMenu(userId, deps));
+  return paintRich(ctx, mainMenu(userId, deps));
 }
 
 /** ADR-014: getChat → getChatMember(bot) → store only when the bot may post. */
@@ -608,17 +614,24 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
 
     const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
+    let author: string | null = null;
     try {
       const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
+      author = resolved.artist ?? null;
       const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-      const ids = await deps.sender.send(renderDownload(files, resolved.title ?? '', ref.canonicalUrl), target);
+      const ids = await deps.sender.send(renderDownload(files, resolved, ref.canonicalUrl), target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_done', { user: userId, parts: ids.length });
     } finally {
       await cleanupWorkDir(dir);
     }
-    setSession(userId, { state: 'idle', mode: undefined });
-    await ctx.reply(downloadDone(langOf(deps, userId)), { parse_mode: 'HTML', reply_markup: downloadResultKeyboard(langOf(deps, userId)) });
+    // A bare post link does not name its account; the engine often does, so offer it here.
+    const profile = author === null ? null : profileFromAuthor(ref.platform, author);
+    setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile } });
+    await ctx.reply(downloadDone(langOf(deps, userId)), {
+      parse_mode: 'HTML',
+      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : author),
+    });
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'download', link });
   } finally {
@@ -670,7 +683,7 @@ function toastFor(data: string, lang: Lang): string | undefined {
   }
 }
 
-export function mainMenu(userId: number, deps: BotDeps): View {
+export function mainMenu(userId: number, deps: BotDeps): RichView {
   const user = ensureUser(deps.db, userId);
   return s1View({
     userId,
@@ -700,6 +713,19 @@ const idOf = (data: string, prefix: string): number => Number(data.slice(prefix.
 async function paint(ctx: Context, view: View): Promise<void> {
   try {
     await ctx.editMessageText(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  } catch (err) {
+    if (notModified(err)) return;
+    throw err;
+  }
+}
+
+/** Same, for a rich message: the body travels in the html field, not in text. */
+async function paintRich(ctx: Context, view: RichView): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const messageId = ctx.callbackQuery?.message?.message_id;
+  if (chatId === undefined || messageId === undefined) return;
+  try {
+    await ctx.api.editMessageText(chatId, messageId, { html: view.html }, { reply_markup: view.keyboard });
   } catch (err) {
     if (notModified(err)) return;
     throw err;

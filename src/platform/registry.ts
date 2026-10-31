@@ -49,6 +49,8 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     case 'instagram': {
       const [first, second] = seg;
       if (first === 'p' || first === 'reel' || first === 'tv') return single(u, platform, second ?? '');
+      // A web share link spells the owner out: instagram.com/<user>/p/<code>.
+      if (second === 'p' || second === 'reel' || second === 'tv') return single(u, platform, seg[2] ?? '');
       if (first === 'stories') throw new Coded(E.COOKIE_REQUIRED, 'stories need a session (ADR-017)');
       return profile(platform, `https://instagram.com/${user(first)}`, user(first), rsshub(opts, `/instagram/user/${user(first)}`));
     }
@@ -147,6 +149,9 @@ export function profileOfPost(link: string): string | null {
       return seg[1] === 'post' && owner ? `https://threads.com/@${owner}` : null;
     case 'tiktok':
       return seg[0]?.startsWith('@') ? `https://tiktok.com/@${owner}` : null;
+    case 'instagram':
+      // A bare /p/<code> link does not name its owner; instagram.com/<user>/p/<code> does.
+      return seg[0] === 'p' || seg[0] === 'reel' || seg[0] === 'tv' || !seg[0] ? null : `https://instagram.com/${owner}`;
     case 'facebook':
       return owner ? `https://facebook.com/${owner}` : null;
     case 'bluesky':
@@ -159,6 +164,27 @@ export function profileOfPost(link: string): string | null {
       // A website page belongs to the site itself, which is what a subscription follows.
       return `${u.protocol}//${normalizeHost(u.hostname)}`;
     default:
+      return null;
+  }
+}
+
+/** The profile URL for an author a download named, when that platform has profile feeds. */
+export function profileFromAuthor(platform: Platform, author: string): string | null {
+  const name = author.replace(/^@/, '').trim();
+  if (!name) return null;
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${name}`;
+    case 'threads':
+      return `https://threads.com/@${name}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${name}`;
+    case 'youtube':
+      return `https://youtube.com/@${name}`;
+    case 'bluesky':
+      return `https://bsky.app/profile/${name}`;
+    default:
+      // x needs instance tokens (ADR-017), so offering it would only fail later.
       return null;
   }
 }

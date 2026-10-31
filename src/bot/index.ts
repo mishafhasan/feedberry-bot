@@ -56,14 +56,15 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
 
   bot.command('start', async (ctx) => {
     const userId = ctx.from?.id;
-    if (userId === undefined) return;
+    const chatId = ctx.chat?.id;
+    if (userId === undefined || chatId === undefined) return;
     const user = ensureUser(db, userId);
     ensurePrivateChat(db, user.id, userId);
     resetSession(userId);
     const view = mainMenu(userId, deps);
     // The custom keyboard under the input needs its own message: one message carries one markup.
     await ctx.reply(t(langFor(user.locale), 'notice.menuReady'), { reply_markup: replyMenu(langFor(user.locale)) });
-    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+    await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
   });
 
   // The five remaining commands mirror the S1 buttons; each answers with a reply, not an edit.

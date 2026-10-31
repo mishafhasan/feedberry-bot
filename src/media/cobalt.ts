@@ -14,6 +14,8 @@ export interface MediaItem {
 export interface ResolvedMedia {
   items: MediaItem[];
   title: string | null;
+  /** Who posted it (account or channel), when the extractor names one. */
+  artist: string | null;
 }
 
 /** The pipeline's only door to cobalt (ADR-005); tests swap in a fixture-backed fake. */
@@ -45,13 +47,13 @@ export const cobaltEngine: MediaEngine = {
         return kind && pick.url ? [{ kind, url: pick.url, picker: true }] : [];
       });
       if (items.length === 0) throw new Coded(E.NO_MEDIA, 'picker without playable items');
-      return { items, title: res.metadata?.title ?? null };
+      return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
     }
 
     const kind = (res.type && KIND[res.type]) || undefined;
     const first = res.urls?.[0];
     if (!kind || !first) throw new Coded(E.NO_MEDIA, `type ${res.type ?? 'unknown'}`);
-    return { items: [{ kind, url: first, picker: false }], title: res.metadata?.title ?? null };
+    return { items: [{ kind, url: first, picker: false }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
   },
 
   async download(item, dir, signal) {

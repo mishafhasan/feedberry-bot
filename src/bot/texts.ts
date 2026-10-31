@@ -18,10 +18,14 @@ export interface S1Text {
   lang?: Lang;
 }
 
-/** S1 — main menu. Plan block follows OQ-7: no trial line unless TRIAL_ENABLED. */
+/** S1 — main menu. Rich message: one <p> per dictionary block, `**bold**` becomes real bold. */
 export function s1Text({ userId, sourceCount, limit, trialEnabled, lang = 'en' }: S1Text): string {
   const plan = trialEnabled ? `${t(lang, 'plan.free')}\n${t(lang, 'plan.trial')}` : t(lang, 'plan.free');
-  return t(lang, 's1.body', { id: userId, plan, sources: `${sourceCount} / ${limit}` });
+  return t(lang, 's1.body', { id: userId, plan, sources: `${sourceCount} / ${limit}` })
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .split('\n\n')
+    .map((block) => `<p>${block.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
 }
 
 /** S2 — add source. Reddit is gone (OQ-2); Telegram is beta and hidden by default (OQ-3). */
@@ -159,9 +163,9 @@ export function s7ActionRow(card: { id: number; enabled: boolean }, lang: Lang =
 export function s7FilterRows(platforms: string[], active: string | null, lang: Lang = 'en'): string[] {
   if (platforms.length === 0) return [];
   const chips = [
-    { label: t(lang, 'btn.all'), data: 'src:filter:all', on: active === null },
+    { label: esc(t(lang, 'btn.all')), data: 'src:filter:all', on: active === null },
     ...platforms.map((platform) => ({
-      label: `${platformIcon(platform)} ${CHIPS[platform] ?? platform.slice(0, 2).toUpperCase()}`,
+      label: `${platformIcon(platform)} ${esc(CHIPS[platform] ?? platform.slice(0, 2).toUpperCase())}`,
       data: `src:filter:${platform}`,
       on: platform === active,
     })),
@@ -170,7 +174,7 @@ export function s7FilterRows(platforms: string[], active: string | null, lang: L
   for (let index = 0; index < chips.length; index += CHIPS_PER_ROW) {
     const buttons = chips
       .slice(index, index + CHIPS_PER_ROW)
-      .map((chip) => `<tg-button type="callback_data"${chip.on ? ' style="primary"' : ''} data="${chip.data}">${esc(chip.label)}</tg-button>`)
+      .map((chip) => `<tg-button type="callback_data"${chip.on ? ' style="primary"' : ''} data="${chip.data}">${chip.label}</tg-button>`)
       .join('');
     rows.push(`<tg-button-row align="left">${buttons}</tg-button-row>`);
   }
@@ -196,8 +200,26 @@ export function humanAge(ms: number | null, now = Date.now(), lang: Lang = 'en')
   return `${Math.round(seconds / 86_400)}d`;
 }
 
+/** Custom emoji ids: the owner's LOGOsEmoji pack plus the bot's own Bluesky set (Premium required). */
+const PLATFORM_EMOJI: Partial<Record<Platform, string>> = {
+  instagram: '5355097780228470775',
+  tiktok: '5353034628263330616',
+  youtube: '5355235592844095825',
+  telegram: '5352877806122447940',
+  facebook: '5355254460635428635',
+  snapchat: '5352719553757466112',
+  x: '5355148941878900494',
+  threads: '5352562529753121269',
+  tumblr: '5355232826885161329',
+  pinterest: '5352595631066071365',
+  bluesky: '6282542035895330991',
+};
+
+/** The plain emoji stays inside as the fallback for clients that ignore custom emoji. */
 export function platformIcon(platform: string): string {
-  return PLATFORM_ICON[platform as Platform] ?? '📡';
+  const emoji = PLATFORM_ICON[platform as Platform] ?? '📡';
+  const id = PLATFORM_EMOJI[platform as Platform];
+  return id === undefined ? emoji : `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`;
 }
 
 const PLATFORM_ICON: Record<Platform, string> = {
@@ -215,9 +237,16 @@ const PLATFORM_ICON: Record<Platform, string> = {
   snapchat: '👻',
 };
 
-/** Supported Sites, generated from the §10 platform matrix so the screen and the code cannot drift. */
+/** Supported Sites rows keep their order in every language; the leading emoji becomes the platform logo. */
+const SUPPORTED_ORDER: Platform[] = ['rss', 'instagram', 'facebook', 'threads', 'x', 'tiktok', 'bluesky', 'snapchat', 'tumblr', 'pinterest', 'youtube'];
+
 export function supportedSitesText(lang: Lang = 'en'): string {
-  return `${t(lang, 'supported.title')}\n\n${t(lang, 'supported.rows')}\n\n${t(lang, 'supported.outro')}`;
+  const rows = t(lang, 'supported.rows').split('\n');
+  // shortcut: a translation that changes the row count keeps its own emoji rather than the logos
+  const lines = rows.length === SUPPORTED_ORDER.length
+    ? rows.map((row, index) => `${platformIcon(SUPPORTED_ORDER[index] ?? 'rss')} ${row.slice(row.indexOf(' ') + 1)}`)
+    : rows;
+  return `${t(lang, 'supported.title')}\n\n${lines.join('\n')}\n\n${t(lang, 'supported.outro')}`;
 }
 
 /** About: what the bot is, and the one number the user needs to quote. */

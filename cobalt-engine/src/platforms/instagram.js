@@ -301,6 +301,10 @@ export default function instagram(obj) {
     function extractOldPost(data, id, alwaysProxy) {
         const shortcodeMedia = data?.gql_data?.shortcode_media || data?.gql_data?.xdt_shortcode_media;
         const sidecar = shortcodeMedia?.edge_sidecar_to_children;
+        const fileMetadata = postMetadata(
+            shortcodeMedia?.edge_media_to_caption?.edges?.[0]?.node?.text,
+            shortcodeMedia?.owner?.username
+        );
 
         if (sidecar) {
             const picker = sidecar.edges.filter(e => e.node?.display_url)
@@ -338,14 +342,15 @@ export default function instagram(obj) {
                     }
                 });
 
-            if (picker.length) return { picker }
+            if (picker.length) return { picker, ...fileMetadata }
         }
 
         if (shortcodeMedia?.video_url) {
             return {
                 urls: shortcodeMedia.video_url,
                 filename: `instagram_${id}.mp4`,
-                audioFilename: `instagram_${id}_audio`
+                audioFilename: `instagram_${id}_audio`,
+                ...fileMetadata
             }
         }
 
@@ -354,12 +359,14 @@ export default function instagram(obj) {
                 urls: shortcodeMedia.display_url,
                 isPhoto: true,
                 filename: `instagram_${id}.jpg`,
+                ...fileMetadata
             }
         }
     }
 
     function extractNewPost(data, id, alwaysProxy) {
         const carousel = data.carousel_media;
+        const fileMetadata = postMetadata(data?.caption?.text, data?.user?.username);
         if (carousel) {
             const picker = carousel.filter(e => e?.image_versions2)
                 .map((e, i) => {
@@ -396,21 +403,31 @@ export default function instagram(obj) {
                     }
                 });
 
-            if (picker.length) return { picker }
+            if (picker.length) return { picker, ...fileMetadata }
         } else if (data.video_versions) {
             const video = data.video_versions.reduce((a, b) => a.width * a.height < b.width * b.height ? b : a)
             return {
                 urls: video.url,
                 filename: `instagram_${id}.mp4`,
-                audioFilename: `instagram_${id}_audio`
+                audioFilename: `instagram_${id}_audio`,
+                ...fileMetadata
             }
         } else if (data.image_versions2?.candidates) {
             return {
                 urls: data.image_versions2.candidates[0].url,
                 isPhoto: true,
                 filename: `instagram_${id}.jpg`,
+                ...fileMetadata
             }
         }
+    }
+
+    /** Caption and owner travel with the media, so a download keeps the post's own words. */
+    function postMetadata(caption, owner) {
+        if (typeof caption !== "string") caption = undefined;
+        if (typeof owner !== "string") owner = undefined;
+        if (!caption && !owner) return {};
+        return { fileMetadata: { ...(caption && { title: caption }), ...(owner && { artist: owner }) } };
     }
 
     async function getPost(id, alwaysProxy) {
