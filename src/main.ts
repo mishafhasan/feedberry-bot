@@ -19,7 +19,7 @@ try {
 
 const db = openDb(cfg.dbPath);
 const http = networkFor(cfg);
-const bot = createBot({ cfg, db, http, media: cobaltEngine });
+const bot = createBot({ cfg, db, http, media: cobaltEngine, apiRoot: cfg.telegramApiRoot });
 
 log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });
 

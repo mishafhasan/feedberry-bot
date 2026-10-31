@@ -21,6 +21,8 @@ export interface Config {
   adminChatId: number;
   rsshubBase: string;
   dbPath: string;
+  /** Point at a self-hosted Bot API server (or a local fake in tests); default api.telegram.org. */
+  telegramApiRoot: string | undefined;
   limits: Limits;
   trialEnabled: boolean;
   telegramBeta: boolean;
@@ -43,6 +45,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     adminChatId,
     rsshubBase,
     dbPath: (env.DB_PATH ?? '').trim() || 'data/bot.db',
+    telegramApiRoot: (env.TELEGRAM_API_ROOT ?? '').trim() || undefined,
     limits: {
       maxSourcesPerUser: int(env.MAX_SOURCES_PER_USER, 250, 'MAX_SOURCES_PER_USER'),
       maxChatsPerUser: int(env.MAX_CHATS_PER_USER, 20, 'MAX_CHATS_PER_USER'),
