@@ -14,10 +14,7 @@ export function splitMessage(text: string, limit: number): string[] {
   let rest = text;
 
   while (rest.length > budget) {
-    let cut = rest.lastIndexOf(' ', budget);
-    if (cut <= 0) cut = budget;
-    const open = openTagIndex(rest.slice(0, cut));
-    if (open > 0) cut = open;
+    const cut = cutIndex(rest, budget);
     parts.push(rest.slice(0, cut).trimEnd());
     rest = rest.slice(cut).trimStart();
   }
@@ -25,6 +22,42 @@ export function splitMessage(text: string, limit: number): string[] {
 
   const total = parts.length;
   return parts.map((part, index) => `${part} (${index + 1}/${total})`);
+}
+
+/** The head of a caption that fits `limit`, markup intact; the caller adds the ellipsis. */
+export function cutCaption(html: string, limit: number): string {
+  if (html.length <= limit) return html;
+  let cut = cutIndex(html, limit);
+  let head = closed(html.slice(0, cut).trimEnd());
+  // The tags a cut leaves open cost characters, so the cut moves left until the result fits.
+  while (head.length > limit && cut > 0) {
+    cut = cutIndex(html, cut - 1);
+    head = closed(html.slice(0, cut).trimEnd());
+  }
+  return head;
+}
+
+const closed = (html: string): string => `${html}${closeOpenTags(html)}`;
+
+/** Download Mode puts a whole caption inside one `<a>`, so a cut can end mid-element. */
+function closeOpenTags(html: string): string {
+  const open: string[] = [];
+  for (const match of html.matchAll(/<\s*(\/?)([a-z0-9]+)\b[^>]*>/gi)) {
+    const tag = (match[2] ?? '').toLowerCase();
+    const at = open.lastIndexOf(tag);
+    if (match[1]) {
+      if (at >= 0) open.splice(at, 1);
+    } else open.push(tag);
+  }
+  return open.reverse().map((tag) => `</${tag}>`).join('');
+}
+
+/** A cut lands on a word boundary and never inside an HTML tag. */
+function cutIndex(text: string, limit: number): number {
+  let cut = text.lastIndexOf(' ', limit);
+  if (cut <= 0) cut = limit;
+  const open = openTagIndex(text.slice(0, cut));
+  return open > 0 ? open : cut;
 }
 
 /** Position of an unclosed `<` inside the slice, or -1 when the cut lands outside a tag. */

@@ -1,5 +1,6 @@
 /** Boot order: config -> db -> bot -> worker -> tick (IMPLEMENTATION_PLAN §2). */
 import { createBot, networkFor } from './bot/index.ts';
+import { telegraphClient } from './article/telegraph.ts';
 import { parseConfig, type Config } from './config.ts';
 import { openDb, schemaVersion } from './db/index.ts';
 import { startWorker } from './jobs/worker.ts';
@@ -19,7 +20,7 @@ try {
 
 const db = openDb(cfg.dbPath);
 const http = networkFor(cfg);
-const bot = createBot({ cfg, db, http, media: cobaltEngine, apiRoot: cfg.telegramApiRoot });
+const bot = createBot({ cfg, db, http, media: cobaltEngine, telegraph: telegraphClient, apiRoot: cfg.telegramApiRoot });
 
 log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });
 
@@ -36,6 +37,7 @@ const worker = startWorker({
   thumbnail: ffmpegThumbnail,
   notifier,
   sender,
+  telegraph: telegraphClient,
   workerConcurrency: cfg.limits.workerConcurrency,
 });
 

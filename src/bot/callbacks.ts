@@ -17,6 +17,7 @@ import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
+import { withReadMore, type ReadMorePage } from '../pipeline/read-more.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import { hiddenMenu, menuLabels } from './reply-menu.ts';
@@ -620,7 +621,17 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
       author = resolved.artist ?? null;
       const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-      const ids = await deps.sender.send(renderDownload(files, resolved, ref.canonicalUrl), target);
+      // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
+      const page: ReadMorePage = {
+        id: 0,
+        url: ref.canonicalUrl,
+        publishedAt: null,
+        title: author,
+        parts: resolved.title === null ? [] : [resolved.title],
+        images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
+      };
+      const plan = await withReadMore(renderDownload(files, resolved, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: author }, new Map());
+      const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_done', { user: userId, parts: ids.length });
     } finally {

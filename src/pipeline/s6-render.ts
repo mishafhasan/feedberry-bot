@@ -85,13 +85,18 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
+  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
+  return [header, ...bodyParts(post, extras).map((part) => esc(part))].filter((part) => part !== '').join('\n\n');
+}
+
+/** The post's own words — title and body, de-duplicated — without the source header. */
+export function bodyParts(post: PostRow, extras: Pick<RenderExtras, 'titleFallback'> = {}): string[] {
   const payload = payloadOf(post.payload_json);
   const title = payload.title || extras.titleFallback || '';
   const summary = payload.summary ?? '';
   // Feeds put the post's opening in both fields, cut short in the title: print that text once.
   const body = summary === '' ? [title] : cutsOff(title, summary) ? [summary] : cutsOff(summary, title) ? [title] : [title, summary];
-  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
-  return [header, ...body.map((part) => esc(part))].filter((part) => part !== '').join('\n\n');
+  return body.filter((part) => part !== '');
 }
 
 /** `preview` is `full`, or its opening with the ellipsis a feed adds when it cuts the text. */

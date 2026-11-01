@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
+import type { TelegraphPage } from '../../src/article/telegraph.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
@@ -40,11 +41,14 @@ const MEDIA: Record<string, MediaItem[]> = {
   'https://blog.example.test/caption': [photo()],
   'https://blog.example.test/video': [video()],
   'https://instagram.com/p/C1': [photo()],
+  'https://instagram.com/p/LONG': [photo()],
 };
 
 const engine: MediaEngine = {
   async resolve(url) {
-    return { items: MEDIA[url] ?? [], title: 'Cobalt post', artist: null };
+    // A /LONG/ link stands for an Instagram post whose caption is past the 1024-char limit.
+    const long = url.includes('LONG');
+    return { items: MEDIA[url] ?? [], title: long ? LONG : 'Cobalt post', artist: long ? 'meyer' : null };
   },
   async download(item, dir) {
     mkdirSync(dir, { recursive: true });
@@ -116,7 +120,8 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
     const albumCaption = String((three?.body.media as Array<{ caption?: string }>)[0]?.caption ?? '');
     assert.match(albumCaption, /⏱️ Time: \d{2}\/\d{2} \d{2}:\d{2}/, 'the album carries one caption, on its first item');
 
-    // §8.2: a 1025-character caption splits into two numbered parts, the second as a reply
+    // §8.2: without a Telegraph client this is the fallback — a 1025-character caption splits into
+    // two numbered parts, the second as a reply. With one, the Read-more test below runs instead.
     const long = photos.find((call) => /\(1\/2\)$/.test(String(call.body.caption)));
     assert.ok(long, 'the first caption part ends with (1/2)');
     const continuation = calls.filter((c) => c.method === 'sendMessage').at(-1);
@@ -125,6 +130,64 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
 
     const sent = db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number };
     assert.equal(sent.n, 5);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M5 read more: an over-long caption keeps the photo and links the rest to an Instant View page', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m5-more-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+
+  try {
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, {
+      platform: 'rss',
+      canonicalUrl: 'https://blog.example.test',
+      externalId: 'blog',
+      feedUrl: 'https://blog.example.test/rss',
+      strategy: 'native_rss',
+      title: 'Blog',
+      avatarUrl: null,
+    });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+
+    const posts = insertPosts(db, source.id, [
+      {
+        guid: 'p-read-more',
+        link: 'https://blog.example.test/caption',
+        title: 'Long caption',
+        summary: LONG,
+        publishedAt: Date.parse('2025-10-24T10:00:00Z'),
+        media: [{ url: 'https://cdn.test/one.jpg', type: 'photo' as const }],
+      },
+    ]);
+    for (const entry of posts) markPendingDelivery(db, entry.id, chat.id);
+
+    const pages: TelegraphPage[] = [];
+    const telegraph = {
+      async createPage(page: TelegraphPage): Promise<string> {
+        pages.push(page);
+        return `https://telegra.ph/page-${pages.length}`;
+      },
+    };
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    const result = await deliverPending({ db, http, cfg, media: engine, thumbnail: async () => null, sender: new TelegramSender(bot.api), telegraph }, source.id);
+
+    assert.equal(result.delivered, 1);
+    const photoCall = api.calls.find((call) => call.method === 'sendPhoto');
+    const caption = String(photoCall?.body.caption ?? '');
+    assert.match(caption, /<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/, 'the caption ends in the Instant View link');
+    assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
+    assert.ok(!api.calls.some((call) => call.method === 'sendMessage'), 'no (2/2) continuation is sent');
+    assert.equal(pages.length, 1, 'one page, published once');
+    assert.match(pages[0]?.content ?? '', /cdn\.test\/one\.jpg/, 'the post photo rides along');
   } finally {
     db.close();
     await api.close();
@@ -168,6 +231,41 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:download'));
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
     assert.match(api.last('sendMessage')?.body.text ?? '', /reached 1 downloads today/);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M5 download mode: a long caption arrives as one photo with a Read more link', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-dl-more-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
+  const db = openDb(join(dir, 'bot.db'));
+  const pages: TelegraphPage[] = [];
+  const telegraph = {
+    async createPage(page: TelegraphPage): Promise<string> {
+      pages.push(page);
+      return `https://telegra.ph/dl-${pages.length}`;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine, telegraph });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.instagram.com/p/LONG/'));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    const caption = String(api.calls.find((call) => call.method === 'sendPhoto')?.body.caption ?? '');
+    assert.match(caption, /<a href="https:\/\/telegra\.ph\/dl-1">👉🏻 Read more<\/a>$/, 'the caption ends in the Instant View link');
+    assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
+    assert.ok(!api.calls.some((call) => /\(2\/2\)$/.test(String(call.body.text ?? ''))), 'the rest is not sent as a second message');
+    assert.equal(pages.length, 1, 'one page for the download');
+    assert.match(pages[0]?.content ?? '', /word word/, 'the page carries the whole caption');
+    assert.match(pages[0]?.content ?? '', /cdn\.test\/p\.jpg/, 'and the downloaded photo');
   } finally {
     db.close();
     await api.close();

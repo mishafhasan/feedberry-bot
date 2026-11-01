@@ -1,0 +1,132 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { TelegraphPage } from '../../src/article/telegraph.ts';
+import type { PostRow } from '../../src/db/repos/posts.ts';
+import { pageOfPost, withReadMore, type ReadMoreCtx } from '../../src/pipeline/read-more.ts';
+import { renderPost } from '../../src/pipeline/s6-render.ts';
+import { cutCaption } from '../../src/render/caption.ts';
+import type { MessagePlan } from '../../src/render/plan.ts';
+
+const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
+const LONG = 'word '.repeat(600).trim();
+
+const post = (summary: string, media: Array<{ url: string; type: string }> = []): PostRow => ({
+  id: 7,
+  source_id: 1,
+  guid: 'g',
+  url: 'https://blog.example.test/post',
+  published_at: null,
+  kind: 'photo',
+  payload_json: JSON.stringify({ title: 'A post', summary, media }),
+  first_seen_at: 0,
+});
+
+function recorder(): { client: { createPage(page: TelegraphPage): Promise<string> }; pages: TelegraphPage[] } {
+  const pages: TelegraphPage[] = [];
+  return {
+    pages,
+    client: {
+      async createPage(page) {
+        pages.push(page);
+        return `https://telegra.ph/page-${pages.length}`;
+      },
+    },
+  };
+}
+
+const ctx = (telegraph?: ReadMoreCtx['telegraph']): ReadMoreCtx => ({ telegraph, sourceTitle: 'My Blog' });
+const captionOf = (plan: MessagePlan): string => ('caption' in plan ? plan.caption : '');
+
+test('Read more: a caption that already fits is returned untouched and publishes nothing', async () => {
+  const row = post('A short body.');
+  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
+
+  assert.equal(out, plan, 'the same plan object comes back');
+  assert.equal(pages.length, 0, 'no page is published for a caption under the cap');
+});
+
+test('Read more: an over-long caption keeps the media, ends in an Instant View link and stays inside 1024', async () => {
+  const row = post(`${LONG}\n\nThe end.`, [
+    { url: 'https://cdn.test/a.jpg', type: 'photo' },
+    { url: 'https://cdn.test/clip.mp4', type: 'video' },
+    { url: 'not a url', type: 'photo' },
+  ]);
+  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
+  const caption = captionOf(out);
+
+  assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
+  assert.match(caption, /^🌐 <a href="https:\/\/blog\.example\.test\/post">My Blog<\/a>/, 'the header survives the cut');
+  assert.ok(caption.includes('...\n\n'), 'the cut text ends in three dots, then a blank line');
+  assert.match(caption, /<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/, 'the phrase itself is the link');
+  assert.doesNotMatch(caption, /\(1\//, 'nothing is split into numbered parts anymore');
+
+  assert.equal(pages.length, 1);
+  // publishArticle stores the Telegraph node array as JSON.
+  assert.match(pages[0]?.content ?? '', /"children":\["word word /, 'the page carries the whole text');
+  assert.match(pages[0]?.content ?? '', /"children":\["The end\."\]/, 'a blank line in the caption is a paragraph on the page');
+  assert.match(pages[0]?.content ?? '', /cdn\.test\/a\.jpg/, 'and the post photo');
+  assert.doesNotMatch(pages[0]?.content ?? '', /clip\.mp4|not a url/, 'video and junk URLs stay out');
+});
+
+test('Read more: a Telegraph failure leaves today’s plan alone', async () => {
+  const row = post(LONG);
+  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const broken = {
+    async createPage(): Promise<string> {
+      throw new Error('E_TELEGRAPH');
+    },
+  };
+
+  assert.equal(await withReadMore(plan, pageOfPost(row), ctx(broken), new Map()), plan);
+  assert.equal(await withReadMore(plan, pageOfPost(row), ctx(), new Map()), plan, 'no client, no change');
+});
+
+test('Read more: one post publishes one page, failures included', async () => {
+  const row = post(LONG);
+  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const pages = new Map<number, string | null>();
+  const { client, pages: recorded } = recorder();
+
+  await withReadMore(plan, pageOfPost(row), ctx(client), pages);
+  await withReadMore(plan, pageOfPost(row), ctx(client), pages);
+  assert.equal(recorded.length, 1, 'the second chat reuses the first page');
+
+  let attempts = 0;
+  const broken = {
+    async createPage(): Promise<string> {
+      attempts++;
+      throw new Error('E_TELEGRAPH');
+    },
+  };
+  const failed = new Map<number, string | null>();
+  await withReadMore(plan, pageOfPost(row), ctx(broken), failed);
+  await withReadMore(plan, pageOfPost(row), ctx(broken), failed);
+  assert.equal(attempts, 1, 'a failed publish is not retried per chat');
+});
+
+test('Read more: a cut inside a link still closes the tag', () => {
+  const caption = `🌐 <a href="https://instagram.com/p/C1">${'word '.repeat(200)}</a>`;
+  const cut = cutCaption(caption, 300);
+
+  assert.ok(cut.endsWith('</a>'), 'the anchor is closed before the ellipsis');
+  assert.ok(cut.length <= 300, `the closed tag is paid for: cut lands at ${cut.length}`);
+});
+
+test('Read more: an album keeps its items and gets the same caption tail', async () => {
+  const row = post(LONG);
+  const plan = renderPost(row, 'album', [photo, photo], { sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
+
+  assert.equal(out.kind, 'album');
+  assert.equal(out.kind === 'album' ? out.items.length : 0, 2, 'both photos still ship');
+  assert.match(captionOf(out), /👉🏻 Read more<\/a>$/);
+  assert.equal(pages.length, 1);
+});

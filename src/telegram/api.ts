@@ -7,7 +7,8 @@ import type { MessagePlan } from '../render/plan.ts';
 import { RateLimiter, sharedLimiter } from './ratelimit.ts';
 import type { Target } from './target.ts';
 
-const CAPTION_LIMIT = 1024;
+/** Telegram's caption cap; the pipeline's Read-more budget is derived from it. */
+export const CAPTION_LIMIT = 1024;
 const MESSAGE_LIMIT = 4096;
 const MAX_INLINE_WAIT_MS = 300_000;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
