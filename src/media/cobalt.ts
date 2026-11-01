@@ -1,4 +1,4 @@
-import { download, resolve } from 'cobalt-engine';
+import { download, resolve, type EngineResult } from 'cobalt-engine';
 import { Coded, E, isCoded, type ErrorCode } from '../platform/errors.ts';
 import type { MediaKind } from '../render/plan.ts';
 
@@ -76,11 +76,11 @@ export const cobaltEngine: MediaEngine = {
  * Pure so the headers the extractor attached survive the adapter hop: TikTok's CDN answers 403 to
  * a request without its referer + user agent, even when resolve() just succeeded.
  */
-export function downloadInput(item: MediaItem, filename: string) {
+export function downloadInput(item: MediaItem, filename: string): EngineResult {
   const headers = item.headers;
   return item.picker
-    ? { status: 'ok' as const, picker: [{ type: ENGINE_TYPE[item.kind], url: item.url }], filename, ...(headers && { headers }) }
-    : { status: 'ok' as const, type: ENGINE_TYPE[item.kind], urls: [item.url], filename, ...(headers && { headers }) };
+    ? { status: 'ok', picker: [{ type: ENGINE_TYPE[item.kind], url: item.url }], filename, ...(headers && { headers }) }
+    : { status: 'ok', type: ENGINE_TYPE[item.kind], urls: [item.url], filename, ...(headers && { headers }) };
 }
 
 /** §11 mapping of the engine's error codes; anything unknown is "couldn't extract media". */

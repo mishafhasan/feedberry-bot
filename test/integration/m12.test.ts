@@ -1,0 +1,322 @@
+/**
+ * M12: the S16 schedule screen, and the post-text fallbacks of both delivery modes.
+ * - `menu:schedule` → list → picker → `sched:set:*` rewrites `interval_minutes` and the slot at once.
+ * - Download mode: an extractor without metadata (X/Twitter) keeps the page description as caption.
+ * - Scheduled mode: a feed that ships no text keeps the page description as caption.
+ */
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { createBot } from '../../src/bot/index.ts';
+import { parseConfig } from '../../src/config.ts';
+import { openDb, type Db } from '../../src/db/index.ts';
+import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
+import { upsertSource } from '../../src/db/repos/sources.ts';
+import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
+import { ensureUser } from '../../src/db/repos/users.ts';
+import { runOnce } from '../../src/jobs/worker.ts';
+import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { Http } from '../../src/platform/http.ts';
+import { tick } from '../../src/scheduler/tick.ts';
+import { TelegramSender } from '../../src/telegram/api.ts';
+import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+
+const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
+const USER_ID = 777;
+const RSSHUB_BASE = 'http://rsshub.test';
+const FEED = readFileSync(new URL('../fixtures/text-source.rss', import.meta.url), 'utf8');
+const TIKTOK_FEED = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>TikTok Demo</title><link>https://tiktok.com/@demo</link><description>media only</description>
+  <item>
+    <title></title>
+    <link>https://tiktok.com/@demo/video/1</link>
+    <guid>v-1</guid>
+    <pubDate>Wed, 22 Oct 2025 10:00:00 GMT</pubDate>
+    <description></description>
+  </item>
+</channel></rss>`;
+
+const count = (db: Db, sql: string, ...args: Array<string | number>): number => (db.prepare(sql).get(...args) as { n: number }).n;
+
+const noMedia: MediaEngine = {
+  async resolve() {
+    return { items: [], title: null, artist: null };
+  },
+  async download() {
+    throw new Error('no media');
+  },
+};
+
+test('M12 S16: the schedule screen sets a cadence and moves the slot at once', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  const http: Http = async (url) => {
+    if (url === 'https://blog.example.test/' || url === 'https://blog.example.test') return { status: 200, url, contentType: 'application/rss+xml', body: FEED };
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  let updateId = 100;
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    assert.match(JSON.stringify(api.last('sendRichMessage')?.body ?? {}), /menu:schedule/, 'S1 carries the Schedule button');
+
+    // Add a source silently so the schedule screen has something to list.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://blog.example.test/'));
+    const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `add:dest:${personal.id}`));
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'add:save_silent'));
+    const source = db.prepare("SELECT id FROM sources WHERE canonical_url = 'https://blog.example.test'").get() as { id: number };
+
+    // S1 → S16: every source carries its cadence and opens the picker.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:schedule'));
+    const list = JSON.stringify(api.last('editMessageText')?.body ?? {});
+    assert.match(list, /Check schedule/);
+    assert.match(list, new RegExp(`src:sched:${source.id}`));
+    assert.match(list, /08:00 & 20:00/, 'the default cadence is shown');
+
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `src:sched:${source.id}`));
+    assert.equal(api.last('answerCallbackQuery')?.body.text, undefined, 'opening the picker answers silently');
+    const picker = JSON.stringify(api.last('editMessageText')?.body ?? {});
+    assert.match(picker, /How often should the bot check this source\?/);
+    assert.match(picker, new RegExp(`sched:set:${source.id}:0`));
+    assert.match(picker, new RegExp(`sched:set:${source.id}:360`));
+
+    // One hour: the row and the subscription slot both change immediately.
+    const mark = Date.now();
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `sched:set:${source.id}:60`));
+    assert.equal(api.last('answerCallbackQuery')?.body.text, 'Schedule updated.');
+    assert.equal((db.prepare('SELECT interval_minutes FROM sources WHERE id = ?').get(source.id) as { interval_minutes: number | null }).interval_minutes, 60);
+    const slot = (db.prepare('SELECT next_slot_at FROM subscriptions WHERE source_id = ?').get(source.id) as { next_slot_at: number }).next_slot_at;
+    assert.ok(slot >= mark + 3_590_000 && slot <= mark + 3_610_000, 'the slot moved to now + 1 h');
+    assert.match(JSON.stringify(api.last('editMessageText')?.body ?? {}), /✅ Every 1 h/);
+
+    // Default: interval cleared, slot back on the next 08:00/20:00.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `sched:set:${source.id}:0`));
+    assert.equal((db.prepare('SELECT interval_minutes FROM sources WHERE id = ?').get(source.id) as { interval_minutes: number | null }).interval_minutes, null);
+    const next = (db.prepare('SELECT next_slot_at FROM subscriptions WHERE source_id = ?').get(source.id) as { next_slot_at: number }).next_slot_at;
+    assert.ok(next > Date.now() && next <= Date.now() + 12 * 3_600_000, 'the default returns the next 08:00/20:00');
+
+    // Only the owner may change a source, and only the offered values are legal.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID + 1, `sched:set:${source.id}:15`));
+    assert.equal((db.prepare('SELECT interval_minutes FROM sources WHERE id = ?').get(source.id) as { interval_minutes: number | null }).interval_minutes, null);
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `sched:set:${source.id}:7`));
+    assert.equal((db.prepare('SELECT interval_minutes FROM sources WHERE id = ?').get(source.id) as { interval_minutes: number | null }).interval_minutes, null);
+
+    // All sources at once: one cadence for the whole list, same immediate slot move.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'sched:all'));
+    const allPicker = JSON.stringify(api.last('editMessageText')?.body ?? {});
+    assert.match(allPicker, /All sources/);
+    assert.match(allPicker, /sched:setall:360/);
+    const markAll = Date.now();
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'sched:setall:360'));
+    assert.equal(api.last('answerCallbackQuery')?.body.text, 'Schedule updated.');
+    assert.equal((db.prepare('SELECT interval_minutes FROM sources WHERE id = ?').get(source.id) as { interval_minutes: number | null }).interval_minutes, 360);
+    const slotAll = (db.prepare('SELECT next_slot_at FROM subscriptions WHERE source_id = ?').get(source.id) as { next_slot_at: number }).next_slot_at;
+    assert.ok(slotAll >= markAll + 6 * 3_600_000 - 5_000 && slotAll <= markAll + 6 * 3_600_000 + 5_000, 'the bulk cadence moves every slot to now + 6 h');
+
+    // The command menu entry answers with its own message.
+    await bot.handleUpdate(commandUpdate(updateId++, USER_ID, 'schedule'));
+    assert.match(api.last('sendMessage')?.body.text ?? '', /Check schedule/);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M12 Download: an extractor without metadata keeps the page description as the caption', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-dl-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  const http: Http = async (url) => {
+    if (url === 'https://x.com/blue/status/123') {
+      return { status: 200, url, contentType: 'text/html; charset=utf-8', body: '<html><head><meta name="twitter:description" content="Hello from the post"></head><body></body></html>' };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const media: MediaEngine = {
+    async resolve() {
+      return { items: [{ kind: 'photo', url: 'https://cdn.example.test/p.jpg', picker: false }], title: null, artist: null };
+    },
+    async download(_item, workDir) {
+      mkdirSync(workDir, { recursive: true });
+      const path = join(workDir, 'media-photo');
+      writeFileSync(path, 'jpeg-bytes');
+      return path;
+    },
+  };
+  let updateId = 200;
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://x.com/blue/status/123'));
+    assert.match(api.last('sendMessage')?.body.text ?? '', /post link/i, 'a pasted post link is offered as a download');
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'dl:post'));
+
+    const photo = api.last('sendPhoto');
+    const caption = String(photo?.body.caption ?? '');
+    assert.match(caption, /Hello from the post/, 'the post text is kept, not dropped');
+    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">x\.com<\/a>/, 'the host names the source');
+    assert.equal(photo?.body.parse_mode, 'HTML');
+    assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE post_id IS NULL AND status = 'sent'"), 1);
+    assert.doesNotMatch(JSON.stringify(api.last('sendMessage')?.body ?? {}), /add:post/, 'no profile is invented for a post-only platform');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M12 Download: an engine caption above 1024 chars goes to Instant View with Read more', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-long-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  const pages: Array<{ title: string; content: string }> = [];
+  const telegraph = {
+    async createPage(page: { title: string; content: string }) {
+      pages.push(page);
+      return `https://telegra.ph/long-${pages.length}`;
+    },
+  };
+  const http: Http = async () => {
+    throw new Error('no page fetch is needed when the engine carries the text');
+  };
+  const long = 'word '.repeat(300).trim();
+  const media: MediaEngine = {
+    async resolve() {
+      return { items: [{ kind: 'photo', url: 'https://cdn.example.test/p.jpg', picker: false }], title: long, artist: 'MissDelulu9' };
+    },
+    async download(_item, workDir) {
+      mkdirSync(workDir, { recursive: true });
+      const path = join(workDir, 'media-photo');
+      writeFileSync(path, 'jpeg-bytes');
+      return path;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media, telegraph });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/MissDelulu9/status/2116793013774975408'));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
+    assert.ok(caption.length <= 1024, `the caption stays inside Telegram's limit (got ${caption.length})`);
+    assert.match(caption, /👉🏻 Read more/, 'the tail moves behind the Instant View link');
+    assert.match(caption, /https:\/\/telegra\.ph\/long-1/);
+    assert.equal(pages.length, 1, 'one page per download');
+    assert.match(pages[0]?.content ?? '', /word word word/, 'the page carries the whole text');
+    assert.doesNotMatch(pages[0]?.content ?? '', /🌐/, 'the page holds the post, not the bot header');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M12 Download: X long-form text comes from the full-text mirror, not the 280 cut', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-xlong-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  const pages: Array<{ title: string; content: string }> = [];
+  const telegraph = {
+    async createPage(page: { title: string; content: string }) {
+      pages.push(page);
+      return `https://telegra.ph/x-${pages.length}`;
+    },
+  };
+  const long = `${'word '.repeat(240).trim()} END-OF-POST`;
+  const http: Http = async (url) => {
+    if (url === 'https://api.fxtwitter.com/blue/status/123') {
+      return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ tweet: { text: long } }) };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const media: MediaEngine = {
+    async resolve() {
+      return { items: [{ kind: 'photo', url: 'https://cdn.example.test/p.jpg', picker: false }], title: 'Short 280-char cut', artist: null };
+    },
+    async download(_item, workDir) {
+      mkdirSync(workDir, { recursive: true });
+      const path = join(workDir, 'media-photo');
+      writeFileSync(path, 'jpeg-bytes');
+      return path;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media, telegraph });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/blue/status/123'));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
+    assert.doesNotMatch(caption, /Short 280-char cut/, 'the engine cut is replaced by the full post');
+    assert.match(caption, /Read more/, 'a caption past 1024 keeps the media and links the rest');
+    assert.match(pages[0]?.content ?? '', /END-OF-POST/, 'the page carries the whole text');
+    assert.match(pages[0]?.content ?? '', /word word word/);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M12 Scheduled: a media-only feed item falls back to the page description', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-sch-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const db = openDb(join(dir, 'bot.db'));
+  const http: Http = async (url) => {
+    if (url === 'http://rsshub.test/tiktok/user/demo') return { status: 200, url, contentType: 'application/rss+xml', body: TIKTOK_FEED };
+    if (url === 'https://tiktok.com/@demo/video/1') {
+      return { status: 200, url, contentType: 'text/html', body: '<html><head><meta property="og:description" content="Video caption from the page"></head></html>' };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });
+    await bot.init();
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, {
+      platform: 'tiktok',
+      canonicalUrl: 'https://tiktok.com/@demo',
+      externalId: 'demo',
+      feedUrl: 'http://rsshub.test/tiktok/user/demo',
+      strategy: 'rsshub',
+      title: 'TikTok Demo',
+      avatarUrl: null,
+    });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+
+    const deps = { db, http, cfg, media: noMedia, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 1 };
+    tick(db, Date.now());
+    assert.equal(await runOnce(deps, Date.now()), true, 'the fetch job is claimed');
+
+    const text = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? '')).join('\n');
+    assert.match(text, /Video caption from the page/, 'the caption comes from the page, not the link only');
+    assert.match(text, /🌐 <a href="https:\/\/tiktok\.com\/@demo\/video\/1">TikTok Demo<\/a>/);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});

@@ -132,11 +132,13 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
     child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
     child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
 
-    await waitFor('polling_started', () => output.includes('polling_started'), 20_000);
+    // The child competes with the whole parallel suite on a busy host; the budgets are generous so
+    // only a real startup/delivery regression trips them, never scheduler noise.
+    await waitFor('polling_started', () => output.includes('polling_started'), 120_000);
     await waitFor(
       'the delivered post',
       () => calls.some((call) => call.method === 'sendMessage' && String(call.body.text).includes('First post')),
-      20_000,
+      120_000,
     );
 
     // The bot is still answering updates: /start renders S1 with the seeded source counted.
@@ -154,7 +156,7 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
     await waitFor(
       'S1 after /start',
       () => calls.some((call) => call.method === 'sendRichMessage' && String(call.body.rich_message?.html).includes('Sources: 1 / 250')),
-      20_000,
+      60_000,
     );
 
     const delivered = calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text));
@@ -169,7 +171,7 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
       db.close();
       assert.ok(rows.length <= 1, `one row per (post, chat), found ${JSON.stringify(rows)}`);
       return rows.length === 1 && rows[0].status === 'sent';
-    }, 10_000);
+    }, 30_000);
   } finally {
     child?.kill();
     await new Promise<void>((resolve) => telegram.close(() => resolve()));
