@@ -20,7 +20,8 @@ export function s1Keyboard(lang: Lang = 'en'): InlineKeyboard {
     .text(t(lang, 'btn.supported'), 'menu:supported')
     .text(t(lang, 'btn.help'), 'menu:help')
     .row()
-    .text(t(lang, 'btn.download'), 'menu:download');
+    .text(t(lang, 'btn.download'), 'menu:download')
+    .text(t(lang, 'btn.schedule'), 'menu:schedule');
 }
 
 /** Screens that are one message deep: Supported Sites, Help, About, Language. */

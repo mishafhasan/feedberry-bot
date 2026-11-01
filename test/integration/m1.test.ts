@@ -31,7 +31,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     assert.match(s1Html, /Sources: 0 \/ 250/);
     assert.match(s1Html, /<b>FeedBerry<\/b>/, 'the dictionary bold markers become real bold');
     assert.doesNotMatch(s1Html, /Trial ends/, 'OQ-7: trial line hidden');
-    assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 5, 'five S1 buttons in three rows');
+    assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 6, 'six S1 buttons in three rows');
 
     const beforeAdd = api.calls.length;
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));

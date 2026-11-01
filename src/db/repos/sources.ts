@@ -68,6 +68,11 @@ export function setSourceEnabled(db: Db, id: number, enabled: boolean): void {
   db.prepare('UPDATE sources SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
 }
 
+/** S16: `null` restores the 08:00/20:00 default; the scheduler reads this on every slot. */
+export function setSourceInterval(db: Db, id: number, minutes: number | null): void {
+  db.prepare('UPDATE sources SET interval_minutes = ? WHERE id = ?').run(minutes, id);
+}
+
 /** A source survives while anyone else is subscribed to it (§7.2 delete rules). */
 export function deleteSourceIfOrphan(db: Db, id: number): boolean {
   const orphans = db.prepare('DELETE FROM sources WHERE id = ? AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE source_id = ?)').run(id, id);

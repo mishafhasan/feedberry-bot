@@ -53,7 +53,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
       backfillCount: int(env.BACKFILL_COUNT, 5, 'BACKFILL_COUNT'),
       maxSourceAgeDays: int(env.MAX_SOURCE_AGE_DAYS, 30, 'MAX_SOURCE_AGE_DAYS'),
       workerConcurrency: int(env.WORKER_CONCURRENCY, 2, 'WORKER_CONCURRENCY'),
-      maxDownloadsPerDay: int(env.MAX_DOWNLOADS_PER_DAY, 30, 'MAX_DOWNLOADS_PER_DAY'),
+      maxDownloadsPerDay: int(env.MAX_DOWNLOADS_PER_DAY, 300, 'MAX_DOWNLOADS_PER_DAY'),
       callbackIntervalMs: atLeastZero(env.CALLBACK_INTERVAL_MS, 2000, 'CALLBACK_INTERVAL_MS'),
       addIntervalMs: atLeastZero(env.ADD_INTERVAL_MS, 10_000, 'ADD_INTERVAL_MS'),
       checksPerHour: atLeastZero(env.CHECKS_PER_HOUR, 30, 'CHECKS_PER_HOUR'),

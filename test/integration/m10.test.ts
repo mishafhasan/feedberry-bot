@@ -89,8 +89,8 @@ test('M10 menu: five buttons, /supported_sites and /language answer, language is
     await bot.handleUpdate(startUpdate(1, USER_ID));
     const s1 = api.last('sendRichMessage');
     const rows = (s1?.body.reply_markup as { inline_keyboard: unknown[][] } | undefined)?.inline_keyboard ?? [];
-    assert.equal(rows.length, 3, 'three rows: two pairs then the full-width Download Mode');
-    assert.equal(rows.flat().length, 5, 'five buttons');
+    assert.equal(rows.length, 3, 'three rows of two: the pairs share the menu');
+    assert.equal(rows.flat().length, 6, 'six buttons');
 
     await bot.handleUpdate(commandUpdate(2, USER_ID, 'supported_sites'));
     assert.match(String(api.last('sendMessage')?.body.text), /Supported sites/);

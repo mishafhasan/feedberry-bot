@@ -34,6 +34,9 @@ export interface S7State {
   platform: string | null;
 }
 
+/** S16 keeps only the page, so Back from a picker returns to the list the user was reading. */
+export type S16State = { page: number };
+
 export interface Session {
   state: FsmState;
   /** awaiting_source_link in Download Mode (ADR-013); unused until M5. */
@@ -43,6 +46,7 @@ export interface Session {
   destChatId?: number;
   error?: LastError;
   s7?: S7State;
+  s16?: S16State;
   /** A link waiting on the download/add choice; `profile` is set when a download named the account. */
   chooser?: { link: string; profile?: string };
 }

@@ -16,6 +16,8 @@ export function replyMenu(lang: Lang = 'en'): Keyboard {
     .text(t(lang, 'btn.help'))
     .row()
     .text(t(lang, 'btn.download'))
+    .text(t(lang, 'btn.schedule'))
+    .row()
     .text(t(lang, 'btn.hideMenu'))
     .resized()
     .persistent();
@@ -25,13 +27,14 @@ export function replyMenu(lang: Lang = 'en'): Keyboard {
 export const hiddenMenu = { remove_keyboard: true } as const;
 
 /** Label -> action. Built per language so a tapped button is matched in the user's own words. */
-export function menuLabels(lang: Lang = 'en'): Map<string, 'add' | 'sources' | 'supported' | 'help' | 'download' | 'hide'> {
+export function menuLabels(lang: Lang = 'en'): Map<string, 'add' | 'sources' | 'supported' | 'help' | 'download' | 'schedule' | 'hide'> {
   return new Map([
     [t(lang, 'btn.add'), 'add'],
     [t(lang, 'btn.sources'), 'sources'],
     [t(lang, 'btn.supported'), 'supported'],
     [t(lang, 'btn.help'), 'help'],
     [t(lang, 'btn.download'), 'download'],
+    [t(lang, 'btn.schedule'), 'schedule'],
     [t(lang, 'btn.hideMenu'), 'hide'],
   ]);
 }

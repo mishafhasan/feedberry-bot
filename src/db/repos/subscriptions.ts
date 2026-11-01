@@ -100,6 +100,24 @@ export function platformsForUser(db: Db, userId: number): string[] {
   return rows.map((row) => row.platform);
 }
 
+/** S16 "all sources": the distinct sources this user follows, for one bulk cadence change. */
+export function sourceIdsForUser(db: Db, userId: number): number[] {
+  const rows = db.prepare('SELECT DISTINCT source_id FROM subscriptions WHERE user_id = ?').all(userId) as Array<{ source_id: number }>;
+  return rows.map((row) => row.source_id);
+}
+
+/** Every member of one source with their timezone, for recomputing slots after a cadence change. */
+export function subscriptionSlots(db: Db, sourceId: number): Array<{ id: number; tz: string }> {
+  return db
+    .prepare('SELECT sub.id AS id, u.tz AS tz FROM subscriptions sub JOIN users u ON u.id = sub.user_id WHERE sub.source_id = ?')
+    .all(sourceId) as unknown as Array<{ id: number; tz: string }>;
+}
+
+/** S16: a cadence change takes effect at once instead of at the old slot. */
+export function setNextSlot(db: Db, subscriptionId: number, at: number): void {
+  db.prepare('UPDATE subscriptions SET next_slot_at = ? WHERE id = ?').run(at, subscriptionId);
+}
+
 /** Every card action is authorised by ownership of the subscription, never by the callback alone. */
 export function ownsSource(db: Db, userId: number, sourceId: number): boolean {
   return db.prepare('SELECT 1 AS ok FROM subscriptions WHERE user_id = ? AND source_id = ?').get(userId, sourceId) !== undefined;

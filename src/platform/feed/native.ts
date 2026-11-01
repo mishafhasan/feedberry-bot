@@ -65,7 +65,7 @@ export function discoverAlternate(html: string, baseUrl: string): string | null 
     if (!/rel\s*=\s*["']?alternate/i.test(tag)) continue;
     if (!/type\s*=\s*["']?application\/(rss|atom)\+xml/i.test(tag)) continue;
     const href = attr(tag, 'href');
-    if (href) return new URL(decodeText(href), baseUrl).toString();
+    if (href) return new URL(decodeEntities(href), baseUrl).toString();
   }
   return null;
 }
@@ -121,7 +121,7 @@ function avatarOf(head: string, baseUrl: string): string | null {
     text(firstTag(head, 'icon'));
   if (!candidate) return null;
   try {
-    return new URL(decodeText(candidate), baseUrl).toString();
+    return new URL(decodeEntities(candidate), baseUrl).toString();
   } catch {
     return null;
   }
@@ -134,7 +134,7 @@ function mediaOf(block: string, baseUrl: string): FeedMedia[] {
     if (!url) continue;
     // A `media:thumbnail` is always a picture, even when it carries no type attribute.
     const type = /^<media:thumbnail/i.test(tag) ? 'photo' : kindOf(attr(tag, 'type'));
-    media.push({ url: new URL(decodeText(url), baseUrl).toString(), type });
+    media.push({ url: new URL(decodeEntities(url), baseUrl).toString(), type });
   }
   return media;
 }
@@ -153,7 +153,7 @@ function linkOf(block: string, baseUrl: string): string {
   const href = textLink || (linkTag ? attr(linkTag, 'href') : null);
   if (!href) return baseUrl;
   try {
-    return new URL(decodeText(href), baseUrl).toString();
+    return new URL(decodeEntities(href), baseUrl).toString();
   } catch {
     return baseUrl;
   }
@@ -178,7 +178,7 @@ function attr(tag: string, name: string): string | null {
 /** CDATA first, then tags, then entities — in that order or a CDATA block is eaten as markup. */
 function stripTags(raw: string | null, keepParagraphs = false): string {
   if (!raw) return '';
-  const html = decodeText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
+  const html = decodeEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
   if (!keepParagraphs) return text(html.replace(/<[^>]*>/g, ' '));
   // Block ends become a blank line, <br> a line, so a caption keeps the post's own paragraphs.
   const spaced = html
@@ -197,7 +197,8 @@ export const SUMMARY_LIMIT = 4000;
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
-function decodeText(raw: string): string {
+/** Also used by the meta-description reader: feed and page share one entity vocabulary. */
+export function decodeEntities(raw: string): string {
   return raw
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))

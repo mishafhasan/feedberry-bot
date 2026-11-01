@@ -15,6 +15,7 @@ import type { Thumbnailer } from '../media/thumb.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
+import { pageText } from '../platform/page-text.ts';
 import type { SourceRef } from '../platform/registry.ts';
 import { payloadOf, type MessagePlan } from '../render/plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
@@ -221,14 +222,17 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       const resolved = await deps.media.resolve(post.url, signal);
       items = resolved.items;
       // The feed often ships an empty title; the engine fetched one anyway, so keep it.
-      engineTitle = resolved.title ?? null;
+      engineTitle = resolved.title?.trim() || null;
     } catch (err) {
       log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     }
   }
 
   const kind = classifyMedia(items, hadFeedMedia);
-  if (items.length === 0) return renderPost(post, kind, [], { sourceTitle, titleFallback: engineTitle });
+  // A feed that ships media only (X/Twitter, TikTok) leaves the caption to the page's own words.
+  const hasFeedText = payload.title !== '' || (payload.summary ?? '') !== '';
+  const titleFallback = engineTitle ?? (hasFeedText || !post.url ? null : await pageText(deps.http, post.url));
+  if (items.length === 0) return renderPost(post, kind, [], { sourceTitle, titleFallback });
 
   let files;
   try {
@@ -236,25 +240,25 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
     log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
-    return renderPost(post, 'link_only', [], { sourceTitle, titleFallback: engineTitle });
+    return renderPost(post, 'link_only', [], { sourceTitle, titleFallback });
   }
 
-  if (kind !== 'video') return renderPost(post, kind, files, { sourceTitle, titleFallback: engineTitle });
+  if (kind !== 'video') return renderPost(post, kind, files, { sourceTitle, titleFallback });
 
   const video = files[0];
-  if (!video) return renderPost(post, 'link_only', [], { sourceTitle, titleFallback: engineTitle });
+  if (!video) return renderPost(post, 'link_only', [], { sourceTitle, titleFallback });
 
   // §8.6: ffprobe, then the feed's hint, then unknown (R9 keeps the size rule).
   const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
 
   // Only a clip that cannot be uploaded needs a preview; anything else stays a plain video.
   const needsPreview = video.size > MAX_UPLOAD_BYTES || (durationSec !== null && durationSec >= LONG_VIDEO_SEC);
-  if (!needsPreview) return renderPost(post, kind, files, { durationSec, sourceTitle, titleFallback: engineTitle });
+  if (!needsPreview) return renderPost(post, kind, files, { durationSec, sourceTitle, titleFallback });
 
   // The platform poster the feed already carries beats a frame grab; ffmpeg is the fallback.
   const poster = payload.media.find((item) => item.type === 'photo')?.url ?? null;
   const thumbnail = poster ?? (await deps.thumbnail(video.path, dir));
-  return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null, sourceTitle, titleFallback: engineTitle });
+  return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null, sourceTitle, titleFallback });
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

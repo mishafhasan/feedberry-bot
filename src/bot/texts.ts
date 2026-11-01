@@ -60,6 +60,7 @@ export const actionToast = (lang: Lang = 'en') => ({
   enabled: t(lang, 'toast.enabled'),
   deleted: t(lang, 'toast.deleted'),
   checkQueued: t(lang, 'toast.checkQueued'),
+  scheduleSet: t(lang, 'toast.scheduleSet'),
 });
 
 /** S1 Download Mode prompt (ADR-013): the next message must be a post link. */
