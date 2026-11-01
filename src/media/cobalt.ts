@@ -1,5 +1,5 @@
 import { download, resolve } from 'cobalt-engine';
-import { Coded, E, type ErrorCode } from '../platform/errors.ts';
+import { Coded, E, isCoded, type ErrorCode } from '../platform/errors.ts';
 import type { MediaKind } from '../render/plan.ts';
 
 export interface MediaItem {
@@ -9,6 +9,8 @@ export interface MediaItem {
   picker: boolean;
   /** Feed/platform duration hint (§8.6 step 2); null when nobody knows. */
   durationSec?: number | null;
+  /** Headers the extractor attaches to the media host; TikTok's CDN 403s without referer + UA. */
+  headers?: Record<string, string>;
 }
 
 export interface ResolvedMedia {
@@ -44,7 +46,7 @@ export const cobaltEngine: MediaEngine = {
     if (res.picker?.length) {
       const items = res.picker.flatMap((pick) => {
         const kind = KIND[pick.type];
-        return kind && pick.url ? [{ kind, url: pick.url, picker: true }] : [];
+        return kind && pick.url ? [{ kind, url: pick.url, picker: true, headers: res.headers }] : [];
       });
       if (items.length === 0) throw new Coded(E.NO_MEDIA, 'picker without playable items');
       return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
@@ -53,21 +55,33 @@ export const cobaltEngine: MediaEngine = {
     const kind = (res.type && KIND[res.type]) || undefined;
     const first = res.urls?.[0];
     if (!kind || !first) throw new Coded(E.NO_MEDIA, `type ${res.type ?? 'unknown'}`);
-    return { items: [{ kind, url: first, picker: false }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
+    return { items: [{ kind, url: first, picker: false, headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
   },
 
   async download(item, dir, signal) {
-    const filename = `media-${item.kind}`;
-    const input = item.picker
-      ? { status: 'ok' as const, picker: [{ type: ENGINE_TYPE[item.kind], url: item.url }], filename }
-      : { status: 'ok' as const, type: ENGINE_TYPE[item.kind], urls: [item.url], filename };
-
-    const res = await download(input, { dir, signal, index: 0 });
-    const file = res.files?.[0];
-    if (res.status !== 'ok' || !file) throw new Coded(errorCode(res.error?.code), 'download failed');
-    return file;
+    try {
+      const res = await download(downloadInput(item, `media-${item.kind}`), { dir, signal, index: 0 });
+      const file = res.files?.[0];
+      if (res.status !== 'ok' || !file) throw new Coded(errorCode(res.error?.code), 'download failed');
+      return file;
+    } catch (err) {
+      // A media host that refuses us is not a bot bug; the caller falls back to the link.
+      if (isCoded(err)) throw err;
+      throw new Coded(E.NO_MEDIA, err instanceof Error ? err.message : String(err));
+    }
   },
 };
+
+/**
+ * Pure so the headers the extractor attached survive the adapter hop: TikTok's CDN answers 403 to
+ * a request without its referer + user agent, even when resolve() just succeeded.
+ */
+export function downloadInput(item: MediaItem, filename: string) {
+  const headers = item.headers;
+  return item.picker
+    ? { status: 'ok' as const, picker: [{ type: ENGINE_TYPE[item.kind], url: item.url }], filename, ...(headers && { headers }) }
+    : { status: 'ok' as const, type: ENGINE_TYPE[item.kind], urls: [item.url], filename, ...(headers && { headers }) };
+}
 
 /** §11 mapping of the engine's error codes; anything unknown is "couldn't extract media". */
 function errorCode(code: string | undefined): ErrorCode {

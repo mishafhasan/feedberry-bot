@@ -77,3 +77,58 @@ test('M2 registry: Telegram is opt-in', () => {
   assert.equal(ref.platform, 'telegram');
   assert.equal(ref.feedUrl, 'http://rsshub.test/telegram/channel/durov');
 });
+
+test('M12 registry: page-scoped Facebook videos, photos and watch links are posts', () => {
+  const video = detectSource('https://www.facebook.com/shammiltd/videos/funny-clips/1159110793020936/', opts);
+  assert.equal(video.strategy, 'single_post');
+  assert.equal(video.canonicalUrl, 'https://facebook.com/shammiltd/videos/funny-clips/1159110793020936');
+
+  const photo = detectSource('https://web.facebook.com/photo/?fbid=1270547115300126&set=pb.100070345475708.-2207520000', opts);
+  assert.equal(photo.platform, 'facebook', 'web. is the same host');
+  assert.equal(photo.strategy, 'single_post');
+  assert.equal(photo.canonicalUrl, 'https://facebook.com/photo?fbid=1270547115300126', 'fbid survives');
+
+  const watch = detectSource('https://www.facebook.com/watch/?v=123456', opts);
+  assert.equal(watch.strategy, 'single_post');
+  assert.equal(watch.canonicalUrl, 'https://facebook.com/watch?v=123456');
+
+  assert.equal(detectSource('https://www.facebook.com/shammiltd', opts).strategy, 'rsshub', 'a page is still a profile');
+});
+
+test('M12 registry: Snapchat spotlight share links and Tumblr post links are posts', () => {
+  const snap = detectSource('https://www.snapchat.com/@klipz96/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYc3ZwZXdmdHdmAZGAhOJfAZGAhNupAAAAAQ', opts);
+  assert.equal(snap.platform, 'snapchat');
+  assert.equal(snap.strategy, 'single_post');
+  assert.equal(snap.externalId, 'W7_EDlXWTBiXAEEniNoMPwAAYc3ZwZXdmdHdmAZGAhOJfAZGAhNupAAAAAQ');
+
+  const post = detectSource('https://www.tumblr.com/pangur-and-grim/831491763581648896/look-at-my-genius-puppy?source=share', opts);
+  assert.equal(post.platform, 'tumblr');
+  assert.equal(post.strategy, 'single_post');
+  assert.equal(post.canonicalUrl, 'https://pangur-and-grim.tumblr.com/post/831491763581648896', 'the blog host is what cobalt resolves');
+
+  const blog = detectSource('https://www.tumblr.com/pangur-and-grim', opts);
+  assert.equal(blog.strategy, 'native_rss');
+  assert.equal(blog.canonicalUrl, 'https://pangur-and-grim.tumblr.com');
+  assert.equal(blog.feedUrl, 'https://pangur-and-grim.tumblr.com/rss');
+});
+
+test('M13 registry: every TikTok post shape and share host is a single post', () => {
+  assert.equal(detectSource('https://www.tiktok.com/@user/video/123', opts).strategy, 'single_post');
+  assert.equal(detectSource('https://www.tiktok.com/@user/photo/123', opts).strategy, 'single_post', 'carousel posts');
+
+  const short = detectSource('https://www.tiktok.com/t/ZP8abc123/', opts);
+  assert.equal(short.strategy, 'single_post');
+  assert.equal(short.externalId, 'ZP8abc123');
+
+  for (const link of ['https://vm.tiktok.com/ZMabc123/', 'https://vt.tiktok.com/ZSabc123/', 'https://t.tiktok.com/ZTPabc/']) {
+    const ref = detectSource(link, opts);
+    assert.equal(ref.platform, 'tiktok', link);
+    assert.equal(ref.strategy, 'single_post', link);
+  }
+
+  const legacy = detectSource('https://m.tiktok.com/v/123.html', opts);
+  assert.equal(legacy.strategy, 'single_post');
+  assert.equal(legacy.canonicalUrl, 'https://tiktok.com/v/123.html', 'the .html suffix stays: cobalt matches it');
+
+  assert.equal(detectSource('https://www.tiktok.com/@user', opts).strategy, 'rsshub', 'a profile is still a feed');
+});

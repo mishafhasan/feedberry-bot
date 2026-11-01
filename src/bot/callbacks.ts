@@ -3,8 +3,8 @@ import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } from '../db/repos/chats.ts';
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
-import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled } from '../db/repos/sources.ts';
-import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, subscribedByUser } from '../db/repos/subscriptions.ts';
+import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, setSourceInterval } from '../db/repos/sources.ts';
+import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionSlots } from '../db/repos/subscriptions.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine } from '../media/cobalt.ts';
@@ -12,6 +12,8 @@ import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import type { Http } from '../platform/http.ts';
 import { detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type SourceRef } from '../platform/registry.ts';
+import { pageText } from '../platform/page-text.ts';
+import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
@@ -24,6 +26,7 @@ import { hiddenMenu, menuLabels } from './reply-menu.ts';
 import { recordDelivery } from '../pipeline/s8-record.ts';
 import { cleanupWorkDir, workDirFor } from '../pipeline/s9-cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
+import { slotAfter } from '../scheduler/slots.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
@@ -39,6 +42,7 @@ import { s6View } from './screens/s6.ts';
 import { s7View, PAGE_SIZE } from './screens/s7.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
+import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
 import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, postLinkPrompt, sourceBody } from './texts.ts';
 
@@ -68,6 +72,12 @@ export const cb = {
   help: 'menu:help',
   language: 'menu:language',
   lang: 'lang:',
+  schedule: 'menu:schedule',
+  schedOpen: 'src:sched:',
+  schedSet: 'sched:set:',
+  schedPage: 'sched:page:',
+  schedAll: 'sched:all',
+  schedSetAll: 'sched:setall:',
 } as const;
 
 export interface BotDeps {
@@ -113,8 +123,13 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   }
 
   if (data.startsWith(cb.check)) return queueCheck(ctx, deps, userId, idOf(data, cb.check), toast, lang);
+  if (data.startsWith(cb.schedSetAll) || data.startsWith(cb.schedSet)) return applySchedule(ctx, deps, userId, data, toast, lang);
 
   await ctx.answerCallbackQuery(toast === undefined ? undefined : { text: toast });
+
+  if (data.startsWith(cb.schedOpen)) return schedulePicker(ctx, deps, userId, idOf(data, cb.schedOpen));
+  if (data.startsWith(cb.schedPage)) return renderSchedule(ctx, deps, userId, idOf(data, cb.schedPage));
+  if (data === cb.schedAll) return paint(ctx, s16Picker(null, lang));
 
   if (data.startsWith(cb.lang)) return setLanguage(ctx, deps, userId, data.slice(cb.lang.length));
 
@@ -147,6 +162,8 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return paint(ctx, s13View(lang));
     case cb.language:
       return paint(ctx, s15View(lang));
+    case cb.schedule:
+      return renderSchedule(ctx, deps, userId, getSession(userId).s16?.page ?? 0);
     case cb.back:
       return goBack(ctx, deps, userId);
     case cb.home:
@@ -197,6 +214,9 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
     }
     case 'download':
       await startDownload(ctx, deps, userId);
+      return true;
+    case 'schedule':
+      await openScheduleFor(ctx, deps, userId);
       return true;
   }
 }
@@ -477,6 +497,65 @@ async function queueCheck(ctx: Context, deps: BotDeps, userId: number, sourceId:
   enqueue(deps.db, { kind: 'manual_check', targetId: sourceId, priority: PRIORITY.manual });
 }
 
+/** S16 (§4.3): the list of sources with their cadence; `/schedule` and `menu:schedule` share it. */
+export async function openScheduleFor(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
+  await renderSchedule(ctx, deps, userId, 0);
+}
+
+async function renderSchedule(ctx: Context, deps: BotDeps, userId: number, page: number): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  let pageIndex = Math.max(0, page);
+  let { rows, total } = listSourceCards(deps.db, user.id, null, PAGE_SIZE, pageIndex * PAGE_SIZE);
+  if (rows.length === 0 && pageIndex > 0) {
+    pageIndex = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
+    ({ rows, total } = listSourceCards(deps.db, user.id, null, PAGE_SIZE, pageIndex * PAGE_SIZE));
+  }
+
+  setSession(userId, { state: 'idle', s16: { page: pageIndex } });
+  const view = s16List({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, lang: langOf(deps, userId) });
+  await paintOrReply(ctx, view);
+}
+
+async function schedulePicker(ctx: Context, deps: BotDeps, userId: number, sourceId: number): Promise<void> {
+  const card = getSourceCard(deps.db, ensureUser(deps.db, userId).id, sourceId);
+  if (!card) return;
+  await paint(ctx, s16Picker(card, langOf(deps, userId)));
+}
+
+/** `sched:set:<source>:<minutes>` for one source, `sched:setall:<minutes>` for the whole list; 0 is the default. */
+async function applySchedule(ctx: Context, deps: BotDeps, userId: number, data: string, toast: string | undefined, lang: Lang): Promise<void> {
+  await ctx.answerCallbackQuery(toast === undefined ? undefined : { text: toast });
+
+  const all = data.startsWith(cb.schedSetAll);
+  const parts = data.slice((all ? cb.schedSetAll : cb.schedSet).length).split(':');
+  const minutes = Number(all ? parts[0] : parts[1]) === 0 ? null : Number(all ? parts[0] : parts[1]);
+  const sourceId = all ? null : Number(parts[0]);
+  // Only the offered values are legal; anything else is a forged callback.
+  if ((!all && !Number.isInteger(sourceId)) || (minutes !== null && !SCHEDULE_OPTIONS.includes(minutes))) return;
+
+  const user = ensureUser(deps.db, userId);
+  const targets = all
+    ? sourceIdsForUser(deps.db, user.id)
+    : sourceId !== null && ownsSource(deps.db, user.id, sourceId)
+      ? [sourceId]
+      : [];
+  if (targets.length === 0) return;
+
+  const now = Date.now();
+  tx(deps.db, () => {
+    for (const id of targets) {
+      setSourceInterval(deps.db, id, minutes);
+      // The new cadence applies now, not at the old slot (§4.3).
+      for (const slot of subscriptionSlots(deps.db, id)) setNextSlot(deps.db, slot.id, slotAfter(now, slot.tz, minutes));
+    }
+  });
+  log('info', 'schedule_set', { sources: targets.length, minutes });
+
+  if (all) return paint(ctx, s16Picker(null, lang));
+  const card = sourceId === null ? undefined : getSourceCard(deps.db, user.id, sourceId);
+  if (card) await paint(ctx, s16Picker(card, lang));
+}
+
 /** S10: the confirm is a separate message, so a mis-tap cannot delete anything (ADR-016). */
 async function askDelete(ctx: Context, deps: BotDeps, userId: number, sourceId: number): Promise<void> {
   const user = ensureUser(deps.db, userId);
@@ -616,21 +695,28 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
 
     const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
-    let author: string | null = null;
+    let engineAuthor: string | null = null;
     try {
       const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
-      author = resolved.artist ?? null;
+      // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
+      // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
+      const engineText = resolved.title?.trim() || null;
+      const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? (await pageText(deps.http, ref.canonicalUrl));
+      engineAuthor = resolved.artist?.trim() || null;
+      // The account names the source; when nobody names it, the host does, so the text stays the body.
+      const source = engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
       const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
       // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
       const page: ReadMorePage = {
         id: 0,
         url: ref.canonicalUrl,
         publishedAt: null,
-        title: author,
-        parts: resolved.title === null ? [] : [resolved.title],
+        // The post's own words are the body; a title here would print its first line twice.
+        title: null,
+        parts: text === null ? [] : [text],
         images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
       };
-      const plan = await withReadMore(renderDownload(files, resolved, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: author }, new Map());
+      const plan = await withReadMore(renderDownload(files, { title: text, artist: source }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_done', { user: userId, parts: ids.length });
@@ -638,11 +724,11 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       await cleanupWorkDir(dir);
     }
     // A bare post link does not name its account; the engine often does, so offer it here.
-    const profile = author === null ? null : profileFromAuthor(ref.platform, author);
+    const profile = engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor);
     setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile, profile } });
     await ctx.reply(downloadDone(langOf(deps, userId)), {
       parse_mode: 'HTML',
-      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : author),
+      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : engineAuthor),
     });
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'download', link });
@@ -673,6 +759,10 @@ function toastFor(data: string, lang: Lang): string | undefined {
   if (data.startsWith(cb.on)) return toast.enabled;
   if (data.startsWith(cb.off)) return toast.disabled;
   if (data.startsWith(cb.check)) return toast.checkQueued;
+  if (data.startsWith(cb.schedSetAll)) return toast.scheduleSet;
+  if (data.startsWith(cb.schedSet)) return toast.scheduleSet;
+  // The list, its pager and the bulk picker answer silently; only a cadence change deserves a toast.
+  if (data.startsWith(cb.schedOpen) || data.startsWith(cb.schedPage) || data === cb.schedAll) return undefined;
   if (data.startsWith(cb.delOk)) return toast.deleted;
   switch (data) {
     case cb.sources:
@@ -689,6 +779,7 @@ function toastFor(data: string, lang: Lang): string | undefined {
     case cb.supported:
     case cb.help:
     case cb.language:
+    case cb.schedule:
       return undefined;
     default:
       return genericToast(lang).unknown;
@@ -721,6 +812,9 @@ const refOf = (pending: PendingSource): SourceRef => ({
 
 const idOf = (data: string, prefix: string): number => Number(data.slice(prefix.length));
 
+/** A header label for a post nobody signed: the site itself is the least invented name. */
+const hostOf = (url: string): string => new URL(url).hostname.replace(/^www\./, '');
+
 /** Screens replace the current message so the chat does not fill with drafts. */
 async function paint(ctx: Context, view: View): Promise<void> {
   try {
@@ -729,6 +823,12 @@ async function paint(ctx: Context, view: View): Promise<void> {
     if (notModified(err)) return;
     throw err;
   }
+}
+
+/** A command has no message to edit; the S1 button does. */
+async function paintOrReply(ctx: Context, view: View): Promise<void> {
+  if (ctx.callbackQuery?.message !== undefined) return paint(ctx, view);
+  await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
 }
 
 /** Same, for a rich message: the body travels in the html field, not in text. */

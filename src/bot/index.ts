@@ -10,7 +10,7 @@ import type { TelegraphClient } from '../article/telegraph.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
 import { TelegramSender } from '../telegram/api.ts';
-import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
+import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openScheduleFor, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
 import { getSession, resetSession } from './fsm.ts';
 import { langFor, t } from './i18n/index.ts';
 import { replyMenu } from './reply-menu.ts';
@@ -48,6 +48,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
       { command: 'start', description: 'Start / Main Menu' },
       { command: 'download', description: 'Download Mode' },
       { command: 'my_sources', description: 'My Sources' },
+      { command: 'schedule', description: 'Check schedule' },
       { command: 'supported_sites', description: 'Supported Sites' },
       { command: 'language', description: 'Change Interface Language' },
       { command: 'about', description: 'About' },
@@ -79,6 +80,13 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     if (userId === undefined) return;
     resetSession(userId);
     await openSourcesFor(ctx, deps, userId);
+  });
+
+  bot.command('schedule', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId === undefined) return;
+    resetSession(userId);
+    await openScheduleFor(ctx, deps, userId);
   });
 
   bot.command('supported_sites', async (ctx) => replyWith(ctx, s12View()));
