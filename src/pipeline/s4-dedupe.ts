@@ -27,6 +27,12 @@ export function assertWithinSourceLimit(db: Db, userId: number, limit: number): 
   if (countSubscriptionsForUser(db, userId) >= limit) throw new Coded(E.SOURCE_LIMIT, `limit ${limit}`);
 }
 
+interface Identity {
+  guids: Set<string>;
+  urls: Set<string>;
+  prints: Set<string>;
+}
+
 /**
  * Stage 4 read half (§5.4): the feed items this source has never recorded.
  * One identity is not enough — a guid can be regenerated, a link can gain tracking params, and a
@@ -34,15 +40,34 @@ export function assertWithinSourceLimit(db: Db, userId: number, limit: number): 
  */
 export function unseenItems(db: Db, sourceId: number, items: FeedItem[]): FeedItem[] {
   const seen = listSeenRows(db, sourceId);
-  const guids = new Set(seen.map((row) => normalizeGuid(row.guid)));
-  const urls = new Set(seen.map((row) => row.url).filter((url): url is string => url !== null).map(normalizeUrl));
-  const prints = new Set(seen.map((row) => fingerprint(titleOf(row.payload_json), row.published_at)).filter((print): print is string => print !== null));
+  return freshItems(items, {
+    guids: new Set(seen.map((row) => normalizeGuid(row.guid))),
+    urls: new Set(seen.map((row) => row.url).filter((url): url is string => url !== null).map(normalizeUrl)),
+    prints: new Set(seen.map((row) => fingerprint(titleOf(row.payload_json), row.published_at)).filter((print): print is string => print !== null)),
+  });
+}
 
+/**
+ * One identity per batch. RSSHub lists a pinned post and its timeline copy as two items with
+ * different guids; inserting both would deliver the same post twice.
+ */
+export function uniqueItems(items: FeedItem[]): FeedItem[] {
+  return freshItems(items, { guids: new Set(), urls: new Set(), prints: new Set() });
+}
+
+/** Keeps the first item of each identity and remembers it, so the batch also dedupes against itself. */
+function freshItems(items: FeedItem[], known: Identity): FeedItem[] {
   return items.filter((item) => {
-    if (guids.has(normalizeGuid(item.guid))) return false;
-    if (item.link !== null && urls.has(normalizeUrl(item.link))) return false;
+    const guid = normalizeGuid(item.guid);
+    const url = item.link === '' ? null : normalizeUrl(item.link);
     const print = fingerprint(item.title, item.publishedAt);
-    return !(print !== null && prints.has(print));
+    if (known.guids.has(guid)) return false;
+    if (url !== null && known.urls.has(url)) return false;
+    if (print !== null && known.prints.has(print)) return false;
+    known.guids.add(guid);
+    if (url !== null) known.urls.add(url);
+    if (print !== null) known.prints.add(print);
+    return true;
   });
 }
 
@@ -116,7 +141,7 @@ export function addSource(db: Db, input: AddSourceInput): { sourceId: number; pe
     if (!subscription) throw new Coded(E.DUPLICATE, 'same source and chat');
 
     // Everything the feed showed is "seen" the moment it is recorded (§5.4).
-    const posts = insertPosts(db, source.id, input.items, now);
+    const posts = insertPosts(db, source.id, uniqueItems(input.items), now);
 
     let pending = 0;
     if (input.deliverLatest) {

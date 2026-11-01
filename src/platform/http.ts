@@ -1,3 +1,5 @@
+import { Coded, E, isCoded } from './errors.ts';
+
 /** One HTTP shape for the whole pipeline so tests can inject fixtures instead of the network. */
 export interface HttpOptions {
   maxBytes: number;
@@ -22,9 +24,15 @@ export const FEED_LIMIT = 5 * 1024 * 1024;
  * config or a fixed constant, so the SSRF guard of §12.2 does not apply.
  */
 export const trustedFetch: Http = async (url, { maxBytes, timeoutMs = 20_000 }) => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
-  const body = await readCapped(res, maxBytes);
-  return { status: res.status, url: res.url || url, contentType: res.headers.get('content-type') ?? '', body };
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    const body = await readCapped(res, maxBytes);
+    return { status: res.status, url: res.url || url, contentType: res.headers.get('content-type') ?? '', body };
+  } catch (err) {
+    // A refused connection, a TLS error or a timeout is the source being down, not an unknown bug.
+    if (isCoded(err)) throw err;
+    throw new Coded(E.FEED_DOWN, err instanceof Error ? err.message : String(err));
+  }
 };
 
 /** Reads at most `maxBytes`; a bigger response is a fetch failure, never a memory problem. */

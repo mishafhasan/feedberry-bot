@@ -22,9 +22,10 @@ import { targetOf } from '../telegram/target.ts';
 import { fetchFeed } from './s2-feed.ts';
 import { classifyMedia } from './s3-classify.ts';
 import { planArticle } from './article-plan.ts';
-import { unseenItems } from './s4-dedupe.ts';
+import { unseenItems, uniqueItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
 import { renderPost } from './s6-render.ts';
+import { pageOfPost, withReadMore } from './read-more.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
 import { deliver } from './s7-deliver.ts';
 import { recordDelivery, recordFailure, recordSuccess } from './s8-record.ts';
@@ -119,7 +120,7 @@ function persistNew(db: Db, sourceId: number, feed: ParsedFeed, freshItems: Feed
   const targets = deliveryTargets(db, sourceId);
   const freshGuids = new Set(freshItems.map((item) => item.guid));
   tx(db, () => {
-    const posts = insertPosts(db, sourceId, feed.items, now);
+    const posts = insertPosts(db, sourceId, uniqueItems(feed.items), now);
     for (const post of posts) {
       if (!freshGuids.has(post.guid)) continue;
       for (const target of targets) markPendingDelivery(db, post.id, target.chat_id, now);
@@ -127,13 +128,33 @@ function persistNew(db: Db, sourceId: number, feed: ParsedFeed, freshItems: Feed
   });
 }
 
+/**
+ * One delivery pass per source at a time. A fetch ends with a pass and the backfill job runs one of
+ * its own, so two passes would read the same `pending` rows and send them twice.
+ * shortcut: in-process only; a second process on the same file would need a claim in the database.
+ */
+const delivering = new Map<number, Promise<void>>();
+
 /** Sends everything pending for a source, per chat, oldest first (§9.3). No head-of-line blocking. */
 export async function deliverPending(deps: RunDeps, sourceId: number, now = Date.now()): Promise<{ delivered: number; failed: number }> {
+  const pass = (delivering.get(sourceId) ?? Promise.resolve()).then(() => deliverSource(deps, sourceId, now));
+  const tail = pass.then(() => undefined, () => undefined);
+  delivering.set(sourceId, tail);
+  try {
+    return await pass;
+  } finally {
+    if (delivering.get(sourceId) === tail) delivering.delete(sourceId);
+  }
+}
+
+async function deliverSource(deps: RunDeps, sourceId: number, now: number): Promise<{ delivered: number; failed: number }> {
   let delivered = 0;
   let failed = 0;
   const source = getSource(deps.db, sourceId);
   const platform = source?.platform ?? 'rss';
   const sourceTitle = source?.title ?? null;
+  // One Telegra.ph page per post, however many chats it goes to.
+  const pages = new Map<number, string | null>();
 
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
@@ -145,7 +166,8 @@ export async function deliverPending(deps: RunDeps, sourceId: number, now = Date
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
         const hookContext: HookContext = { sourceId, chatId: row.chat_id, postId: post.id, url: post.url };
-        const plan = await applyHooks('render', hookContext, await planForDelivery(deps, post, dir, platform, sourceTitle));
+        const planned = await withReadMore(await planForDelivery(deps, post, dir, platform, sourceTitle), pageOfPost(post), { telegraph: deps.telegraph, sourceTitle }, pages);
+        const plan = await applyHooks('render', hookContext, planned);
         const ids = await deliver(deps.sender, plan, target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         recordEvent(deps.db, { level: 'info', code: 'send_ok', sourceId, chatId: row.chat_id, detail: `${ids.length} parts`, at: now });
