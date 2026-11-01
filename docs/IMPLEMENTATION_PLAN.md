@@ -49,7 +49,7 @@ src/
   main.ts                 boot order: config -> db -> bot -> worker -> tick
   config.ts               env + limits (MAX_SOURCES_PER_USER=250, MAX_CHATS_PER_USER=20,
                           MAX_DOWNLOAD_MB=100, BACKFILL_COUNT=5, MAX_SOURCE_AGE_DAYS=30,
-                          WORKER_CONCURRENCY=2, MAX_DOWNLOADS_PER_DAY=30, TRIAL_ENABLED=false)
+                          WORKER_CONCURRENCY=2, MAX_DOWNLOADS_PER_DAY=300, TRIAL_ENABLED=false)
   db/
     schema.sql            the eight tables of §6 + jobs_one_active index (no credential table, ADR-017)
     index.ts              open/migrate/schema_version

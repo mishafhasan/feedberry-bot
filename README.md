@@ -49,7 +49,7 @@ All limits are config, never hard-coded (ARCHITECTURE §6). Defaults in `.env.ex
 | `BACKFILL_COUNT` | 5 | "Add and send latest posts" sends this many. |
 | `MAX_SOURCE_AGE_DAYS` | 30 | Retention for `posts`. |
 | `WORKER_CONCURRENCY` | 2 | Keep ≤ CPU cores. |
-| `MAX_DOWNLOADS_PER_DAY` | 30 | Download Mode quota. |
+| `MAX_DOWNLOADS_PER_DAY` | 300 | Download Mode quota. |
 | `TRIAL_ENABLED` | false | Shows the S1 trial line (OQ-7: off). |
 | `TELEGRAM_BETA` | false | Telegram channel sources via the public `t.me/s` page (OQ-3). |
 

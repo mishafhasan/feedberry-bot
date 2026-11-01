@@ -28,7 +28,7 @@ splitting and flood control — four places where behaviour must stay identical.
 2. Stages 3→7 run exactly as for a subscribed post, with `chat = current chat`, `thread_id = current topic`.
 3. **Nothing is written** to `sources`, `subscriptions` or `posts`; only a `deliveries` row with
    `post_id = NULL` (nullable for this case) and an `events` row for quota accounting.
-4. Quota: download requests count against a separate `MAX_DOWNLOADS_PER_DAY` (default 30), not against sources.
+4. Quota: download requests count against a separate `MAX_DOWNLOADS_PER_DAY` (default 300), not against sources.
 5. Any failure renders the standard error keyboard `[🔁 Retry] [← Back]` and returns to `idle`.
 
 ## Consequences

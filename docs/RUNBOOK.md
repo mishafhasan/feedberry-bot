@@ -79,7 +79,7 @@ snapshot of a live database, copies it back and asserts the schema version and t
 - `grep -r "secrets\|auth_ref" src/` must return nothing.
 - The bot token never reaches the DB or the logs; `src/obs/log.ts` redacts `bot<id>:<token>`, `Cookie:`
   headers and `access_key=`.
-- Quotas: `MAX_SOURCES_PER_USER` (250), `MAX_CHATS_PER_USER` (20), `MAX_DOWNLOADS_PER_DAY` (30).
+- Quotas: `MAX_SOURCES_PER_USER` (250), `MAX_CHATS_PER_USER` (20), `MAX_DOWNLOADS_PER_DAY` (300).
 - A `403` at delivery demotes the chat (`chats.can_post = 0`) instead of retrying forever.
 - Retention: posts `MAX_SOURCE_AGE_DAYS` (30), events 30 days, run by the daily `cleanup` job.
 - Instant View: set `TELEGRAPH_TOKEN` to pin one Telegra.ph account. Left empty, the bot creates an
