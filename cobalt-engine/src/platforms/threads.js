@@ -15,10 +15,9 @@ const mapQuality = quality => {
     return "best";
 }
 
-const postTitle = post => {
-    const firstLine = (post.caption || "").trim().split("\n", 1)[0] || "";
-    return firstLine.length > 150 ? firstLine.slice(0, 150) : firstLine;
-}
+// The whole caption travels with the media (same contract as instagram.js); a headline alone
+// left long posts without their words in the bot's caption.
+const postCaption = post => (post.caption || "").trim()
 
 export default async function ({ postId, username, quality, dispatcher }) {
     // username is accepted for pattern symmetry, the engine
@@ -58,6 +57,8 @@ export default async function ({ postId, username, quality, dispatcher }) {
         dispatcher: undefined
     };
 
+    const title = postCaption(post);
+
     if (post.media.length > 1) {
         const picker = post.media.map((m, i) => ({
             type: m.kind === "video" ? "video" : "photo",
@@ -70,11 +71,10 @@ export default async function ({ postId, username, quality, dispatcher }) {
             }),
         }));
 
-        if (picker.length) return { picker };
+        if (picker.length) return { picker, ...(title && { fileMetadata: { title } }) };
     }
 
     const media = post.media[0];
-    const title = postTitle(post);
 
     if (media.kind === "video") {
         return {

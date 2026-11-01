@@ -159,6 +159,35 @@ const parseCard = (cardOuter) => {
     return [card.media_entities[mediaId]];
 };
 
+// The post's own words travel with the media (same contract as instagram.js): legacy.full_text is
+// cut at 280, note_tweet carries the full long-form post.
+export const tweetText = (thread, id) => {
+    const addInsn = thread?.data?.threaded_conversation_with_injections_v2?.instructions?.find(
+        insn => insn.type === 'TimelineAddEntries'
+    );
+
+    let result = addInsn?.entries?.find(
+        entry => entry.entryId === `tweet-${id}`
+    )?.content?.itemContent?.tweet_results?.result;
+
+    if (!result) return '';
+    if (result.__typename === 'TweetWithVisibilityResults') result = result.tweet;
+
+    const note = result?.note_tweet?.note_tweet_results?.result?.text;
+    return plainText(note || result?.legacy?.full_text || '');
+}
+
+const plainText = (text) => {
+    const decoded = (text || '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+        .trim();
+
+    // X appends media and self-links as t.co URLs; they are not the post's words.
+    const stripped = decoded.replace(/\s*https:\/\/t\.co\/\w+\s*$/u, '').trim();
+    return stripped || decoded;
+};
+
 const extractGraphqlMedia = async (thread, dispatcher, id, guestToken, cookie) => {
     const addInsn = thread?.data?.threaded_conversation_with_injections_v2?.instructions?.find(
         insn => insn.type === 'TimelineAddEntries'
@@ -224,8 +253,10 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
     }
 
     let media;
+    let text = '';
     try {
         tweet = await tweet.json();
+        text = tweetText(tweet, id);
         media = await extractGraphqlMedia(tweet, dispatcher, id, guestToken, cookie);
     } catch {}
 
@@ -234,6 +265,7 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
         try {
             tweet = await requestSyndication(dispatcher, id);
             tweet = await tweet.json();
+            text = text || plainText(tweet?.text);
 
             if (tweet?.card) {
                 media = parseCard(tweet.card);
@@ -297,7 +329,8 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                     type: "proxy",
                     isPhoto: true,
                     filename: `twitter_${id}.${getFileExt(mediaItem.media_url_https)}`,
-                    urls: `${mediaItem.media_url_https}?name=4096x4096`
+                    urls: `${mediaItem.media_url_https}?name=4096x4096`,
+                    ...(text && { fileMetadata: { title: text } }),
                 }
             }
 
@@ -321,7 +354,7 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                 audioFilename: `twitter_${id}_audio`,
                 isGif: mediaItem.type === "animated_gif",
                 subtitles,
-                fileMetadata,
+                ...((text || fileMetadata) && { fileMetadata: { ...(text && { title: text }), ...fileMetadata } }),
             }
         default:
             const proxyThumb = (url, i) =>
@@ -365,6 +398,6 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                     thumb: proxyThumb(content.media_url_https, i),
                 }
             });
-            return { picker };
+            return { picker, ...(text && { fileMetadata: { title: text } }) };
     }
 }

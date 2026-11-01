@@ -53,6 +53,12 @@ export default async function(input) {
         ...element?.trail?.map(t => t.content).flat()
     ]
 
+    // The post's own words travel with the media; the reblog trail is not the author's caption.
+    const text = (element.content || [])
+        .filter(c => c.type === 'text' && c.text?.trim())
+        .map(c => c.text.trim())
+        .join('\n\n');
+
     const audio = contents.find(c => c.type === 'audio');
     if (audio && audio.provider === 'tumblr') {
         const fileMetadata = {
@@ -102,14 +108,16 @@ export default async function(input) {
             return {
                 urls: item.url,
                 filename: `tumblr_${input.id}.mp4`,
-                audioFilename: `tumblr_${input.id}_audio`
+                audioFilename: `tumblr_${input.id}_audio`,
+                ...(text && { fileMetadata: { title: text } })
             }
         }
 
         return {
             urls: item.url,
             isPhoto: true,
-            filename: `tumblr_${input.id}.${item.ext}`
+            filename: `tumblr_${input.id}.${item.ext}`,
+            ...(text && { fileMetadata: { title: text } })
         }
     }
 
@@ -126,7 +134,8 @@ export default async function(input) {
                         filename: `tumblr_${input.id}_${i + 1}.jpg`
                     })
                 })
-            }))
+            })),
+            ...(text && { fileMetadata: { title: text } })
         }
     }
 

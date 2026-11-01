@@ -120,37 +120,44 @@ export default async function ({ user, post, alwaysProxy, dispatcher }) {
     const embedType = getPost?.thread?.post?.embed?.$type;
     const filename = `bluesky_${user}_${post}`;
 
+    // The post's words and author travel with the media (same contract as instagram.js).
+    const record = getPost?.thread?.post;
+    const text = (record?.record?.text || '').trim();
+    const author = record?.author?.handle;
+    const meta = text || author ? { fileMetadata: { ...(text && { title: text }), ...(author && { artist: author }) } } : {};
+    const withMeta = (result) => (result?.error ? result : { ...result, ...meta });
+
     switch (embedType) {
         case "app.bsky.embed.video#view":
-            return extractVideo({
+            return withMeta(await extractVideo({
                 media: getPost.thread?.post?.embed,
                 filename,
-            });
+            }));
 
         case "app.bsky.embed.images#view":
-            return extractImages({
+            return withMeta(extractImages({
                 getPost,
                 filename,
                 alwaysProxy
-            });
+            }));
 
         case "app.bsky.embed.external#view":
-            return extractGif({
+            return withMeta(extractGif({
                 url: getPost?.thread?.post?.embed?.external?.uri,
                 filename,
-            });
+            }));
 
         case "app.bsky.embed.recordWithMedia#view":
             if (getPost?.thread?.post?.embed?.media?.$type === "app.bsky.embed.external#view") {
-                return extractGif({
+                return withMeta(extractGif({
                     url: getPost?.thread?.post?.embed?.media?.external?.uri,
                     filename,
-                });
+                }));
             }
-            return extractVideo({
+            return withMeta(await extractVideo({
                 media: getPost.thread?.post?.embed?.media,
                 filename,
-            });
+            }));
     }
 
     return { error: "fetch.empty" };
