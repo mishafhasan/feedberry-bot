@@ -62,7 +62,8 @@ All limits are config, never hard-coded (ARCHITECTURE §6). Defaults in `.env.ex
   transcoded. Any clip 3 minutes or longer goes the thumbnail route too (ADR-012).
 - **"Instant View" is a Telegra.ph rewrite.** Telegram's IV works per domain and a bot cannot register a
   template, so articles are converted to a Telegra.ph page (which already has an IV template) and the link is
-  sent. On failure the original link is sent instead (ADR-007).
+  sent. On failure the original link is sent instead (ADR-007). Blog and website posts opened in that Instant
+  View page come with Telegram's Cocoon AI summary at the top.
 - **Fidelity limit.** Telegram HTML supports text formatting and links only: no custom fonts, CSS, image
   grids or carousel chrome. Media order + caption + author name is the maximum achievable; this project never
   claims pixel-identical reproduction (OQ-6).

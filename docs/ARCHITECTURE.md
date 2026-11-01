@@ -39,6 +39,7 @@ Locked inputs (do not redesign):
 ### 1.2 Non-goals (explicitly out)
 
 - AI routing, summaries, digests, rephrasing, ad detection, custom prompts. Only a hook is defined (§5.7).
+  The Cocoon AI summary that Telegram shows on top of an Instant View article is not bot AI (§8.5).
 - Billing, plans, trials. The S1 screenshot shows `Plan: Free Trial` and `Trial ends: …`; see OQ-7.
 - Multi-tenant SaaS, horizontal scaling, HA.
 - Web UI, mobile app, or a second bot.
@@ -554,6 +555,10 @@ chaining "Read Next page" links, exactly as `formatbot1/src/api/utils/makeTelegr
 (b) R13 title + lead + original link; (c) for paywalled/JS-only pages: title + link only.
 No headless browser in MVP (memory, C2); Puppeteer stays behind a flag, mirroring formatbot1's
 `NO_PUPPET` switch `[FB-README]`.
+
+**Cocoon AI summary (free, no code).** Blog and website posts reach the reader as a Telegra.ph page opened
+in Instant View, and Telegram prepends its own Cocoon AI summary to such a page. The bot neither generates
+it nor sends it — it comes with the IV rendering of the page the bot already links to.
 
 ### 8.6 Duration probe (the 3-minute rule)
 

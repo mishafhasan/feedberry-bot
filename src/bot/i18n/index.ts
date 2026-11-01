@@ -28,6 +28,7 @@ const EN = {
 💬 Delivery to your DM, channels, groups and forum topics
 🖼 Photos, videos, albums and files in original quality.
 ⬇️ Full article text: the bot pulls the whole article from the link and converts it into telegram instant view, with media and without ads.
+🤖 AI Summary: blog and website posts in instant view open with a short summary by Cocoon AI.
 🧠 Smart routing: AI detects the topic of each post and sorts posts from sources across chats and forum topics
 ⚡ Fast source checks: with custom interval
 ©️ Save media without watermarks and logo.
@@ -145,6 +146,7 @@ const RU: Partial<Dict> = {
 💬 Доставка в личные сообщения, каналы, группы и темы форума.
 🖼 Фото, видео, альбомы и файлы в исходном качестве.
 ⬇️ Полный текст статьи: бот забирает статью по ссылке и открывает её в Instant View, с медиа и без рекламы.
+🤖 ИИ-саммари: статьи с сайтов и блогов в Instant View открываются с кратким саммари от Cocoon AI.
 🧠 Умная маршрутизация: ИИ определяет тему поста и распределяет посты по чатам и темам.
 ⚡ Быстрые проверки источников: с настраиваемым интервалом.
 ©️ Медиа без водяных знаков и логотипов.
@@ -245,6 +247,7 @@ const ES: Partial<Dict> = {
 💬 Entrega en tu chat privado, canales, grupos y temas del foro.
 🖼 Fotos, vídeos, álbumes y archivos en calidad original.
 ⬇️ Texto completo: el bot extrae el artículo y lo abre en Instant View, con medios y sin anuncios.
+🤖 Resumen IA: los artículos de webs y blogs en Instant View se abren con un resumen breve de Cocoon AI.
 🧠 Enrutado inteligente: la IA detecta el tema y reparte las publicaciones.
 ⚡ Comprobaciones rápidas con intervalo personalizado.
 ©️ Medios sin marcas de agua ni logotipos.
@@ -343,6 +346,7 @@ const HI: Partial<Dict> = {
 💬 DM, चैनल, ग्रुप और फ़ोरम टॉपिक में डिलीवरी।
 🖼 फ़ोटो, वीडियो, एल्बम और फ़ाइलें मूल गुणवत्ता में।
 ⬇️ पूरा लेख: बॉट लिंक से लेख निकालकर Instant View में खोलता है, बिना विज्ञापन।
+🤖 AI सारांश: वेबसाइट/ब्लॉग लेख Instant View में Cocoon AI का छोटा सारांश के साथ खुलते हैं।
 🧠 स्मार्ट रूटिंग: AI पोस्ट का विषय पहचानकर सही चैट में भेजता है।
 ⚡ तेज़ जाँच: अपने अंतराल के साथ।
 ©️ वॉटरमार्क और लोगो के बिना मीडिया।
@@ -441,6 +445,7 @@ const TA: Partial<Dict> = {
 💬 DM, சேனல், குழு மற்றும் ஃபோரம் தலைப்புகளுக்கு வழங்கல்.
 🖼 புகைப்படங்கள், வீடியோக்கள், ஆல்பங்கள் அசல் தரத்தில்.
 ⬇️ முழு கட்டுரை: இணைப்பிலிருந்து கட்டுரையை எடுத்து Instant View-ல் திறக்கும், விளம்பரம் இல்லாமல்.
+🤖 AI சுருக்கம்: வலைத்தள/வலைப்பதிவு கட்டுரைகள் Instant View-ல் Cocoon AI-யின் சுருக்கத்துடன் திறக்கும்.
 🧠 ஸ்மார்ட் ரூட்டிங்: AI இடுகையின் தலைப்பை அறிந்து சரியான அரட்டைக்கு அனுப்பும்.
 ⚡ விரைவான சோதனை: உங்கள் இடைவெளியுடன்.
 ©️ நீர்அடையாளம் இல்லாத மீடியா.
@@ -539,6 +544,7 @@ const ID: Partial<Dict> = {
 💬 Kirim ke DM, channel, grup, dan topik forum.
 🖼 Foto, video, album, dan berkas dengan kualitas asli.
 ⬇️ Teks artikel lengkap: bot mengambil artikel dan membukanya di Instant View, dengan media dan tanpa iklan.
+🤖 Ringkasan AI: artikel situs/blog di Instant View terbuka dengan ringkasan singkat dari Cocoon AI.
 🧠 Perutean pintar: AI mengenali topik postingan dan mengirimnya ke chat yang tepat.
 ⚡ Pemeriksaan cepat dengan interval sendiri.
 ©️ Media tanpa watermark dan logo.
