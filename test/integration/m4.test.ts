@@ -43,7 +43,7 @@ const count = (db: Db, sql: string, ...args: Array<string | number>): number => 
 /** M4 is text-only: the engine reports no media for any URL. */
 const noMedia: MediaEngine = {
   async resolve() {
-    return { items: [], title: null };
+    return { items: [], title: null, artist: null };
   },
   async download() {
     throw new Error('no media in M4');

@@ -31,18 +31,18 @@ export function s1Text({ userId, sourceCount, limit, trialEnabled, lang = 'en' }
 /** S2 — add source. Reddit is gone (OQ-2); Telegram is beta and hidden by default (OQ-3). */
 export function s2Text(telegramBeta: boolean, lang: Lang = 'en'): string {
   const rows: string[] = [
-    '📡 RSS Feed\nhttps://feeds.bbci.co.uk/news/world/rss.xml',
-    ...(telegramBeta ? ['✈️ Telegram\nhttps://t.me/telegram'] : []),
-    '✖️ Twitter/X\nhttps://twitter.com/elonmusk',
-    '📸 Instagram\nhttps://www.instagram.com/cristiano/',
-    '▶️ YouTube\nhttps://www.youtube.com/@MrBeast',
-    '🧵 Threads\nhttps://www.threads.net/@zuck',
-    '🎵 TikTok\nhttps://www.tiktok.com/@username',
-    `👻 Snapchat\n${t(lang, 's2.snapchat')}`,
-    '📝 Tumblr\nhttps://staff.tumblr.com/',
-    '📌 Pinterest\nhttps://www.pinterest.com/pinterest/',
-    '📘 Facebook\nhttps://www.facebook.com/meta',
-    '🦋 Bluesky\nhttps://bsky.app/profile/bsky.app',
+    `${platformIcon('rss')} RSS Feed\nhttps://feeds.bbci.co.uk/news/world/rss.xml`,
+    ...(telegramBeta ? [`${platformIcon('telegram')} Telegram\nhttps://t.me/telegram`] : []),
+    `${platformIcon('x')} Twitter/X\nhttps://twitter.com/elonmusk`,
+    `${platformIcon('instagram')} Instagram\nhttps://www.instagram.com/cristiano/`,
+    `${platformIcon('youtube')} YouTube\nhttps://www.youtube.com/@MrBeast`,
+    `${platformIcon('threads')} Threads\nhttps://www.threads.net/@zuck`,
+    `${platformIcon('tiktok')} TikTok\nhttps://www.tiktok.com/@username`,
+    `${platformIcon('snapchat')} Snapchat\n${t(lang, 's2.snapchat')}`,
+    `${platformIcon('tumblr')} Tumblr\nhttps://staff.tumblr.com/`,
+    `${platformIcon('pinterest')} Pinterest\nhttps://www.pinterest.com/pinterest/`,
+    `${platformIcon('facebook')} Facebook\nhttps://www.facebook.com/meta`,
+    `${platformIcon('bluesky')} Bluesky\nhttps://bsky.app/profile/bsky.app`,
   ];
   return `${t(lang, 's2.title')}\n\n${rows.join('\n\n')}\n\n${t(lang, 's2.outro')}`;
 }
@@ -200,19 +200,25 @@ export function humanAge(ms: number | null, now = Date.now(), lang: Lang = 'en')
   return `${Math.round(seconds / 86_400)}d`;
 }
 
-/** Custom emoji ids: the owner's LOGOsEmoji pack plus the bot's own Bluesky set (Premium required). */
+/**
+ * Custom emoji ids from the bot's own `feedberry_platforms` set, built from the owner's SVG logos.
+ * shortcut: Telegram keeps these only while the bot's owner holds Premium — without it the tags
+ * are stripped server-side and the plain emoji below shows; check `entities` before debugging.
+ */
 const PLATFORM_EMOJI: Partial<Record<Platform, string>> = {
-  instagram: '5355097780228470775',
-  tiktok: '5353034628263330616',
-  youtube: '5355235592844095825',
+  rss: '6282825765729870159',
+  instagram: '6282526363559666134',
+  facebook: '6285118037020385408',
+  x: '6282804857829074968',
+  threads: '6284863890920580522',
+  pinterest: '6285192838170812551',
+  snapchat: '6285268536969404344',
+  bluesky: '6285027284361421263',
+  tumblr: '6282794657281747348',
+  youtube: '6284892345078917308',
+  // No SVG supplied yet, so these two still borrow the LOGOsEmoji pack.
   telegram: '5352877806122447940',
-  facebook: '5355254460635428635',
-  snapchat: '5352719553757466112',
-  x: '5355148941878900494',
-  threads: '5352562529753121269',
-  tumblr: '5355232826885161329',
-  pinterest: '5352595631066071365',
-  bluesky: '6282542035895330991',
+  tiktok: '5353034628263330616',
 };
 
 /** The plain emoji stays inside as the fallback for clients that ignore custom emoji. */

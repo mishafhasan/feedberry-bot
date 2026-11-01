@@ -30,7 +30,7 @@ const WIRED = fileURLToPath(new URL('../fixtures/wired.html', import.meta.url));
 
 const engine: MediaEngine = {
   async resolve() {
-    return { items: [], title: 'Cobalt title' };
+    return { items: [], title: 'Cobalt title', artist: null };
   },
   async download() {
     throw new Error('no download expected');

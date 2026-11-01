@@ -43,7 +43,7 @@ const http: Http = async (url) => {
 /** Articles have no media; the engine must never be asked for bytes. */
 const noMedia: MediaEngine = {
   async resolve() {
-    return { items: [], title: null };
+    return { items: [], title: null, artist: null };
   },
   async download() {
     throw new Error('no media expected');
@@ -75,7 +75,7 @@ test('M7: article posts become Instant View links, thin posts become link cards'
       { guid: 'a-wired', link: 'https://blog.example.test/wired', title: 'Wired piece' },
       { guid: 'a-long', link: 'https://blog.example.test/long', title: 'Long read' },
       { guid: 'a-thin', link: 'https://blog.example.test/thin', title: 'Short note' },
-    ].map((raw) => ({ ...raw, summary: null, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] as const }));
+    ].map((raw) => ({ ...raw, summary: null, publishedAt: Date.parse('2025-10-24T10:00:00Z'), media: [] }));
     for (const entry of insertPosts(db, source.id, posts)) markPendingDelivery(db, entry.id, chat.id);
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });

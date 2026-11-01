@@ -182,8 +182,7 @@ export function profileFromAuthor(platform: Platform, author: string): string | 
       return `https://threads.com/@${name}`;
     case 'tiktok':
       return `https://tiktok.com/@${name}`;
-    case 'youtube':
-      return `https://youtube.com/@${name}`;
+    // youtube is missing on purpose: its artist is the channel title, not a handle.
     case 'bluesky':
       return `https://bsky.app/profile/${name}`;
     default:

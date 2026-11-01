@@ -45,7 +45,7 @@ const MEDIA: Record<string, MediaItem & { bytes?: number }> = {
 const engine: MediaEngine = {
   async resolve(url) {
     const item = MEDIA[url];
-    return { items: item ? [item] : [], title: 'Video post' };
+    return { items: item ? [item] : [], title: 'Video post', artist: null };
   },
   async download(item, dir) {
     mkdirSync(dir, { recursive: true });
