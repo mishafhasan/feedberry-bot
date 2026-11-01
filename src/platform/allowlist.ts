@@ -24,12 +24,15 @@ const HOSTS: Record<string, Platform> = {
   'snapchat.com': 'snapchat',
 };
 
-/** Host without `www.`/`m.`, lowercased. */
+/** Host without `www.`/`web.`/`m.`, lowercased. */
 export function normalizeHost(host: string): string {
-  return host.toLowerCase().replace(/^(www|m|mobile)\./, '');
+  return host.toLowerCase().replace(/^(www|web|m|mobile)\./, '');
 }
 
 export function platformForHost(host: string): Platform | undefined {
+  const raw = host.toLowerCase();
+  // TikTok share hosts carry the post code as the only path segment.
+  if (raw === 'vm.tiktok.com' || raw === 'vt.tiktok.com' || raw === 't.tiktok.com') return 'tiktok';
   const name = normalizeHost(host);
   const exact = HOSTS[name];
   if (exact) return exact;

@@ -60,8 +60,14 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
       throw new Coded(E.COOKIE_REQUIRED, 'x.com needs instance OAuth tokens (ADR-017)');
     }
     case 'tiktok': {
-      if (seg[1] === 'video' || seg[0] === 't') return single(u, platform, seg[2] ?? seg[0] ?? '');
-      return profile(platform, `https://tiktok.com/@${user(seg[0])}`, user(seg[0]), rsshub(opts, `/tiktok/user/${user(seg[0])}`));
+      const [first, second, third] = seg;
+      // /@user/video/<id>, /@user/photo/<id> (carousel), /v/<id>.html (legacy).
+      if (second === 'video' || second === 'photo') return single(u, platform, third ?? '');
+      if (first === 'v' && second) return single(u, platform, second.replace(/\.html$/, ''));
+      // Share links: /t/<code> and the vm./vt. hosts, where the code is the only segment.
+      if (first === 't' && second) return single(u, platform, second);
+      if (first && !first.startsWith('@') && !second) return single(u, platform, first);
+      return profile(platform, `https://tiktok.com/@${user(first)}`, user(first), rsshub(opts, `/tiktok/user/${user(first)}`));
     }
     case 'threads': {
       if (seg[1] === 'post' || seg[0] === 't') return single(u, 'threads', seg[2] ?? seg[0] ?? '');
@@ -70,8 +76,15 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     }
     case 'tumblr': {
       if (seg[0] === 'post') return single(u, platform, seg[1] ?? '');
-      const blog = normalizeHost(u.hostname);
-      return profile(platform, `https://${blog}`, blog, `https://${blog}/rss`, 'native_rss');
+      const host = normalizeHost(u.hostname);
+      // Modern post links live on the bare host: tumblr.com/<blog>/<id>/<slug>.
+      if (host === 'tumblr.com') {
+        const [blog, id] = seg;
+        if (!blog) throw new Coded(E.LINK_INVALID, 'blog missing');
+        if (id && /^\d+$/.test(id)) return single(u, platform, id, `https://${blog}.tumblr.com/post/${id}`);
+        return profile(platform, `https://${blog}.tumblr.com`, blog, `https://${blog}.tumblr.com/rss`, 'native_rss');
+      }
+      return profile(platform, `https://${host}`, host, `https://${host}/rss`, 'native_rss');
     }
     case 'pinterest': {
       const [first, second] = seg;
@@ -81,8 +94,27 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
       return profile(platform, `https://pinterest.com/${name}`, name, rsshub(opts, `/pinterest/user/${name}`));
     }
     case 'facebook': {
-      const [first, second] = seg;
-      if (first === 'videos' || first === 'reel' || first === 'watch' || first === 'photo') return single(u, platform, second ?? '');
+      const [first, second, third, fourth] = seg;
+      // /photo?fbid=<id> keeps its query: cobalt matches `photo?fbid=:id`.
+      if (first === 'photo' || first === 'photo.php') {
+        const fbid = u.searchParams.get('fbid');
+        if (!fbid) throw new Coded(E.LINK_INVALID, 'photo without fbid');
+        return single(u, platform, fbid, `https://facebook.com/photo?fbid=${fbid}`);
+      }
+      // /watch?v=<id>: cobalt rewrites the query to a video URL itself.
+      if (first === 'watch') {
+        const v = u.searchParams.get('v');
+        if (!v) throw new Coded(E.LINK_INVALID, 'watch without v');
+        return single(u, platform, v, `https://facebook.com/watch?v=${v}`);
+      }
+      if (first === 'videos' || first === 'reel' || first === 'reels') return single(u, platform, second ?? '');
+      // A page-scoped video: /<user>/videos/<slug>/<id> or /<user>/videos/<id>.
+      if (second === 'videos') {
+        const id = fourth || third || '';
+        if (id === '') throw new Coded(E.LINK_INVALID, 'video without id');
+        return single(u, platform, id);
+      }
+      if (second === 'reels' && third) return single(u, platform, third);
       return profile(platform, `https://facebook.com/${user(first)}`, user(first), rsshub(opts, `/facebook/${user(first)}`));
     }
     case 'youtube': {
@@ -114,8 +146,11 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
       return profile(platform, `https://t.me/${channel}`, channel, rsshub(opts, `/telegram/channel/${channel}`));
     }
     case 'snapchat': {
-      const [first, second] = seg;
+      const [first, second, third] = seg;
       if (first === 'spotlight' || first === 't') return single(u, platform, second ?? '');
+      // The apps share /@user/spotlight/<id>, and o/<id> is the old spotlight form.
+      if (first?.startsWith('@') && second === 'spotlight') return single(u, platform, third ?? '');
+      if (first === 'o' && second) return single(u, platform, second);
       // OQ-1: no profile feed exists; single links only.
       throw new Coded(E.NO_FEED, 'snapchat has no profile feed');
     }
@@ -220,9 +255,9 @@ function profile(platform: Platform, canonicalUrl: string, externalId: string, f
   return { platform, canonicalUrl, externalId, feedUrl, strategy };
 }
 
-function single(u: URL, platform: Platform, externalId: string): SourceRef {
+function single(u: URL, platform: Platform, externalId: string, canonicalUrl?: string): SourceRef {
   const path = u.pathname.replace(/\/+$/, '');
-  return { platform, canonicalUrl: `https://${normalizeHost(u.hostname)}${path}`, externalId, feedUrl: null, strategy: 'single_post' };
+  return { platform, canonicalUrl: canonicalUrl ?? `https://${normalizeHost(u.hostname)}${path}`, externalId, feedUrl: null, strategy: 'single_post' };
 }
 
 /** A plain website: use it as a feed if it looks like one, otherwise discover (stage 2). */

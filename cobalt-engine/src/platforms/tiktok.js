@@ -133,6 +133,9 @@ export default async function(obj) {
         filenameBase = `tiktok_${detail.author?.uniqueId}_${postId}`,
         bestAudio; // will get defaulted to m4a later on in match-action
 
+    // The caption travels with the media (same contract as instagram.js).
+    const caption = (detail.desc || '').trim();
+
     images = detail.imagePost?.images;
 
     let playAddr = pickPlayAddr(detail);
@@ -181,7 +184,7 @@ export default async function(obj) {
         return {
             urls: video,
             subtitles,
-            fileMetadata,
+            ...((caption || fileMetadata) && { fileMetadata: { ...(caption && { title: caption }), ...fileMetadata } }),
             filename: videoFilename,
             headers
         }
@@ -220,7 +223,8 @@ export default async function(obj) {
             audioFilename: audioFilename,
             isAudioOnly: true,
             bestAudio,
-            headers
+            headers,
+            ...(caption && { fileMetadata: { title: caption } })
         }
     }
 
@@ -230,7 +234,8 @@ export default async function(obj) {
             audioFilename: audioFilename,
             isAudioOnly: true,
             bestAudio,
-            headers
+            headers,
+            ...(caption && { fileMetadata: { title: caption } })
         }
     }
 
