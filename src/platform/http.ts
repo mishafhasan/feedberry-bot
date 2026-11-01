@@ -4,6 +4,8 @@ import { Coded, E, isCoded } from './errors.ts';
 export interface HttpOptions {
   maxBytes: number;
   timeoutMs?: number;
+  /** Extra request headers; an adapter that needs the site's rendered variant sets them here. */
+  headers?: Record<string, string>;
 }
 
 export interface HttpResponse {
@@ -23,9 +25,9 @@ export const FEED_LIMIT = 5 * 1024 * 1024;
  * Trusted fetch for operator-configured endpoints (RSSHub, Bluesky AppView): the host comes from
  * config or a fixed constant, so the SSRF guard of §12.2 does not apply.
  */
-export const trustedFetch: Http = async (url, { maxBytes, timeoutMs = 20_000 }) => {
+export const trustedFetch: Http = async (url, { maxBytes, timeoutMs = 20_000, headers }) => {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow', headers });
     const body = await readCapped(res, maxBytes);
     return { status: res.status, url: res.url || url, contentType: res.headers.get('content-type') ?? '', body };
   } catch (err) {

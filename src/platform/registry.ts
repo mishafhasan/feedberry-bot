@@ -70,7 +70,8 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
       return profile(platform, `https://tiktok.com/@${user(first)}`, user(first), rsshub(opts, `/tiktok/user/${user(first)}`));
     }
     case 'threads': {
-      if (seg[1] === 'post' || seg[0] === 't') return single(u, 'threads', seg[2] ?? seg[0] ?? '');
+      // `/t/<code>` is the short form: the code is the first segment, not the second.
+      if (seg[1] === 'post' || seg[0] === 't') return single(u, 'threads', (seg[1] === 'post' ? seg[2] : seg[1]) ?? '');
       // OQ-4: both hosts accepted, canonical is threads.com, RSSHub gets the bare username.
       return profile('threads', `https://threads.com/@${user(seg[0])}`, user(seg[0]), rsshub(opts, `/threads/${user(seg[0])}`));
     }

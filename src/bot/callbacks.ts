@@ -7,9 +7,10 @@ import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, set
 import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionSlots } from '../db/repos/subscriptions.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
-import type { MediaEngine } from '../media/cobalt.ts';
+import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
+import { fetchThreadsThread, type ThreadDoc } from '../platform/feed/threads.ts';
 import type { Http } from '../platform/http.ts';
 import { detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type SourceRef } from '../platform/registry.ts';
 import { pageText } from '../platform/page-text.ts';
@@ -20,6 +21,8 @@ import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
 import { withReadMore, type ReadMorePage } from '../pipeline/read-more.ts';
+import { postHeader } from '../render/caption.ts';
+import { type MediaFile, type MessagePlan } from '../render/plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import { hiddenMenu, menuLabels } from './reply-menu.ts';
@@ -696,27 +699,35 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
     let engineAuthor: string | null = null;
+    let plan: MessagePlan;
     try {
-      const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
-      // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
-      // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
-      const engineText = resolved.title?.trim() || null;
-      const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? (await pageText(deps.http, ref.canonicalUrl));
-      engineAuthor = resolved.artist?.trim() || null;
-      // The account names the source; when nobody names it, the host does, so the text stays the body.
-      const source = engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
-      const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-      // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
-      const page: ReadMorePage = {
-        id: 0,
-        url: ref.canonicalUrl,
-        publishedAt: null,
-        // The post's own words are the body; a title here would print its first line twice.
-        title: null,
-        parts: text === null ? [] : [text],
-        images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
-      };
-      const plan = await withReadMore(renderDownload(files, { title: text, artist: source }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+      // Threads renders the whole thread into the post page itself; cobalt would only see one post.
+      const thread = ref.platform === 'threads' ? await threadsOrNull(deps, ref.canonicalUrl) : null;
+      if (thread !== null) {
+        engineAuthor = thread.author;
+        plan = await threadDelivery(deps, thread, ref.canonicalUrl, dir, signal);
+      } else {
+        const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
+        // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
+        // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
+        const engineText = resolved.title?.trim() || null;
+        const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? (await pageText(deps.http, ref.canonicalUrl));
+        engineAuthor = resolved.artist?.trim() || null;
+        // The account names the source; when nobody names it, the host does, so the text stays the body.
+        const source = engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
+        const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+        // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
+        const page: ReadMorePage = {
+          id: 0,
+          url: ref.canonicalUrl,
+          publishedAt: null,
+          // The post's own words are the body; a title here would print its first line twice.
+          title: null,
+          parts: text === null ? [] : [text],
+          images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
+        };
+        plan = await withReadMore(renderDownload(files, { title: text, artist: source }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+      }
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_done', { user: userId, parts: ids.length });
@@ -735,6 +746,46 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
   } finally {
     if (working !== undefined && chatId !== undefined) await ctx.api.deleteMessage(chatId, working).catch(() => {});
   }
+}
+
+/**
+ * Threads serves the whole thread (root + sub-posts) in the post page itself. If Threads changes the
+ * rules and answers the app shell, the caller falls back to today's cobalt path instead of failing.
+ */
+async function threadsOrNull(deps: BotDeps, url: string): Promise<ThreadDoc | null> {
+  try {
+    return await fetchThreadsThread(deps.http, url);
+  } catch (err) {
+    // Any Threads-side refusal or outage still has cobalt behind it, exactly as before this adapter.
+    if (isCoded(err) && err.code !== E.LINK_INVALID) {
+      log('warn', 'threads_fallback', { url, error: err.code });
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** One message for the whole thread: every post's words in reply order, every post's media. */
+async function threadDelivery(deps: BotDeps, thread: ThreadDoc, link: string, dir: string, signal: AbortSignal): Promise<MessagePlan> {
+  const items: MediaItem[] = thread.posts.flatMap((post) => post.media.map((media) => ({ kind: media.type, url: media.url, picker: false })));
+  const text = thread.posts.map((post) => post.text).filter((part) => part !== '').join('\n\n');
+  // The account names the source; an unnamed one falls back to the host, so the text stays the body.
+  const source = thread.author ?? hostOf(link);
+  const header = postHeader({ sourceTitle: source, url: link, publishedAt: null });
+
+  let files: MediaFile[] = [];
+  try {
+    files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+  } catch (err) {
+    // Over the size cap the thread still ships its words; the media is the part that is lost.
+    log('warn', 'thread_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
+  }
+  if (files.length === 0) return { kind: 'text', text: text === '' ? header : `${header}\n\n${esc(text)}` };
+
+  // A caption past the limit keeps the media and moves the thread's tail to an Instant View page.
+  const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: items.filter((item) => item.kind === 'photo').map((item) => item.url) };
+  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source }, link);
+  return withReadMore(plan, page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
 }
 
 async function showError(ctx: Context, deps: BotDeps, userId: number, err: unknown, last: LastError): Promise<void> {

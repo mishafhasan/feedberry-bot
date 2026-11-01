@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { Coded, E } from './errors.ts';
-import type { Http, HttpResponse } from './http.ts';
+import type { Http, HttpOptions, HttpResponse } from './http.ts';
 
 /** ARCHITECTURE §12.2: scheme/port/length, one DNS resolve, connect by IP, 2 redirects, timeouts. */
 const MAX_URL_LENGTH = 2048;
@@ -47,13 +47,17 @@ export function isPrivateAddress(ip: string): boolean {
 /** SSRF-guarded fetch for links a user typed. Never follows a redirect without re-validating it. */
 export const safeFetch: Http = async (url, options) => {
   let current = assertUrl(url);
+  let headers = options.headers;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const address = await resolvePublic(current.hostname);
-    const res = await rawRequest(current, address, options);
+    const res = await rawRequest(current, address, { ...options, headers });
 
     if (res.status >= 300 && res.status < 400 && res.location) {
-      current = assertUrl(new URL(res.location, current).toString());
+      const next = assertUrl(new URL(res.location, current).toString());
+      // Sec-Fetch and site-specific headers are origin-scoped: never carry them to another host.
+      if (next.hostname !== current.hostname) headers = undefined;
+      current = next;
       continue;
     }
     return { status: res.status, url: current.toString(), contentType: res.contentType, body: res.body };
@@ -82,7 +86,7 @@ interface RawResponse {
 }
 
 /** Connects to the resolved IP with the original Host header: no re-resolve, no DNS rebinding. */
-function rawRequest(u: URL, address: string, { maxBytes, timeoutMs = 20_000 }: { maxBytes: number; timeoutMs?: number }): Promise<RawResponse> {
+function rawRequest(u: URL, address: string, { maxBytes, timeoutMs = 20_000, headers }: HttpOptions): Promise<RawResponse> {
   const secure = u.protocol === 'https:';
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -101,9 +105,11 @@ function rawRequest(u: URL, address: string, { maxBytes, timeoutMs = 20_000 }: {
         method: 'GET',
         servername: secure ? u.hostname : undefined,
         headers: {
-          host: u.host,
           'user-agent': 'FeedBerry/0.1 (+https://github.com/mishafhasan/feedberry-bot)',
           accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.5',
+          ...headers,
+          // Last word on the host: it is what lets the guard connect to the resolved IP.
+          host: u.host,
         },
         lookup: ((_h: string, _o: unknown, cb: (err: Error | null, addr: string, family: number) => void) =>
           cb(null, address, isIP(address))) as never,
