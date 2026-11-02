@@ -96,6 +96,9 @@ The agent never runs these; the operator does, once per release, with real links
 | Pinterest `/ideas/…` | `E_PROFILE_ONLY` at add time |
 | Instagram profile on a datacenter IP | either S4, or `E_COOKIE_REQUIRED` — never a silent failure |
 | YouTube 4-minute video | thumbnail + link, no upload |
+| YouTube community post `/post/…` | the post's words and album, caption headed by the channel title, plus an `➕ @handle` button offering the channel feed |
+| YouTube post that was deleted | `E_NO_FEED`, not `E_NO_MEDIA` — there is no cobalt fallback for a post |
+| Threads post link | the whole thread (root + sub-posts) in one message; a shell page falls back to cobalt |
 | One Wired/TechCrunch link | a `telegra.ph` link that opens in Instant View |
 
 ## 8. Two operator-only escape hatches

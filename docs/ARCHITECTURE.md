@@ -290,7 +290,7 @@ sequenceDiagram
 | `native_rss` | the site's own `/feed`, `/rss`, `feed.xml`, or a discovered `<link rel=alternate>` | blogs, Tumblr, YouTube, WordPress, most news |
 | `rsshub` | `${RSSHUB_BASE}${route}` | Instagram, X, TikTok, Threads, Pinterest, Facebook, Telegram (beta) |
 | `bluesky_api` | `getAuthorFeed` on the public AppView `[BSKY-API]` | Bluesky (no key, no RSSHub) |
-| `single_post` | the link itself | Download mode |
+| `single_post` | the link itself | Download mode. A Threads thread and a YouTube community post are read out of their own permalink page (`platform/feed/threads.ts`, `platform/feed/youtube-post.ts`); every other platform goes to cobalt |
 
 Discovery order for a plain website: (1) URL is already a feed; (2) `<link rel="alternate"
 type="application/rss+xml">`; (3) common paths; (4) give up with `E_NO_FEED` and offer "add as article
@@ -636,17 +636,20 @@ Every row names the exact engine path and the failure it will hit.
 | **Tumblr** | native `/rss` on every blog (no auth); RSSHub `tumblr` needs OAuth client creds `[RH-CONFIG]` | cobalt `/post/<id>`, `/blog/view/…` | none (native RSS) | low | A | RSSHub with creds |
 | **Pinterest** | RSSHub `/pinterest/user/:username/:type?` **only** — created pins or boards `[RH-PINTEREST]`; `/ideas/…` and `/search/…` are browse pages, unsupported | cobalt `/pin/<id>`, `pin.it` (single pin) `[COBALT-README]` | none | medium | B | reject `/ideas/` links at add time with a clear toast |
 | **Facebook** | RSSHub `facebook` namespace requires `FACEBOOK_COOKIE` `[RH-CONFIG]` | cobalt `/videos/`, `/reel/`, `/photo?fbid=`, `fb.watch` `[COBALT-README]` | **none stored (ADR-017)** | high (login wall) | C | public pages may work; otherwise the add is refused, single posts via Download mode |
-| **YouTube** | native `youtube.com/feeds/videos.xml?channel_id=…` (no key) `[YT-FEED]`; RSSHub needs optional API key `[RH-CONFIG]` | cobalt: `youtu.be`, `/shorts/`, `/live/`; **ffmpeg needed for separate A/V tracks** `[COBALT-README]` | none | low | A | RSSHub route + link-only |
-| **Threads** | RSSHub `/threads/:user` — HTML scrape via cheerio, no config `[RH-THREADS]` | cobalt both hosts, `/post/<code>`, `/t/<code>` `[COBALT-README]` | none | medium | B | link-only |
+| **YouTube** | native `youtube.com/feeds/videos.xml?channel_id=…` (no key) `[YT-FEED]`; RSSHub needs optional API key `[RH-CONFIG]` | cobalt: `youtu.be`, `/shorts/`, `/live/`; **ffmpeg needed for separate A/V tracks** `[COBALT-README]`; a community post `/post/<id>` is read from its own page, not from cobalt `[YT-POST]` | none | low | A | RSSHub route + link-only |
+| **Threads** | RSSHub `/threads/:user` — HTML scrape via cheerio, no config `[RH-THREADS]` | the whole thread is read from the permalink page first `[THREADS-SSR]`, cobalt (`/post/<code>`, `/t/<code>`, both hosts) is the fallback `[COBALT-README]` | none | medium | B | link-only |
 | **Reddit** | **ending**: Reddit stops RSS on 2026-11-13 and public API by March 2027 `[REDDIT-RSS]`; RSSHub has no `lib/routes/reddit` (404) | cobalt generic | — | — | D | remove from picker (OQ-2) |
 | **Telegram (t.me)** | RSSHub `/telegram/channel/:username` needs **MTProto user credentials** (`TELEGRAM_TOKEN`, `TELEGRAM_SESSION`, api id/hash) `[RH-CONFIG]`, i.e. a real account — out of MVP | cobalt generic extractor | **none** (public `t.me/s` scrape, beta) | medium + ToS risk | C | public `t.me/s/<channel>` scrape (beta, opt-in) |
-| **Any single post link** | Download mode: `resolve` → same pipeline | cobalt | per platform | per platform | B | link echo + error keyboard |
+| **Any single post link** | Download mode: `resolve` → same pipeline | cobalt, except a post the page itself renders (§5.3: Threads, YouTube community post) | per platform | per platform | B | link echo + error keyboard |
 
 Platform reality check from the supplied test links:
 
 - Pinterest `/ideas/…` (links 6, 7) are **not** subscribable — the route only covers users `[RH-PINTEREST]`.
 - Snapchat (link 10) has no profile feed path; only the single Spotlight post is downloadable.
 - Reddit has no test link and no viable engine after 2026-11-13.
+- YouTube **community posts are Download mode only**: the channel feed carries uploads, and the Posts tab
+  has no feed — it answers only through a stateful InnerTube continuation with a key scraped from a page
+  `[YT-POST]`. A post link still names its channel, so the download offers the keyless channel feed as a source.
 - Everything else (TikTok, Facebook, Instagram post/reel, YouTube, Threads, Tumblr, X, Bluesky, Wired,
   TechCrunch) has a route and/or a cobalt handler.
 
@@ -889,6 +892,14 @@ default is marked **DECIDED**.
 - `[X-TOS]` https://x.com/en/tos — no scraping without written permission
 - `[BSKY-API]` https://docs.bsky.app/docs/api/app-bsky-feed-get-author-feed
 - `[YT-FEED]` https://support.google.com/youtube/answer/6224202 — channel feed
+- `[YT-POST]` verified 2026-11-02 on `youtube.com/post/<id>` — the permalink answers 200 (also to the FeedBerry
+  user agent, no consent wall) with the post inside `ytInitialData` as `backstagePostRenderer`: `authorText`,
+  `authorEndpoint.browseEndpoint` (`UC…` + `/@handle`), `contentText.runs`, and `backstageAttachment` as
+  `backstageImageRenderer`, `postMultiImageRenderer`, `videoRenderer` or `pollRenderer`. The largest entry of a
+  thumbnail array is the original. A removed post answers 404 with no `ytInitialData`; `publishedTimeText` is
+  relative only, so a post page carries no absolute timestamp.
+- `[THREADS-SSR]` verified 2026-11-02 on a `threads.com` permalink — `accept: text/html` plus the three
+  `sec-fetch-*` headers make the page carry the whole thread; without them the same URL answers the app shell.
 - `[REDDIT-RSS]` https://techcrunch.com/2026/09/30/reddit-is-killing-rss-feeds-ending-public-api-access-because-of-ai-bots/ — RSS ends 2026-11-13, API by March 2027
 
 **Hosting**

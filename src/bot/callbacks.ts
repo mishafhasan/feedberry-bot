@@ -10,7 +10,8 @@ import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
-import { fetchThreadsThread, type ThreadDoc } from '../platform/feed/threads.ts';
+import { fetchThreadsThread } from '../platform/feed/threads.ts';
+import { fetchYouTubePost } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type SourceRef } from '../platform/registry.ts';
 import { pageText } from '../platform/page-text.ts';
@@ -699,13 +700,15 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
     let engineAuthor: string | null = null;
+    let channel: PagePost['channel'] = null;
     let plan: MessagePlan;
     try {
-      // Threads renders the whole thread into the post page itself; cobalt would only see one post.
-      const thread = ref.platform === 'threads' ? await threadsOrNull(deps, ref.canonicalUrl) : null;
-      if (thread !== null) {
-        engineAuthor = thread.author;
-        plan = await threadDelivery(deps, thread, ref.canonicalUrl, dir, signal);
+      // Threads and YouTube render the post itself into the page; cobalt would only see a video.
+      const page = await pageOrNull(ref.platform, deps, ref.canonicalUrl);
+      if (page !== null) {
+        engineAuthor = page.author;
+        channel = page.channel;
+        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal);
       } else {
         const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
@@ -734,12 +737,12 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     } finally {
       await cleanupWorkDir(dir);
     }
-    // A bare post link does not name its account; the engine often does, so offer it here.
-    const profile = engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor);
+    // A bare post link does not name its account; the page or the engine often does, so offer it.
+    const profile = channel?.url ?? (engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor));
     setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile, profile } });
     await ctx.reply(downloadDone(langOf(deps, userId)), {
       parse_mode: 'HTML',
-      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : engineAuthor),
+      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : (channel?.handle ?? engineAuthor)),
     });
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'download', link });
@@ -748,42 +751,78 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
   }
 }
 
+/** What a page-rendered post hands the renderer: who wrote it, its words, and what to download. */
+interface PagePost {
+  author: string | null;
+  /** The account to offer as a source; only a page that names its channel can. */
+  channel: { url: string; handle: string } | null;
+  text: string;
+  items: MediaItem[];
+}
+
 /**
- * Threads serves the whole thread (root + sub-posts) in the post page itself. If Threads changes the
- * rules and answers the app shell, the caller falls back to today's cobalt path instead of failing.
+ * Threads and YouTube render the post itself into the page. Threads keeps cobalt behind it; a
+ * community post has no cobalt extractor, so a YouTube failure is surfaced instead of retried.
  */
-async function threadsOrNull(deps: BotDeps, url: string): Promise<ThreadDoc | null> {
+async function pageOrNull(platform: string, deps: BotDeps, url: string): Promise<PagePost | null> {
+  if (platform === 'threads') return threadsPage(deps, url);
+  if (platform === 'youtube') return youtubePage(deps, url);
+  return null;
+}
+
+async function threadsPage(deps: BotDeps, url: string): Promise<PagePost | null> {
   try {
-    return await fetchThreadsThread(deps.http, url);
+    const thread = await fetchThreadsThread(deps.http, url);
+    return {
+      author: thread.author,
+      channel: null,
+      text: thread.posts.map((post) => post.text).filter((part) => part !== '').join('\n\n'),
+      items: thread.posts.flatMap((post) => post.media.map((media) => ({ kind: media.type, url: media.url, picker: false }))),
+    };
   } catch (err) {
-    // Any Threads-side refusal or outage still has cobalt behind it, exactly as before this adapter.
-    if (isCoded(err) && err.code !== E.LINK_INVALID) {
-      log('warn', 'threads_fallback', { url, error: err.code });
-      return null;
-    }
-    throw err;
+    return pageFallback(err, 'threads', url);
   }
 }
 
-/** One message for the whole thread: every post's words in reply order, every post's media. */
-async function threadDelivery(deps: BotDeps, thread: ThreadDoc, link: string, dir: string, signal: AbortSignal): Promise<MessagePlan> {
-  const items: MediaItem[] = thread.posts.flatMap((post) => post.media.map((media) => ({ kind: media.type, url: media.url, picker: false })));
-  const text = thread.posts.map((post) => post.text).filter((part) => part !== '').join('\n\n');
+async function youtubePage(deps: BotDeps, url: string): Promise<PagePost | null> {
+  // cobalt has no extractor for a community post, so a failure here is the honest answer: a
+  // fallback would only turn "this post is gone" into "couldn't extract media".
+  const post = await fetchYouTubePost(deps.http, url);
+  return {
+    author: post.author,
+    channel: post.channel,
+    text: post.text,
+    items: post.media.map((photo) => ({ kind: 'photo' as const, url: photo, picker: false })),
+  };
+}
+
+/** Any page-side refusal or outage still has cobalt behind it, exactly as before the adapter. */
+function pageFallback(err: unknown, adapter: string, url: string): null {
+  if (isCoded(err) && err.code !== E.LINK_INVALID) {
+    log('warn', `${adapter}_fallback`, { url, error: err.code });
+    return null;
+  }
+  throw err;
+}
+
+/** One message for a post the page itself carried: its words, then its media, tail on Instant View. */
+async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal): Promise<MessagePlan> {
+  const text = post.text;
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
-  const source = thread.author ?? hostOf(link);
+  const source = post.author ?? hostOf(link);
   const header = postHeader({ sourceTitle: source, url: link, publishedAt: null });
 
   let files: MediaFile[] = [];
   try {
-    files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+    files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
   } catch (err) {
-    // Over the size cap the thread still ships its words; the media is the part that is lost.
-    log('warn', 'thread_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
+    // Over the size cap the post still ships its words; the media is the part that is lost.
+    log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
   if (files.length === 0) return { kind: 'text', text: text === '' ? header : `${header}\n\n${esc(text)}` };
 
-  // A caption past the limit keeps the media and moves the thread's tail to an Instant View page.
-  const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: items.filter((item) => item.kind === 'photo').map((item) => item.url) };
+  // A caption past the limit keeps the media and moves the post's tail to an Instant View page.
+  const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: post.items.filter((item) => item.kind === 'photo').map((item) => item.url) };
   const plan = renderDownload(files, { title: text === '' ? null : text, artist: source }, link);
   return withReadMore(plan, page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
 }

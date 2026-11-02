@@ -129,6 +129,11 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
         // Native channel feed: no key, no RSSHub (§10).
         return profile(platform, `https://youtube.com/channel/${id}`, id, `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`, 'native_rss');
       }
+      // A community post: the page itself carries it, so Download Mode fetches it directly.
+      if (first === 'post') {
+        if (!second) throw new Coded(E.LINK_INVALID, 'post without id');
+        return single(u, platform, second);
+      }
       const handle = user(second ?? first);
       return profile(platform, `https://youtube.com/@${handle}`, handle, rsshub(opts, `/youtube/user/${handle}`));
     }

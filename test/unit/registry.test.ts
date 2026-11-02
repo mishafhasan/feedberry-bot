@@ -112,6 +112,20 @@ test('M12 registry: Snapchat spotlight share links and Tumblr post links are pos
   assert.equal(blog.feedUrl, 'https://pangur-and-grim.tumblr.com/rss');
 });
 
+test('M17 registry: a YouTube community post is a single post, never a channel handle', () => {
+  const post = detectSource('https://www.youtube.com/post/UgkxGuBM_v4CJugE7V-Dns33VhSMVB0_UL_F', opts);
+  assert.equal(post.platform, 'youtube');
+  assert.equal(post.strategy, 'single_post');
+  assert.equal(post.canonicalUrl, 'https://youtube.com/post/UgkxGuBM_v4CJugE7V-Dns33VhSMVB0_UL_F');
+  assert.equal(post.externalId, 'UgkxGuBM_v4CJugE7V-Dns33VhSMVB0_UL_F');
+  assert.equal(post.feedUrl, null);
+
+  assert.equal(detectSource('https://m.youtube.com/post/UgkxX', opts).strategy, 'single_post', 'the mobile host is the same host');
+  assert.equal(codeOf('https://www.youtube.com/post/'), E.LINK_INVALID, 'a post without an id cannot be fetched');
+  // A channel is still a feed: the post case must not swallow it.
+  assert.equal(detectSource('https://www.youtube.com/@MrBeast', opts).strategy, 'rsshub');
+});
+
 test('M13 registry: every TikTok post shape and share host is a single post', () => {
   assert.equal(detectSource('https://www.tiktok.com/@user/video/123', opts).strategy, 'single_post');
   assert.equal(detectSource('https://www.tiktok.com/@user/photo/123', opts).strategy, 'single_post', 'carousel posts');

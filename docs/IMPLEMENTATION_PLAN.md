@@ -68,7 +68,7 @@ src/
     s1-resolve.ts  s2-feed.ts  s3-classify.ts  s4-dedupe.ts
     s5-media.ts    s6-render.ts s7-deliver.ts s8-record.ts s9-cleanup.ts
   platform/{registry.ts,allowlist.ts,ssrf.ts}
-  platform/feed/{native.ts,rsshub.ts,bluesky.ts}
+  platform/feed/{native.ts,rsshub.ts,bluesky.ts,threads.ts,youtube-post.ts}
   render/{plan.ts,caption.ts,albums.ts,video.ts,article.ts}
   telegram/{api.ts,ratelimit.ts,target.ts}   buckets, 429, chat_id+thread_id (§9)
   media/{cobalt.ts,probe.ts,thumb.ts}
@@ -483,7 +483,7 @@ once after `render`, and the delivered message is byte-identical to the baseline
 | §7 bot layer | M1 (FSM, S1/S2), M2 (S3/S4), M3 (S5/S6/S7/S8/S10/S11), M4 (S9) | ADR-014/016 |
 | §8 rendering | M4 (R1, R14), M5 (R2–R5, R9–R11), M6 (R6–R8), M7 (R12/R13) | R9 refined in M6 |
 | §9 delivery | M4 (buckets, floor 429), M5 (albums, backfill), M8 (full 429) | 429 floor in M4, full policy in M8 |
-| §10 platform matrix | M2 (gating/allowlist), M6 (YouTube duration), M7 (articles), M9 (per-platform smoke) | Snapchat single-link, Reddit excluded, Pinterest users only |
+| §10 platform matrix | M2 (gating/allowlist), M6 (YouTube duration), M7 (articles), M9 (per-platform smoke), post-M9 (Threads + YouTube page adapters) | Snapchat single-link, Reddit excluded, Pinterest users only, a channel's posts are not a feed |
 | §11 failure mapping | M2, M3, M6, M8 (full audit) | each code lands with its cause |
 | §12 security | M2 (SSRF, admin), M3 (cascade delete), M9 (no credentials, quotas) | SSRF guard precedes every fetch; nothing secret is stored |
 | §13 observability/deploy | M8 (alerts, `/status`), M9 (compose, runbook, backup) | alerts M8; compose and runbook M9 |

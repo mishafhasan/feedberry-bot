@@ -7,7 +7,8 @@ chat — your DM, a group, a channel, or a forum topic — as a normal Telegram 
 readable article text, no watermarks, no ads.
 
 - Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) · Decisions: [docs/adr/](docs/adr/) · Runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md)
-- Status: **M1–M9 implemented** (39 tests). Deployment and the restore drill are operator steps in the runbook.
+- Status: **M1–M9 implemented**, plus post-milestone platform work (Threads and YouTube posts now read from
+  their own pages). 130 tests. Deployment and the restore drill are operator steps in the runbook.
 
 ## How it works
 
@@ -58,6 +59,11 @@ All limits are config, never hard-coded (ARCHITECTURE §6). Defaults in `.env.ex
 - **No credentials are stored.** Login-only feeds (Instagram, Facebook, X, and Telegram profiles) are **refused
   at add time** with a clear message instead of failing silently; single posts still work in Download Mode.
   There is no cookie table, no encryption, no per-user secret (ADR-017).
+- **A post link is Download Mode, not a subscription.** A Threads thread and a YouTube community post
+  (`youtube.com/post/…`) are read out of the post's own page, so the whole text, every image of an album and the
+  account behind the post survive — a YouTube download even offers its channel as a source, on the keyless native
+  feed. Any other platform's post link goes through cobalt. A channel's *posts* are not a subscribable feed: YouTube's
+  channel RSS carries uploads only (ARCHITECTURE §10).
 - **50 MB is a hard Bot API ceiling.** Bigger videos arrive as a thumbnail + caption + link; nothing is
   transcoded. Any clip 3 minutes or longer goes the thumbnail route too (ADR-012).
 - **"Instant View" is a Telegra.ph rewrite.** Telegram's IV works per domain and a bot cannot register a
