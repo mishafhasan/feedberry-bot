@@ -5,7 +5,9 @@
 ## Context
 
 The brief says articles are "converted to Telegram Instant View" and asks to determine how formatbot1
-actually does it rather than assume.
+(the owner's earlier Telegram format bot) actually did it rather than assume. Its approach is what we
+adopted; its code was studied here as a reference and is **no longer vendored in this repo** — the
+ported logic lives in `src/article/`.
 
 What the sources say:
 
@@ -33,7 +35,7 @@ What the sources say:
 
 R12 = Readability → sanitize → Telegraph nodes → `createPage` → send `telegra.ph` URL with link preview
 enabled. Pages above 64 KB (`createPage` content limit `[TG-TELEGRAPH]`) are split into chained pages with
-a "Read Next page" link, reusing the exact algorithm of `formatbot1/src/api/utils/makeTelegraph.js`.
+a "Read Next page" link, reusing the exact algorithm formatbot1 used (ported to `src/article/telegraph.ts`).
 No headless browser in the MVP path (`NO_PUPPET` equivalent).
 
 ## Consequences
@@ -44,10 +46,11 @@ No headless browser in the MVP path (`NO_PUPPET` equivalent).
   achieved, not by an ad-detection feature.
 - Telegra.ph is an unauthenticated third party: downtime → R13 fallback; content policy → keep a copy of
   the source link in the message so nothing is lost.
-- Images inside articles are hotlinked into Telegraph. `formatbot1` already handles the common
-  image-URL pathologies (`fixImages.js`, `is-image-url.js`); reuse those rules rather than re-deriving them.
+- Images inside articles are hotlinked into Telegraph. formatbot1 already handled the common
+  image-URL pathologies; those rules live in `fixImageUrls()` (`src/article/readability.ts`) rather than
+  being re-derived.
 - Articles behind a login wall produce thin content → R13, and the source is flagged `E_TELEGRAPH` in health.
 
 ## Evidence
 
-`[TG-IV]`, `[TG-IVDOCS]`, `[TG-TELEGRAPH]`, `[FB-TELEGRAPH]`, `formatbot1/src/api/utils/parseHelper.js`.
+`[TG-IV]`, `[TG-IVDOCS]`, `[TG-TELEGRAPH]`, `[FB-TELEGRAPH]` (formatbot1, reference only — not vendored).

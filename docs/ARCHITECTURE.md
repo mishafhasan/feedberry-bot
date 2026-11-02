@@ -1,9 +1,9 @@
 # FeedBerry Bot — Architecture Design Document
 
-**Status:** design complete, implementation not started
+**Status:** implemented — M1–M9 complete, plus post-milestone work (Threads/YouTube post adapters, M10–M12 UX and schedule screen). 130 tests green. Runtime amended to Node 24 (ADR-001). Production deploy + the restore drill are pending operator steps (RUNBOOK).
 **Date:** 2026-10-29
-**Audience:** the Claude Code session that will implement this, plus whoever operates it
-**Scope:** design only. No application code, no dependencies, no scaffolding.
+**Audience:** the sessions that implemented this (M1–M12), plus whoever operates it
+**Scope:** the design record. Application code, dependencies and scaffolding were added during implementation; progress is tracked in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) and [README.md](../README.md).
 
 ---
 
@@ -20,7 +20,7 @@ Locked inputs (do not redesign):
 | UI screens S1–S11 | `UI-Refference/*.png` | normative; `docs/UI_SPEC.md` was **not** present, so callback names and toast strings below are **derived** and marked *(derived)* |
 | Media engine | `cobalt-engine/` | locked, importable library `[COBALT-README]` |
 | Feed engine | RSSHub | locked deployment dependency `[RH-DEPLOY]` |
-| Article → Instant View | `formatbot1/` | locked approach: Telegra.ph rewrite `[FB-TELEGRAPH]` |
+| Article → Instant View | `src/article/` | locked approach: formatbot1's Telegra.ph rewrite, ported into our code `[FB-TELEGRAPH]` |
 
 ---
 
@@ -90,7 +90,7 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph Host["One host: Pi / mini-PC / free VM"]
-    subgraph Bot["bot process (Node 22, always on, idle ~0 CPU)"]
+    subgraph Bot["bot process (Node 24, always on, idle ~0 CPU)"]
       TG[Telegram adapter<br/>long polling]
       FSM[FSM + callback router]
       SCH[Scheduler tick<br/>every 30 s]
@@ -119,12 +119,12 @@ the same in-memory rate limiter. Splitting them buys nothing at this scale and c
 
 ## 3. Runtime and language
 
-**Decision: TypeScript on Node.js 22 LTS, one process, ESM.** ADR-001.
+**Decision: TypeScript on Node.js 24, one process, ESM.** ADR-001 (amended from Node 22 — built-in `node:sqlite` needs 24).
 
 | Engine | Runtime it forces | Evidence |
 |---|---|---|
 | cobalt-engine | Node ≥ 18.17, `"type": "module"`, imports `fetch` directly | `cobalt-engine/package.json`, `cobalt-engine/README.md` |
-| formatbot1 logic | Node ≥ 21, CommonJS, uses `undici`, `jsdom`, `@mozilla/readability`, `sanitize-html` | `formatbot1/package.json` |
+| article logic (ported from formatbot1) | Node ≥ 21, needs `jsdom`, `@mozilla/readability`, `sanitize-html` | `package.json`, `src/article/` |
 | RSSHub | Node + optional Chromium; runs as a container | `[RH-DEPLOY]` |
 
 A JVM or Python bot would have to shell out to Node for cobalt (process spawn per post), or run a
@@ -540,16 +540,16 @@ Verified, not assumed:
   Editor and become public only after Telegram approves them `[TG-IV]`.
 - A bot **can** force a specific template with `https://t.me/iv?url=<encoded>&rhash=<hash>`, and that
   link can be published to any chat `[TG-IV]`. This requires one template per domain, maintained by us.
-- `formatbot1` therefore does **not** use IV templates. It runs Readability
-  (`formatbot1/src/api/utils/parseHelper.js`), sanitizes, converts to Telegraph nodes and calls
-  `api.telegra.ph/createPage` `[FB-TELEGRAPH]`. The result is a Telegra.ph page — a domain for which
+- The `formatbot1` reference bot therefore does **not** use IV templates. It runs Readability,
+  sanitizes, converts to Telegraph nodes and calls `api.telegra.ph/createPage` `[FB-TELEGRAPH]`.
+  This is the path we ported into `src/article/`. The result is a Telegra.ph page — a domain for which
   Telegram already ships an IV template (Telegra.ph is one of Telegram's sample templates `[TG-IV]`).
   The "Instant View" the user sees is the Telegra.ph page rendered in IV.
 
 **MVP path (R12):** fetch HTML → Readability → sanitize → Telegraph nodes → `createPage` → send the
 `telegra.ph` URL with `link_preview_options.is_disabled=false`. Pages over 64 KB are paginated by
-chaining "Read Next page" links, exactly as `formatbot1/src/api/utils/makeTelegraph.js` does
-`[FB-TELEGRAPH]`, because Telegraph caps page content at 64 KB `[TG-TELEGRAPH]`.
+chaining "Read Next page" links, exactly as the formatbot1 Telegra.ph reference implementation did
+`[FB-TELEGRAPH]` (ported to `src/article/telegraph.ts`), because Telegraph caps page content at 64 KB `[TG-TELEGRAPH]`.
 
 **Fallbacks, in order:** (a) `t.me/iv?url=…&rhash=…` only if an operator-maintained template exists;
 (b) R13 title + lead + original link; (c) for paywalled/JS-only pages: title + link only.
@@ -776,7 +776,7 @@ ADR-017. Docker Compose, two services:
 
 | Service | Image | Restart | Volumes |
 |---|---|---|---|
-| `bot` | built from this repo (`node:22-alpine` + ffmpeg) | `unless-stopped` | `./data:/data` (SQLite), `/tmp/media` (tmpfs) |
+| `bot` | built from this repo (`node:24-alpine` + ffmpeg) | `unless-stopped` | `./data:/data` (SQLite), `/tmp/media` (tmpfs) |
 | `rsshub` | `diygod/rsshub:latest` (no Chromium) `[RH-DEPLOY]` | `unless-stopped` | `./rsshub-cache` |
 
 Footprint: RSSHub ~200–400 MB RSS, bot ~120–200 MB, Chromium absent `[assumption]`. Twelve GB and 200 GB
@@ -916,8 +916,9 @@ default is marked **DECIDED**.
 - `[COBALT-GUIDE]` [cobalt-engine/USER_GUIDE.md](file:///f:/MISHAF/feedberry-bot/cobalt-engine/USER_GUIDE.md)
 - `[COBALT-ENGINE]` [cobalt-engine/src/engine.js](file:///f:/MISHAF/feedberry-bot/cobalt-engine/src/engine.js)
 - `[COBALT-YTDL]` [cobalt-engine/src/ytubedl.js](file:///f:/MISHAF/feedberry-bot/cobalt-engine/src/ytubedl.js)
-- `[FB-TELEGRAPH]` [formatbot1/src/api/utils/makeTelegraph.js](file:///f:/MISHAF/feedberry-bot/formatbot1/src/api/utils/makeTelegraph.js)
-- `[FB-README]` [formatbot1/readme.md](file:///f:/MISHAF/feedberry-bot/formatbot1/readme.md)
+- `[FB-TELEGRAPH]` formatbot1, the owner's earlier Telegram format bot (Telegra.ph + Readability path).
+  Studied for the IV design and **no longer vendored in this repo**; its logic now lives in `src/article/`.
+- `[FB-README]` formatbot1 readme — same status as above.
 - `[SKILL]` [.agent/skills/telegram/SKILL.md](file:///f:/MISHAF/feedberry-bot/.agent/skills/telegram/SKILL.md) — used for setup/authorization boundaries; no conflicting design guidance
 
 ---
@@ -926,7 +927,7 @@ default is marked **DECIDED**.
 
 | ADR | Decision |
 |---|---|
-| [001](adr/001-node-typescript-runtime.md) | Node.js 22 + TypeScript, grammY |
+| [001](adr/001-node-typescript-runtime.md) | Node.js 24 + TypeScript, grammY (ADR-001 amended from 22) |
 | [002](adr/002-single-process-sqlite-queue.md) | One process, SQLite-backed job queue |
 | [003](adr/003-long-polling.md) | Long polling instead of webhooks |
 | [004](adr/004-shared-fetch-per-subscription-slots.md) | Shared source fetch, per-subscription slots |

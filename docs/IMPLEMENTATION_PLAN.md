@@ -1,9 +1,9 @@
 # FeedBerry Bot — Implementation Plan
 
-**Status:** planning complete; implementation not started
+**Status:** implemented — M1–M9 and milestone H done, plus M10–M12 UX/schedule work delivered beyond this plan. 130 tests green; running locally against real Telegram and real feeds. Pending: production deploy + the restore drill (operator, M9 verification).
 **Date:** 2026-10-31
 **Source of truth:** [ARCHITECTURE.md](ARCHITECTURE.md) §0–§17 and ADR-001…016
-**Scope:** design and planning only. No application code, no dependencies, no scaffolding.
+**Scope:** the ordered plan for the design. Implementation has since landed — see [README.md](../README.md) and the status line above.
 
 ---
 
@@ -334,10 +334,10 @@ and degrades to a link card when extraction fails.
 **Tasks.**
 
 1. `article/readability.ts`: fetch HTML through the §12.2 guard, run Readability, sanitize, apply the
-   image-URL fixes (`formatbot1/src/api/utils/fixImages.js`, `is-image-url.js` rules) `[FB-README]`.
+   image-URL fixes ported from formatbot1 `[FB-README]` (reference bot, not vendored).
 2. `article/telegraph.ts`: HTML → Telegraph nodes, `createPage` with `author_name` 0–128 and title ≤ 256
    `[TG-TELEGRAPH]`; pages over 64 KB chained with "Read Next page", ported from
-   `formatbot1/src/api/utils/makeTelegraph.js` `[FB-TELEGRAPH]`.
+   formatbot1's Telegraph publisher `[FB-TELEGRAPH]`.
 3. R12: `sendMessage` with the `telegra.ph` URL and link preview enabled; R13 when readable text < 400 chars
    or `createPage` fails; R14 for everything else.
 4. `s3-classify`: choose `article` when the feed item has no media and the target is HTML.
@@ -401,7 +401,7 @@ brings the same state back.
 
 **Tasks.**
 
-1. `docker-compose.yml` per ADR-017 (Oracle primary, Pi fallback; ADR-010 superseded): `bot` (node:22-alpine + ffmpeg) and `rsshub`
+1. `docker-compose.yml` per ADR-017 (Oracle primary, Pi fallback; ADR-010 superseded): `bot` (node:24-alpine + ffmpeg) and `rsshub`
    (`diygod/rsshub:latest`, no Chromium) `[RH-DEPLOY]`; volumes for `/data`; tmpfs for media;
    `restart: unless-stopped`; healthchecks.
 2. `.env.example` and the runbook of §13.3, including the Oracle caveats (capacity errors, idle reclamation)
@@ -452,6 +452,11 @@ once after `render`, and the delivered message is byte-identical to the baseline
 
 ## 5. Milestone summary
 
+**Implementation status (2026-11-02):** every row below is built and covered by the 130-test suite
+(M1–M9 + H). Delivered beyond this plan: **M10–M12** (UX passes, the S16 schedule screen, post-text
+fallbacks) and the Threads / YouTube post page adapters. Not yet done by the operator: the **M9
+verification** — a fresh-host `docker compose up` and one restore drill ([RUNBOOK](RUNBOOK.md)).
+
 | M | Scope | Depends | Verification | OQs |
 |---|---|---|---|---|
 | M1 | Config, schema, FSM, S1/S2, router | — | `/start` → S1 (`0 / 250`), S1→S2→Back, survives restart | 7, 15 |
@@ -476,7 +481,7 @@ once after `render`, and the delivered message is byte-identical to the baseline
 | §0 reading guide | this file §1 | conflict rule states ADR > §14 |
 | §1 goals/non-goals/constraints/assumptions | M1 (constraints as config), M9 (C1/C2 proof) | non-goals are enforced by omission |
 | §2 context/components | M1 (process, DB), M4 (RSSHub call), M5 (cobalt call) | no component added later |
-| §3 runtime/language | M1 | Node 22 + TS + grammY |
+| §3 runtime/language | M1 | Node 24 + TS + grammY |
 | §4 scheduler/queue | M4 | tick, slots, claim, backoff (M8) |
 | §5 pipeline | M2 (1–2), M4 (3–4, 6–7 text), M5 (5), M7 (article), M9 (9 audit) | stage 8 in M4/M8 |
 | §6 data model | M1 (schema, no credential table), M3 (sources/subscriptions/posts), M4 (jobs/deliveries), M8 (health/events) | schema is complete in M1 |

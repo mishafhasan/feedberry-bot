@@ -1,6 +1,6 @@
 # ADR-001: Node.js 22 + TypeScript, grammY
 
-**Status:** Accepted (design) · 2026-10-29 · **Deciders:** architecture
+**Status:** Accepted (design) · 2026-10-29 · **Amended 2026-11-02: runtime is Node.js 24, not 22** (see Amendment below) · **Deciders:** architecture
 
 ## Context
 
@@ -39,4 +39,13 @@ SQLite driver (single writer, no pool).
 
 ## Evidence
 
-`cobalt-engine/package.json`, `cobalt-engine/README.md`, `formatbot1/package.json`, `[RH-DEPLOY]`.
+`cobalt-engine/package.json`, `cobalt-engine/README.md`, `[FB-README]` (formatbot1, design reference only —
+not vendored), `[RH-DEPLOY]`.
+
+## Amendment (2026-11-02)
+
+Implementation runs on **Node.js 24**, not 22. The `better-sqlite3`-class synchronous driver chosen above is
+the built-in **`node:sqlite`** (`DatabaseSync`), which is stable only from Node 24; Node 22 would need
+`--experimental-sqlite`, and 24 also removes the native-build step the original plan assumed. Node ≥ 24 is
+enforced in `package.json` `engines` and the `Dockerfile` (`node:24-alpine`). Everything else in this
+decision — one process, ESM, TypeScript, grammY, single-writer synchronous SQLite — is unchanged.
