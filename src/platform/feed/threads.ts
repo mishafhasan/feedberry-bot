@@ -34,8 +34,15 @@ export interface ThreadPost {
 export interface ThreadDoc {
   /** The account that owns the thread, for the "add as source" button. */
   author: string | null;
+  /** The name the account prints (`PROMPT HUB`), which is what a header shows. */
+  name: string | null;
   /** Root first, then every sub-post: `text_post_app_info.reply_level` order, never `taken_at`. */
   posts: ThreadPost[];
+}
+
+/** A thread is one message: the author's posts read top to bottom. */
+export function threadText(doc: ThreadDoc): string {
+  return doc.posts.map((post) => post.text).filter((text) => text !== '').join('\n\n');
 }
 
 /** Stage 2 for one Threads permalink: root + sub-posts from a single logged-out GET. */
@@ -73,7 +80,8 @@ export function parseThreadDocument(html: string, shortcode: string): ThreadDoc 
   // document that carries the post as a partial copy.
   const focalPk = found.byCode.get(shortcode.toLowerCase()) ?? found.focalIds.find((pk) => found.byPk.has(pk));
   if (focalPk === undefined) return null;
-  const author = found.byPk.get(focalPk)?.user?.username ?? null;
+  const focal = found.byPk.get(focalPk);
+  const author = focal?.user?.username ?? null;
 
   const seen = new Set<string>();
   const posts: ThreadPost[] = [];
@@ -88,7 +96,7 @@ export function parseThreadDocument(html: string, shortcode: string): ThreadDoc 
   }
   if (posts.length === 0) return null;
 
-  return { author: posts[0]?.author ?? null, posts };
+  return { author: posts[0]?.author ?? null, name: focal?.user?.full_name?.trim() || null, posts };
 }
 
 interface Found {
@@ -247,7 +255,7 @@ interface RawNode {
   carousel_media?: RawNode[] | null;
   video_versions?: Array<{ url?: string }> | null;
   image_versions2?: { candidates?: Array<{ url?: string }> } | null;
-  user?: { username?: string | null } | null;
+  user?: { username?: string | null; full_name?: string | null } | null;
   text_post_app_info?: {
     reply_level?: number | null;
     text_fragments?: { fragments?: Array<{ plaintext?: string }> } | null;

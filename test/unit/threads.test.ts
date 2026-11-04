@@ -14,6 +14,8 @@ test('threads: T1 root carries the sub-post, in reply_level order, with the sub-
   const doc = parseThreadDocument(evidence('06-t1-root-ssr-run1.html'), 'DcsVM6HlDOv');
   assert.ok(doc, 'the post is in the document');
   assert.equal(doc.author, 'prompt.__hub');
+  // A header prints the name the account uses, not its handle.
+  assert.equal(doc.name, 'PROMPT HUB');
   assert.deepEqual(doc.posts.map((post) => post.code), ['DcsVM6HlDOv', 'DcsVM13FDS9'], 'root first, then its sub-post');
   assert.equal(doc.posts[0]?.text.length, 455, 'root text comes from text_fragments');
   // The sub-post has a null caption: its words live under snippet_attachment_info only.

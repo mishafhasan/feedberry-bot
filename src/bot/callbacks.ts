@@ -10,12 +10,12 @@ import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
-import { fetchThreadsThread } from '../platform/feed/threads.ts';
+import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import { fetchYouTubePost } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pinOwner } from '../platform/pinterest-pin.ts';
-import { pageText } from '../platform/page-text.ts';
+import { pageMeta } from '../platform/page-text.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchFeed } from '../pipeline/s2-feed.ts';
@@ -749,23 +749,25 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
         // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
+        // One page fetch carries what the extractor did not: the account, the date, the words.
+        const meta = await pageMeta(deps.http, ref.canonicalUrl);
         const engineText = resolved.title?.trim() || null;
-        const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? (await pageText(deps.http, ref.canonicalUrl));
+        const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
-        // The account names the source; when nobody names it, the host does, so the text stays the body.
-        const source = engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
+        // The page names the account as it prints it; a handle is only the fallback, then the host.
+        const source = meta.name ?? engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
         // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
         const page: ReadMorePage = {
           id: 0,
           url: ref.canonicalUrl,
-          publishedAt: null,
+          publishedAt: meta.publishedAt,
           // The post's own words are the body; a title here would print its first line twice.
           title: null,
           parts: text === null ? [] : [text],
           images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
         };
-        plan = await withReadMore(renderDownload(files, { title: text, artist: source }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt: meta.publishedAt }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
       }
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
@@ -794,6 +796,9 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
 /** What a page-rendered post hands the renderer: who wrote it, its words, and what to download. */
 interface PagePost {
   author: string | null;
+  /** The name the account prints; a handle alone is not what a header shows. */
+  name: string | null;
+  publishedAt: number | null;
   /** The account to offer as a source; only a page that names its channel can. */
   channel: { url: string; handle: string } | null;
   text: string;
@@ -807,6 +812,8 @@ interface PagePost {
 async function pageOrNull(platform: string, deps: BotDeps, url: string): Promise<PagePost | null> {
   if (platform === 'threads') return threadsPage(deps, url);
   if (platform === 'youtube') return youtubePage(deps, url);
+  // cobalt has no Snapchat extractor, so the page itself is the only door.
+  if (platform === 'snapchat') return snapchatPage(deps, url);
   return null;
 }
 
@@ -815,8 +822,10 @@ async function threadsPage(deps: BotDeps, url: string): Promise<PagePost | null>
     const thread = await fetchThreadsThread(deps.http, url);
     return {
       author: thread.author,
+      name: thread.name,
+      publishedAt: thread.posts[0]?.publishedAt ?? null,
       channel: null,
-      text: thread.posts.map((post) => post.text).filter((part) => part !== '').join('\n\n'),
+      text: threadText(thread),
       items: thread.posts.flatMap((post) => post.media.map((media) => ({ kind: media.type, url: media.url, picker: false }))),
     };
   } catch (err) {
@@ -830,9 +839,26 @@ async function youtubePage(deps: BotDeps, url: string): Promise<PagePost | null>
   const post = await fetchYouTubePost(deps.http, url);
   return {
     author: post.author,
+    name: null,
+    publishedAt: post.publishedAt,
     channel: post.channel,
     text: post.text,
     items: post.media.map((photo) => ({ kind: 'photo' as const, url: photo, picker: false })),
+  };
+}
+
+/** Snapchat's spotlight page carries the clip, the words and the date in its head. */
+async function snapchatPage(deps: BotDeps, url: string): Promise<PagePost> {
+  const meta = await pageMeta(deps.http, url);
+  // A page that names neither words nor a clip is the same dead end cobalt reports.
+  if (meta.text === null && meta.video === null) throw new Coded(E.NO_MEDIA, 'snapchat page carried no post');
+  return {
+    author: null,
+    name: meta.name,
+    publishedAt: meta.publishedAt,
+    channel: null,
+    text: meta.text ?? '',
+    items: meta.video === null ? [] : [{ kind: 'video' as const, url: meta.video, picker: false }],
   };
 }
 
@@ -849,8 +875,8 @@ function pageFallback(err: unknown, adapter: string, url: string): null {
 async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal): Promise<MessagePlan> {
   const text = post.text;
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
-  const source = post.author ?? hostOf(link);
-  const header = postHeader({ sourceTitle: source, url: link, publishedAt: null });
+  const source = post.name ?? post.author ?? hostOf(link);
+  const header = postHeader({ sourceTitle: source, url: link, publishedAt: post.publishedAt });
 
   let files: MediaFile[] = [];
   try {
@@ -863,7 +889,7 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
 
   // A caption past the limit keeps the media and moves the post's tail to an Instant View page.
   const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: post.items.filter((item) => item.kind === 'photo').map((item) => item.url) };
-  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source }, link);
+  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source, publishedAt: post.publishedAt }, link);
   return withReadMore(plan, page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
 }
 

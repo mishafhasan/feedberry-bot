@@ -1,7 +1,7 @@
 import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { listPendingForSource, markPendingDelivery } from '../db/repos/deliveries.ts';
-import { getPost, insertPosts } from '../db/repos/posts.ts';
+import { getPost, insertPosts, type PostRow } from '../db/repos/posts.ts';
 import { getSource, type SourceRow } from '../db/repos/sources.ts';
 import { demoteChat } from '../db/repos/chats.ts';
 import { deliveryTargets } from '../db/repos/subscriptions.ts';
@@ -14,6 +14,7 @@ import { probeDuration } from '../media/probe.ts';
 import type { Thumbnailer } from '../media/thumb.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
+import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import type { Http } from '../platform/http.ts';
 import { pageText } from '../platform/page-text.ts';
 import type { SourceRef } from '../platform/registry.ts';
@@ -156,12 +157,15 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
   const sourceTitle = source?.title ?? null;
   // One Telegra.ph page per post, however many chats it goes to.
   const pages = new Map<number, string | null>();
+  // One permalink GET per Threads post, however many chats it goes to.
+  const threads = new Map<number, PostRow>();
 
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
     for (const delivery of listPendingForSource(deps.db, sourceId, row.chat_id)) {
-      const post = getPost(deps.db, delivery.post_id ?? 0);
-      if (!post) continue;
+      const stored = getPost(deps.db, delivery.post_id ?? 0);
+      if (!stored) continue;
+      const post = await withThreadText(deps.http, stored, platform, threads);
 
       // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
@@ -259,6 +263,37 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   const poster = payload.media.find((item) => item.type === 'photo')?.url ?? null;
   const thumbnail = poster ?? (await deps.thumbnail(video.path, dir));
   return renderPost(post, kind, files, { durationSec, thumbnail, thumbnailRemote: poster !== null, sourceTitle, titleFallback });
+}
+
+/**
+ * Threads' RSS ships a cut-down preview with the handle glued to the front, so a scheduled post
+ * printed the same words twice. The permalink holds the whole thread; a failed GET keeps the feed.
+ */
+async function withThreadText(http: Http, post: PostRow, platform: string, known: Map<number, PostRow>): Promise<PostRow> {
+  if (platform !== 'threads' || post.url === null) return post;
+  const cached = known.get(post.id);
+  if (cached !== undefined) return cached;
+  const enriched = await threadRow(http, post);
+  known.set(post.id, enriched);
+  return enriched;
+}
+
+async function threadRow(http: Http, post: PostRow): Promise<PostRow> {
+  try {
+    const thread = await fetchThreadsThread(http, post.url ?? '');
+    const text = threadText(thread);
+    if (text === '') return post;
+    const payload = payloadOf(post.payload_json);
+    return {
+      ...post,
+      published_at: thread.posts[0]?.publishedAt ?? post.published_at,
+      // The permalink's words replace the preview; an empty title stops the opening printing twice.
+      payload_json: JSON.stringify({ ...payload, title: '', summary: text }),
+    };
+  } catch (err) {
+    log('warn', 'threads_text_failed', { post: post.id, cause: err instanceof Error ? err.message : String(err) });
+    return post;
+  }
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

@@ -46,6 +46,24 @@ test('delivery: a distinct title still shows above the body', () => {
   assert.ok(titleAt > 0 && bodyAt > titleAt, 'the title sits above the body');
 });
 
+test('delivery: a title sitting inside a reblog chain is not printed above it', () => {
+  // Tumblr's RSS: the title is the post's own line, the body carries it below the reblogs.
+  const title = 'Honestly you should be pretty worried about my coming thousand year reign of darkness.';
+  const body = `ironwoman359 :\n\nstjohnstarling :\n\n${title}\n\n@pangur-and-grim this is what Merulo did at the start of ASCNTD, yes?`;
+  const caption = captionOf(title, body);
+
+  assert.equal(caption.match(/coming thousand year reign/g)?.length, 1, 'the line appears once');
+  assert.ok(caption.includes('ironwoman359'), 'the reblog chain is kept');
+});
+
+test('delivery: a title cut with an HTML entity is still the body\'s opening', () => {
+  // A double-encoded Tumblr feed ships `&hellip;` where the cut is.
+  const caption = captionOf('I went birding today and saw the rarest bird species in&hellip;', 'katelouisepowell :\n\nI went birding today and saw the rarest bird species in the whole world.');
+
+  assert.equal(caption.match(/rarest bird species in/g)?.length, 1, 'the sentence appears once');
+  assert.doesNotMatch(caption, /hellip/, 'the entity does not reach the caption');
+});
+
 test('delivery: a parsed multi-paragraph post is printed once, with its paragraphs', () => {
   const rss =
     '<rss version="2.0"><channel><title>t</title><item><guid>g2</guid><link>https://www.instagram.com/p/DfJ2075AGx3/</link>' +

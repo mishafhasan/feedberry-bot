@@ -182,6 +182,115 @@ test('M12 Download: an extractor without metadata keeps the page description as 
   }
 });
 
+test('M12 Download: the page names the account and dates the post, like a scheduled delivery', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-meta-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  // The extractor returns media only; the page carries the account, the date and the words.
+  const http: Http = async (url) => {
+    if (url === 'https://x.com/blue/status/123') {
+      return {
+        status: 200,
+        url,
+        contentType: 'text/html; charset=utf-8',
+        body: '<html><head><meta property="og:title" content="The World Of Funny (@TheWorldOfFunny) on X">'
+          + '<meta property="og:description" content="Bro turned the whole resort up!">'
+          + '<meta property="article:published_time" content="2025-08-10T16:55:47.000Z"></head><body></body></html>',
+      };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const media: MediaEngine = {
+    async resolve() {
+      return { items: [{ kind: 'photo', url: 'https://cdn.example.test/p.jpg', picker: false }], title: null, artist: null };
+    },
+    async download(_item, workDir) {
+      mkdirSync(workDir, { recursive: true });
+      const path = join(workDir, 'media-photo');
+      writeFileSync(path, 'jpeg-bytes');
+      return path;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/blue/status/123'));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
+    assert.match(
+      caption,
+      /^🌐 <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a>\n⏱️ Time: 08\/10 16:55\n\nBro turned the whole resort up!/,
+      `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
+    );
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M12 Download: a Snapchat spotlight page delivers its clip in the same layout', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-snap-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  const link = 'https://www.snapchat.com/@klipz96/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYc3ZwZXdmdHdmAZGAhOJfAZGAhNupAAAAAQ';
+  // cobalt has no Snapchat extractor; the head carries the account, the date and the clip.
+  const http: Http = async (url) => {
+    if (new URL(url).hostname.endsWith('snapchat.com')) {
+      return {
+        status: 200,
+        url,
+        contentType: 'text/html; charset=utf-8',
+        body: '<html><head><meta property="og:title" content="22 likes and 5 shares | #meme | Funny Vidz (@klipz96) | Posted Aug 23">'
+          + '<meta property="og:description" content="Watch as Funny Vidz captures another unsuspecting victim.">'
+          + '<meta property="og:video" content="https://bolt-gcdn.sc-cdn.net/y/clip.mp4?mo=1">'
+          + '<meta property="article:published_time" content="2024-08-23T18:34:36.329Z"></head><body></body></html>',
+      };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const downloaded: string[] = [];
+  const media: MediaEngine = {
+    async resolve() {
+      throw new Error('cobalt must not be asked for a Snapchat link');
+    },
+    async download(item, workDir) {
+      downloaded.push(item.url);
+      mkdirSync(workDir, { recursive: true });
+      const path = join(workDir, 'media-video');
+      writeFileSync(path, 'mp4-bytes');
+      return path;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, link));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    assert.deepEqual(downloaded, ['https://bolt-gcdn.sc-cdn.net/y/clip.mp4?mo=1'], 'the card video is the download');
+    const caption = String(api.last('sendVideo')?.body.caption ?? '');
+    assert.match(
+      caption,
+      /^🌐 <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a>\n⏱️ Time: 08\/23 18:34\n\nWatch as Funny Vidz captures another unsuspecting victim\./,
+      `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
+    );
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('M12 Download: an engine caption above 1024 chars goes to Instant View with Read more', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-long-'));

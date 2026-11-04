@@ -1,5 +1,6 @@
 import { Coded, E } from '../errors.ts';
 import { HTML_LIMIT, type Http } from '../http.ts';
+import { publishedAtOf } from '../page-text.ts';
 import { handleFeedStatus } from './native.ts';
 
 /**
@@ -28,6 +29,8 @@ export interface YouTubePostDoc {
   text: string;
   /** Original-size image URLs, in post order. */
   media: string[];
+  /** The page's own publish date, when it declares one. */
+  publishedAt: number | null;
 }
 
 /** Stage 2 for one community post: the page carries the post, so one GET is the whole job. */
@@ -51,7 +54,7 @@ export function parseYouTubePost(html: string, postId: string): YouTubePostDoc |
   if (post === null) return null;
 
   const text = [textOf(post.contentText), ...attachmentParts(post.backstageAttachment)].filter((part) => part !== '').join('\n\n');
-  return { author: textOf(post.authorText) || null, channel: channelOf(post), text, media: imagesOf(post.backstageAttachment) };
+  return { author: textOf(post.authorText) || null, channel: channelOf(post), text, media: imagesOf(post.backstageAttachment), publishedAt: publishedAtOf(html) };
 }
 
 /** `…/post/<id>`, the only shape this adapter accepts. */

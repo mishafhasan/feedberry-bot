@@ -63,11 +63,11 @@ export function renderArticle(article: Article, ivUrl: string, header: string): 
 }
 
 /** Download mode has no `posts` row, so the engine supplies the text and the link is the input. */
-export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null }, link: string): MessagePlan {
+export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null; publishedAt?: number | null }, link: string): MessagePlan {
   // The account names the source; its caption is the post's own words underneath.
   const artist = meta.artist ?? null;
   const title = meta.title ?? null;
-  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: null });
+  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null });
   const caption = artist !== null && title !== null ? `${header}\n\n${esc(title)}` : header;
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
   if (files.length === 0) return { kind: 'link_only', text: esc(link) };
@@ -99,10 +99,11 @@ export function bodyParts(post: PostRow, extras: Pick<RenderExtras, 'titleFallba
   return body.filter((part) => part !== '');
 }
 
-/** `preview` is `full`, or its opening with the ellipsis a feed adds when it cuts the text. */
+/** The body already prints the title — at its opening, or inside a reblog chain above it. */
 function cutsOff(preview: string, full: string): boolean {
-  const head = flat(preview).replace(/[.…]+$/u, '').trim();
-  return head !== '' && flat(full).startsWith(head);
+  // A cut is marked with `…`, `...`, or the entity a double-encoded feed leaves behind.
+  const head = flat(preview).replace(/(?:[.…]+|&(?:amp;)?hellip;)$/u, '').trim();
+  return head !== '' && flat(full).includes(head);
 }
 
 /** Titles arrive single-line, bodies keep their paragraphs: compare both on flattened text. */
