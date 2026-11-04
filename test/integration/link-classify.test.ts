@@ -34,8 +34,11 @@ const FEED = `<?xml version="1.0"?><rss version="2.0"><channel><title>Zuck</titl
 
 /** Every feed route answers with the same feed; anything else is a flow bug. */
 const fetched: string[] = [];
+const OEMBED = /^https:\/\/www\.pinterest\.com\/oembed\.json\?url=/;
 const http: Http = async (url) => {
   fetched.push(url);
+  // Pinterest names a pin's owner only in its oEmbed card.
+  if (OEMBED.test(url)) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ author_url: 'https://www.pinterest.com/sabrinaeasminn/' }) };
   // A Tumblr post's source is its blog's own feed; everything else is an RSSHub route.
   if (url !== 'https://mariacallous.tumblr.com/rss' && !url.startsWith('http://rsshub.test/')) throw new Error(`unexpected fetch ${url}`);
   return { status: 200, url, contentType: 'application/rss+xml', body: FEED };
@@ -172,6 +175,61 @@ test('M17: a Tumblr or Facebook post link offers the account behind it, and addi
     await bot.handleUpdate(callbackUpdate(6, USER_ID, 'add:post'));
     assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the page feed is previewed');
     assert.ok(fetched.includes('http://rsshub.test/facebook/page/100070345475708'), 'on the RSSHub page route that answers');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M17 download: the result offers Download more, Add source, Back — adding the link’s own source', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-done-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  fetched.length = 0;
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:download'));
+    // The download names no account, but the link does: instagram.com/<user>/p/<code>.
+    await bot.handleUpdate(textUpdate(3, USER_ID, 'https://www.instagram.com/zuck/p/XYZ/'));
+
+    const done = api.last('sendMessage');
+    assert.match(String(done?.body.text), /Delivered/);
+    const rows = ((done?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard).map((row) => row.map((button) => button.callback_data));
+    assert.deepEqual(rows, [['dl:more', 'add:post'], ['nav:home']], 'download more and add source side by side, Back alone');
+    assert.match(JSON.stringify(done?.body.reply_markup), /Add source/, 'the plain label, since the download named no account');
+
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'add:post'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the source behind the link is previewed');
+    assert.ok(fetched.includes('http://rsshub.test/instagram/user/zuck'));
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M17: a Pinterest pin offers the pinner its oEmbed card names', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-pin-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  fetched.length = 0;
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.pinterest.com/pin/1149614242378622706/'));
+    assert.ok(buttons(api.last('sendMessage')).includes('add:post'), 'the pinner is offered as a source');
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'add:post'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the pinner feed is previewed');
+    assert.ok(fetched.includes('http://rsshub.test/pinterest/user/sabrinaeasminn'), 'on the RSSHub user route');
   } finally {
     db.close();
     await api.close();

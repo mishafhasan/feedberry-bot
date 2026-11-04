@@ -14,6 +14,7 @@ import { fetchThreadsThread } from '../platform/feed/threads.ts';
 import { fetchYouTubePost } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
+import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageText } from '../platform/page-text.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
@@ -272,9 +273,11 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
 
   if (match.kind === 'source') return runResolve(ctx, deps, userId, text);
 
-  setSession(userId, { state: 'choosing', chooser: { link: text } });
+  // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
+  const profileUrl = await ownerOf(text, deps);
+  setSession(userId, { state: 'choosing', chooser: { link: text, profile: profileUrl ?? undefined } });
   const lang = langOf(deps, userId);
-  await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(match.profileUrl !== null, lang) });
+  await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
 }
 
 /** The classifier's answer, or null for a link no flow can use. */
@@ -284,6 +287,13 @@ function kindOf(link: string, deps: BotDeps): LinkMatch['kind'] | null {
   } catch {
     return null;
   }
+}
+
+/** The source a post link stands for, including the oEmbed card a pin needs; null when it names none. */
+async function ownerOf(link: string, deps: BotDeps): Promise<string | null> {
+  const match = classifyLink(link, detectOpts(deps));
+  if (match.kind === 'source') return null;
+  return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps)));
 }
 
 /** Stage 1 reads the same two settings wherever a link is classified. */
@@ -716,8 +726,10 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       const ids = await deps.sender.send(article, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
       log('info', 'download_article', { user: userId, parts: ids.length });
-      setSession(userId, { state: 'idle', mode: undefined });
-      await ctx.reply(downloadDone(langOf(deps, userId)), { parse_mode: 'HTML', reply_markup: downloadResultKeyboard(langOf(deps, userId)) });
+      const lang = langOf(deps, userId);
+      const source = await ownerOf(link, deps);
+      setSession(userId, { state: 'idle', mode: undefined, chooser: source === null ? undefined : { link: source, profile: source } });
+      await ctx.reply(downloadDone(lang), { parse_mode: 'HTML', reply_markup: downloadResultKeyboard(lang, source !== null) });
       return;
     }
 
@@ -761,12 +773,16 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     } finally {
       await cleanupWorkDir(dir);
     }
-    // A bare post link does not name its account; the page or the engine often does, so offer it.
-    const profile = channel?.url ?? (engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor));
+    // A bare post link does not name its account; the page, the engine or the link itself does.
+    const lang = langOf(deps, userId);
+    const named = channel?.url ?? (engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor));
+    const profile = named ?? (await ownerOf(link, deps));
+    // The label may only promise the account the button will add, so a link-derived source gets the plain one.
+    const handle = named === null ? null : (channel?.handle ?? engineAuthor);
     setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile, profile } });
-    await ctx.reply(downloadDone(langOf(deps, userId)), {
+    await ctx.reply(downloadDone(lang), {
       parse_mode: 'HTML',
-      reply_markup: downloadResultKeyboard(langOf(deps, userId), profile === null ? null : (channel?.handle ?? engineAuthor)),
+      reply_markup: downloadResultKeyboard(lang, profile !== null, handle),
     });
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'download', link });

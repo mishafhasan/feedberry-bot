@@ -47,12 +47,12 @@ export function errorKeyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.retry'), 'err:retry').row().text(t(lang, 'btn.back'), 'nav:back');
 }
 
-/** A finished download offers the next one instead of dropping the user back to silence. */
-export function downloadResultKeyboard(lang: Lang = 'en', author: string | null = null): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
+/** A finished download offers the next one, the source behind the link, then Back. */
+export function downloadResultKeyboard(lang: Lang = 'en', hasSource = false, handle: string | null = null): InlineKeyboard {
+  const keyboard = new InlineKeyboard().text(t(lang, 'btn.downloadMore'), 'dl:more');
   // The account behind a bare post link is only known after the download, so it is offered here.
-  if (author !== null) keyboard.text(`➕ @${author}`, 'add:post').row();
-  return keyboard.text(t(lang, 'btn.downloadMore'), 'dl:more').row().text(t(lang, 'btn.home'), 'nav:home');
+  if (hasSource) keyboard.text(handle === null ? t(lang, 'btn.addPost') : `➕ @${handle}`, 'add:post');
+  return keyboard.row().text(t(lang, 'btn.home'), 'nav:home');
 }
 
 /** Already subscribed: the next useful step is the list, not a Retry. */
