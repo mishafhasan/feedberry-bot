@@ -16,7 +16,9 @@ export const ADM = {
   block: 'adm:block:',
   unblock: 'adm:unblock:',
   msg: 'adm:msg',
+  msgPick: 'adm:msgpick:',
   msgTo: 'adm:msg:',
+  msgSend: 'adm:msgsend',
   all: 'adm:all',
   allYes: 'adm:all:yes',
 } as const;
@@ -57,22 +59,23 @@ export function adminOverviewView(params: {
 }
 
 /** Page size matches S7/S16, so every list in this bot pages the same way. */
-export function adminUsersView(params: { rows: UserListItem[]; offset: number; total: number; page: number; lang?: Lang }): AdminView {
+export function adminUsersView(params: { rows: UserListItem[]; offset: number; total: number; page: number; lang?: Lang; mode?: 'details' | 'notify' }): AdminView {
   const lang = params.lang ?? 'en';
   const pages = Math.max(1, Math.ceil(params.total / PAGE_SIZE));
-  const lines = [t(lang, 'adm.users.title')];
+  const notify = params.mode === 'notify';
+  const lines = [notify ? t(lang, 'adm.notify.pick') : t(lang, 'adm.users.title')];
   if (params.total === 0) lines.push('', t(lang, 'adm.users.empty'));
   else lines.push('', t(lang, 'adm.users.showing', { from: params.offset + 1, to: params.offset + params.rows.length, total: params.total }));
 
   const keyboard = new InlineKeyboard();
   for (const row of params.rows) {
     keyboard
-      .text(t(lang, 'adm.users.row', { id: row.tg_user_id, status: statusLabel(row.status, lang), sources: row.source_count }), `${ADM.user}${row.tg_user_id}`)
+      .text(t(lang, 'adm.users.row', { id: row.tg_user_id, status: statusLabel(row.status, lang), sources: row.source_count }), `${notify ? ADM.msgTo : ADM.user}${row.tg_user_id}`)
       .row();
   }
   if (pages > 1) {
-    if (params.page > 0) keyboard.text('‹', `${ADM.users}${params.page - 1}`);
-    if (params.page < pages - 1) keyboard.text('›', `${ADM.users}${params.page + 1}`);
+    if (params.page > 0) keyboard.text('‹', `${notify ? ADM.msgPick : ADM.users}${params.page - 1}`);
+    if (params.page < pages - 1) keyboard.text('›', `${notify ? ADM.msgPick : ADM.users}${params.page + 1}`);
     keyboard.row();
   }
   keyboard.text(t(lang, 'btn.back'), ADM.home);
@@ -119,9 +122,13 @@ export function adminPromptView(text: string, lang: Lang = 'en'): AdminView {
   return { text, keyboard: new InlineKeyboard().text(t(lang, 'btn.back'), ADM.home) };
 }
 
-export function adminConfirmAllView(lang: Lang = 'en'): AdminView {
+/** The text step ends here: the admin sees the exact message before anything is sent. */
+export function adminConfirmSendView(params: { title: string; draft: string; confirmData: string; lang?: Lang }): AdminView {
+  const lang = params.lang ?? 'en';
+  // Telegram refuses an edit over 4096 chars; the draft itself is sent whole by TelegramSender.
+  const preview = params.draft.length > 800 ? `${params.draft.slice(0, 799)}…` : params.draft;
   return {
-    text: t(lang, 'adm.all.confirm'),
-    keyboard: new InlineKeyboard().text(t(lang, 'adm.btn.confirm'), ADM.allYes).row().text(t(lang, 'btn.back'), ADM.home),
+    text: `${params.title}\n\n${esc(preview)}`,
+    keyboard: new InlineKeyboard().text(t(lang, 'adm.btn.send'), params.confirmData).row().text(t(lang, 'btn.cancel'), ADM.home),
   };
 }

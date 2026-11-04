@@ -16,9 +16,10 @@ export type FsmState =
   | 'confirming_delete'
   | 'choosing'
   | 'awaiting_admin_user_id'
-  | 'awaiting_admin_notify_target'
   | 'awaiting_admin_notify'
-  | 'awaiting_admin_notify_all';
+  | 'awaiting_admin_notify_all'
+  | 'confirming_admin_notify'
+  | 'confirming_admin_notify_all';
 
 /** What S4 showed, kept for 60 s so M3's add step does not refetch (plan §4 M2.5). */
 export interface PendingSource {
@@ -66,6 +67,8 @@ export interface Session {
   adm?: { page: number };
   /** Notify target, kept while the admin types the message body. */
   adminTarget?: number;
+  /** The message body, kept between the text step and its confirmation. */
+  adminDraft?: string;
 }
 
 export const PREVIEW_TTL_MS = 60_000;

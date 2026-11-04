@@ -124,6 +124,10 @@ test('the admin adds a user by numeric id and that user can /start', async () =>
     await bot.handleUpdate(textUpdate(3, ADMIN_ID, String(APPROVED)));
     const row = db.prepare('SELECT status FROM users WHERE tg_user_id = ?').get(APPROVED) as { status: string };
     assert.equal(row.status, 'allowed');
+    assert.ok(
+      api.calls.some((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === APPROVED && /approved/i.test(String(call.body.text))),
+      'the new user is told about the approval',
+    );
     assert.match(String(api.last('sendMessage')?.body.text), /User 777[\s\S]*Status: allowed/, 'details open after the add');
 
     const before = api.calls.length;
@@ -168,6 +172,10 @@ test('blocking cuts the user off on the next update and resets their session', a
     assert.equal(api.last('answerCallbackQuery')?.body.text, 'User blocked.');
     assert.equal((db.prepare('SELECT status FROM users WHERE tg_user_id = ?').get(OTHER) as { status: string }).status, 'blocked');
     assert.equal(getSession(OTHER).state, 'idle', 'the pending flow is dropped at once');
+    assert.ok(
+      api.calls.some((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === OTHER && /revoked/i.test(String(call.body.text))),
+      'the blocked user is told',
+    );
 
     const before = api.calls.length;
     await bot.handleUpdate(startUpdate(2, OTHER));
@@ -185,6 +193,10 @@ test('unblocking opens the bot again', async () => {
     await bot.handleUpdate(callbackUpdate(1, ADMIN_ID, `adm:block:${OTHER}`));
     await bot.handleUpdate(callbackUpdate(2, ADMIN_ID, `adm:unblock:${OTHER}`));
     assert.equal((db.prepare('SELECT status FROM users WHERE tg_user_id = ?').get(OTHER) as { status: string }).status, 'allowed');
+    assert.ok(
+      api.calls.some((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === OTHER && /restored/i.test(String(call.body.text))),
+      'the unblocked user is told',
+    );
 
     const before = api.calls.length;
     await bot.handleUpdate(startUpdate(3, OTHER));
@@ -194,16 +206,37 @@ test('unblocking opens the bot again', async () => {
   }
 });
 
-test('notify user: the message reaches the fake API and an event records it', async () => {
+test('notify user: pick from the list, type a message, confirm, then send', async () => {
   const { api, dir, db, bot } = await setup();
   try {
     allowUser(db, APPROVED);
     await bot.handleUpdate(commandUpdate(1, ADMIN_ID, 'admin_panel'));
-    await bot.handleUpdate(callbackUpdate(2, ADMIN_ID, `adm:msg:${APPROVED}`));
-    await bot.handleUpdate(textUpdate(3, ADMIN_ID, 'hello from the admin'));
+    await bot.handleUpdate(callbackUpdate(2, ADMIN_ID, 'adm:msg'));
 
+    const picker = api.last('editMessageText');
+    assert.match(String(picker?.body.text), /Choose a user to message/);
+    const pickButtons = (picker?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data?: string }>> }).inline_keyboard.flat();
+    assert.ok(pickButtons.some((button) => button.callback_data === `adm:msg:${APPROVED}`), 'the picker lists users');
+
+    await bot.handleUpdate(callbackUpdate(3, ADMIN_ID, `adm:msg:${APPROVED}`));
+    assert.match(String(api.last('editMessageText')?.body.text), /Send the message for user 777/);
+
+    const before = api.calls.length;
+    await bot.handleUpdate(textUpdate(4, ADMIN_ID, 'hello from the admin'));
+    assert.match(
+      String(api.last('sendMessage')?.body.text),
+      /Send this message to user 777\?[\s\S]*hello from the admin/,
+      'the exact message is shown for confirmation',
+    );
+    assert.equal(
+      api.callsSince(before).filter((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === APPROVED).length,
+      0,
+      'nothing is sent before the confirmation',
+    );
+
+    await bot.handleUpdate(callbackUpdate(5, ADMIN_ID, 'adm:msgsend'));
     const sent = api.calls.find((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === APPROVED && String(call.body.text).includes('hello from the admin'));
-    assert.ok(sent, 'the user received the message');
+    assert.ok(sent, 'the user received the message after the confirmation');
     const event = db.prepare("SELECT chat_id, detail FROM events WHERE code = 'admin_notify' ORDER BY id DESC LIMIT 1").get() as { chat_id: number; detail: string };
     assert.equal(event.chat_id, APPROVED);
     assert.equal(event.detail, 'sent');
@@ -213,17 +246,29 @@ test('notify user: the message reaches the fake API and an event records it', as
   }
 });
 
-test('notify all sends one message per allowed user after the confirmation', async () => {
+test('notify all: type the message, confirm, then send to every allowed user', async () => {
   const { api, dir, db, bot } = await setup();
   try {
     allowUser(db, APPROVED);
     allowUser(db, OTHER);
     await bot.handleUpdate(commandUpdate(1, ADMIN_ID, 'admin_panel'));
     await bot.handleUpdate(callbackUpdate(2, ADMIN_ID, 'adm:all'));
-    assert.match(String(api.last('editMessageText')?.body.text), /every allowed user/);
-    await bot.handleUpdate(callbackUpdate(3, ADMIN_ID, 'adm:all:yes'));
-    await bot.handleUpdate(textUpdate(4, ADMIN_ID, 'broadcast'));
+    assert.match(String(api.last('editMessageText')?.body.text), /Send the message for all allowed users/);
 
+    const before = api.calls.length;
+    await bot.handleUpdate(textUpdate(3, ADMIN_ID, 'broadcast'));
+    assert.match(
+      String(api.last('sendMessage')?.body.text),
+      /Send this message to all allowed users\?[\s\S]*broadcast/,
+      'the exact message is shown for confirmation',
+    );
+    assert.equal(
+      api.callsSince(before).filter((call) => call.method === 'sendMessage' && [APPROVED, OTHER].includes(Number(call.body.chat_id))).length,
+      0,
+      'nothing is sent before the confirmation',
+    );
+
+    await bot.handleUpdate(callbackUpdate(4, ADMIN_ID, 'adm:all:yes'));
     for (const id of [APPROVED, OTHER]) {
       assert.ok(
         api.calls.some((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === id && String(call.body.text).includes('broadcast')),
@@ -231,6 +276,42 @@ test('notify all sends one message per allowed user after the confirmation', asy
       );
     }
     assert.match(String(api.last('sendMessage')?.body.text), /Admin panel/);
+  } finally {
+    await cleanup(api, dir, db);
+  }
+});
+
+test('cancelling a notification disarms its stale Send button', async () => {
+  const { api, dir, db, bot } = await setup();
+  try {
+    allowUser(db, APPROVED);
+    allowUser(db, OTHER);
+    await bot.handleUpdate(commandUpdate(1, ADMIN_ID, 'admin_panel'));
+
+    // Notify user: draft -> confirmation -> cancel -> stale Send.
+    await bot.handleUpdate(callbackUpdate(2, ADMIN_ID, 'adm:msg'));
+    await bot.handleUpdate(callbackUpdate(3, ADMIN_ID, `adm:msg:${APPROVED}`));
+    await bot.handleUpdate(textUpdate(4, ADMIN_ID, 'should never be sent'));
+    await bot.handleUpdate(callbackUpdate(5, ADMIN_ID, 'adm:home'));
+    const beforeUser = api.calls.length;
+    await bot.handleUpdate(callbackUpdate(6, ADMIN_ID, 'adm:msgsend'));
+    assert.equal(
+      api.callsSince(beforeUser).filter((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === APPROVED).length,
+      0,
+      'a cancelled user draft cannot be sent',
+    );
+
+    // Notify all: same draft -> confirm -> cancel -> stale send.
+    await bot.handleUpdate(callbackUpdate(7, ADMIN_ID, 'adm:all'));
+    await bot.handleUpdate(textUpdate(8, ADMIN_ID, 'broadcast that should not go'));
+    await bot.handleUpdate(callbackUpdate(9, ADMIN_ID, 'adm:home'));
+    const beforeAll = api.calls.length;
+    await bot.handleUpdate(callbackUpdate(10, ADMIN_ID, 'adm:all:yes'));
+    assert.equal(
+      api.callsSince(beforeAll).filter((call) => call.method === 'sendMessage' && [APPROVED, OTHER].includes(Number(call.body.chat_id))).length,
+      0,
+      'a cancelled broadcast cannot be sent',
+    );
   } finally {
     await cleanup(api, dir, db);
   }
@@ -247,6 +328,7 @@ test('a forged admin callback from another user changes nothing', async () => {
     assert.equal((db.prepare('SELECT status FROM users WHERE tg_user_id = ?').get(OTHER) as { status: string }).status, 'allowed');
     assert.equal(api.last('answerCallbackQuery')?.body.text, 'That button is not available.');
     assert.equal(api.callsSince(before).filter((call) => call.method === 'editMessageText').length, 0, 'no panel is painted for a non-admin');
+    assert.equal(api.callsSince(before).filter((call) => call.method === 'sendMessage' && Number(call.body.chat_id) === OTHER).length, 0, 'no notice is sent');
   } finally {
     await cleanup(api, dir, db);
   }
