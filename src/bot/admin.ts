@@ -5,7 +5,6 @@ import { t, langFor } from './i18n/index.ts';
 import { isAdmin } from './access.ts';
 import { listSourcesForUser } from '../db/repos/subscriptions.ts';
 import { findAccessRequestByUsername, recentAccessRequests, recordEvent } from '../db/repos/events.ts';
-import { countSources } from '../db/repos/sources.ts';
 import { getUser, listAllowedTgIds, listUsers, setUserStatus, upsertAllowedUser, userStats } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import { isCoded } from '../platform/errors.ts';
@@ -228,7 +227,7 @@ async function notifyAll(ctx: Context, deps: BotDeps, adminId: number, text: str
 }
 
 function overview(deps: BotDeps): AdminView {
-  return adminOverviewView({ stats: userStats(deps.db), sources: countSources(deps.db), requests: recentAccessRequests(deps.db, RECENT_REQUESTS) });
+  return adminOverviewView({ stats: userStats(deps.db), requests: recentAccessRequests(deps.db, RECENT_REQUESTS) });
 }
 
 async function replyOverview(ctx: Context, deps: BotDeps): Promise<void> {

@@ -152,7 +152,7 @@ const EN = {
   'notice.access.unblocked': '✅ Your access has been restored. Send /start to continue.',
 
   'adm.title': '🛠 Admin panel',
-  'adm.stats': '👥 Users: {all} · ✅ {allowed} · ⏳ {pending} · 🚫 {blocked}\n📡 Sources: {sources}',
+  'adm.stats': '👥 Users: {all} · ✅ {allowed} · ⏳ {pending} · 🚫 {blocked}',
   'adm.requests.title': '🕐 Recent access requests:',
   'adm.requests.none': 'none yet',
   'adm.request.row': '🆔 {id} {who}',

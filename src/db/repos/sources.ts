@@ -63,11 +63,6 @@ export function getSource(db: Db, id: number): SourceRow | undefined {
   return db.prepare('SELECT * FROM sources WHERE id = ?').get(id) as unknown as SourceRow | undefined;
 }
 
-/** Admin overview total; a source is one row however many users follow it. */
-export function countSources(db: Db): number {
-  return (db.prepare('SELECT COUNT(*) AS n FROM sources').get() as { n: number }).n;
-}
-
 /** S8: on/off only touches `sources.enabled`; nothing is deleted. */
 export function setSourceEnabled(db: Db, id: number, enabled: boolean): void {
   db.prepare('UPDATE sources SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);

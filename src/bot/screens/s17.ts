@@ -35,12 +35,11 @@ export function statusLabel(status: string, lang: Lang = 'en'): string {
 
 export function adminOverviewView(params: {
   stats: { all: number; allowed: number; pending: number; blocked: number };
-  sources: number;
   requests: AccessRequest[];
   lang?: Lang;
 }): AdminView {
   const lang = params.lang ?? 'en';
-  const lines = [t(lang, 'adm.title'), '', t(lang, 'adm.stats', { ...params.stats, sources: params.sources }), '', t(lang, 'adm.requests.title')];
+  const lines = [t(lang, 'adm.title'), '', t(lang, 'adm.stats', { ...params.stats }), '', t(lang, 'adm.requests.title')];
   if (params.requests.length === 0) lines.push(t(lang, 'adm.requests.none'));
   for (const request of params.requests) {
     lines.push(t(lang, 'adm.request.row', { id: request.tg_user_id, who: esc(request.username ?? '') }));
