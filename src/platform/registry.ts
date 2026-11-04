@@ -116,7 +116,7 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
         return single(u, platform, id);
       }
       if (second === 'reels' && third) return single(u, platform, third);
-      return profile(platform, `https://facebook.com/${user(first)}`, user(first), rsshub(opts, `/facebook/${user(first)}`));
+      return profile(platform, `https://facebook.com/${user(first)}`, user(first), rsshub(opts, `/facebook/page/${user(first)}`));
     }
     case 'youtube': {
       const [first, second] = seg;
@@ -193,14 +193,21 @@ export function profileOfPost(link: string): string | null {
     case 'instagram':
       // A bare /p/<code> link does not name its owner; instagram.com/<user>/p/<code> does.
       return seg[0] === 'p' || seg[0] === 'reel' || seg[0] === 'tv' || !seg[0] ? null : `https://instagram.com/${owner}`;
-    case 'facebook':
-      return owner ? `https://facebook.com/${owner}` : null;
+    case 'facebook': {
+      // /photo?fbid=… and /watch?v=… name the post, not its page; `set=pb.<pageId>…` is what names it.
+      const pageId = /^pb\.(\d+)\./.exec(u.searchParams.get('set') ?? '')?.[1];
+      if (pageId !== undefined) return `https://facebook.com/${pageId}`;
+      return seg[0] === undefined || FACEBOOK_POST_PATHS.has(seg[0]) ? null : `https://facebook.com/${owner}`;
+    }
     case 'bluesky':
       return seg[1] ? `https://bsky.app/profile/${seg[1]}` : null;
     case 'youtube':
       return seg[0]?.startsWith('@') ? `https://youtube.com/@${owner}` : null;
-    case 'tumblr':
-      return `https://${normalizeHost(u.hostname)}`;
+    case 'tumblr': {
+      // tumblr.com/<blog>/<id> names the blog a post belongs to; the bare host is nobody's source.
+      const host = normalizeHost(u.hostname);
+      return host === 'tumblr.com' && seg[1] !== undefined && /^\d+$/.test(seg[1]) ? `https://${owner}.tumblr.com` : `https://${host}`;
+    }
     case 'rss':
       // A website page belongs to the site itself, which is what a subscription follows.
       return `${u.protocol}//${normalizeHost(u.hostname)}`;
@@ -211,6 +218,9 @@ export function profileOfPost(link: string): string | null {
 
 /** A display name is not a handle: YouTube's artist is the channel title, not an @name. */
 const HANDLE = /^[A-Za-z0-9._-]{1,30}$/;
+
+/** Facebook path segments that name a post rather than the page that posted it. */
+const FACEBOOK_POST_PATHS = new Set(['photo', 'photo.php', 'watch', 'videos', 'reel', 'reels', 'story.php']);
 
 /** The profile URL for an author a download named, when that platform has profile feeds. */
 export function profileFromAuthor(platform: Platform, author: string): string | null {
@@ -229,6 +239,30 @@ export function profileFromAuthor(platform: Platform, author: string): string | 
     default:
       // x needs instance tokens (ADR-017), so offering it would only fail later.
       return null;
+  }
+}
+
+/** What a pasted link is, for every screen that has to tell a post from a source. */
+export type LinkMatch = { kind: 'source' } | { kind: 'post'; profileUrl: string | null };
+
+/**
+ * One answer for every entry point (free text, Download Mode, Add Source): a source to follow, or a
+ * single post. Throws the §11 `Coded` error for a link no flow can use.
+ * `profileUrl` is only set when the add flow would accept it — x needs tokens, snapchat has no feed.
+ */
+export function classifyLink(link: string, opts: DetectOptions): LinkMatch {
+  const ref = detectSource(link, opts);
+  if (ref.strategy !== 'single_post' && !isWebsitePage(ref)) return { kind: 'source' };
+  const profileUrl = profileOfPost(link);
+  return { kind: 'post', profileUrl: profileUrl !== null && addable(profileUrl, opts) ? profileUrl : null };
+}
+
+function addable(profileUrl: string, opts: DetectOptions): boolean {
+  try {
+    const ref = detectSource(profileUrl, opts);
+    return ref.strategy !== 'single_post' && !isWebsitePage(ref);
+  } catch {
+    return false;
   }
 }
 

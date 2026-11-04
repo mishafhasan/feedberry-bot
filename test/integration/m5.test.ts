@@ -212,15 +212,13 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:download'));
     assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link/);
 
-    // A profile is not a post, and Retry re-runs the same download rather than dropping it.
+    // A profile is not a post: one notice, and no Retry that would only fail again.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/cristiano/'));
     assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link, not a profile\./);
-    const errorButtons = (api.last('sendMessage')?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
-    assert.ok(errorButtons.some((button) => button.callback_data === 'err:retry'), 'the failure offers Retry');
-    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'err:retry'));
-    assert.match(api.last('sendMessage')?.body.text ?? '', /Send a post link, not a profile\./, 'Retry replays the download, not the source flow');
+    const noticeButtons = (api.last('sendMessage')?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard.flat();
+    assert.ok(!noticeButtons.some((button) => button.callback_data === 'err:retry'), 'no Retry that would fail again');
 
-    // A post link goes through stages 1 and 3-7.
+    // Download mode stays ready: the next post link goes through stages 1 and 3-7.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
     const methods = api.calls.map((c) => c.method).join(',');
     assert.ok(api.calls.some((c) => c.method === 'sendPhoto'), `the media is sent to the same chat (saw ${methods})`);

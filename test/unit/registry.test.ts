@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { detectSource } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -93,6 +93,7 @@ test('M12 registry: page-scoped Facebook videos, photos and watch links are post
   assert.equal(watch.canonicalUrl, 'https://facebook.com/watch?v=123456');
 
   assert.equal(detectSource('https://www.facebook.com/shammiltd', opts).strategy, 'rsshub', 'a page is still a profile');
+  assert.equal(detectSource('https://www.facebook.com/shammiltd', opts).feedUrl, 'http://rsshub.test/facebook/page/shammiltd', 'RSSHub serves a page under /facebook/page');
 });
 
 test('M12 registry: Snapchat spotlight share links and Tumblr post links are posts', () => {
@@ -124,6 +125,49 @@ test('M17 registry: a YouTube community post is a single post, never a channel h
   assert.equal(codeOf('https://www.youtube.com/post/'), E.LINK_INVALID, 'a post without an id cannot be fetched');
   // A channel is still a feed: the post case must not swallow it.
   assert.equal(detectSource('https://www.youtube.com/@MrBeast', opts).strategy, 'rsshub');
+});
+
+test('M17 classify: a profile is a source, a post is a post, per platform', () => {
+  const source = { kind: 'source' };
+  assert.deepEqual(classifyLink('https://www.instagram.com/cristiano/', opts), source);
+  assert.deepEqual(classifyLink('https://www.youtube.com/@MrBeast', opts), source);
+  assert.deepEqual(classifyLink('https://www.threads.net/t/Cabc', opts), { kind: 'post', profileUrl: null }, 'the short form names no owner');
+
+  assert.deepEqual(classifyLink('https://www.instagram.com/p/C1/', opts), { kind: 'post', profileUrl: null }, 'a bare /p/ link names no owner');
+  assert.deepEqual(classifyLink('https://www.instagram.com/cristiano/p/C1/', opts), { kind: 'post', profileUrl: 'https://instagram.com/cristiano' });
+  assert.deepEqual(classifyLink('https://www.threads.net/@zuck/post/Cabc', opts), { kind: 'post', profileUrl: 'https://threads.com/@zuck' });
+  assert.deepEqual(classifyLink('https://www.tiktok.com/@user/video/123', opts), { kind: 'post', profileUrl: 'https://tiktok.com/@user' });
+  assert.deepEqual(classifyLink('https://www.facebook.com/shammiltd/videos/funny-clips/1159110793020936/', opts), { kind: 'post', profileUrl: 'https://facebook.com/shammiltd' });
+
+  assert.deepEqual(classifyLink('https://youtu.be/dQw4w9WgXcQ', opts), { kind: 'post', profileUrl: null });
+  assert.deepEqual(classifyLink('https://www.snapchat.com/t/abc123', opts), { kind: 'post', profileUrl: null }, 'snapchat has no feed to offer');
+  assert.deepEqual(classifyLink('https://x.com/blue/status/123', opts), { kind: 'post', profileUrl: null }, 'an x profile needs tokens (ADR-017)');
+});
+
+test('M17 classify: the account behind a Facebook or Tumblr post is the one the URL names', () => {
+  assert.deepEqual(classifyLink('https://www.facebook.com/shammiltd/videos/funny-clips/1159110793020936/', opts), { kind: 'post', profileUrl: 'https://facebook.com/shammiltd' });
+  // /photo?fbid= names no page, but the album it was opened from does: set=pb.<pageId>.
+  assert.deepEqual(classifyLink('https://web.facebook.com/photo/?fbid=1270547115300126&set=pb.100070345475708.-2207520000', opts), {
+    kind: 'post',
+    profileUrl: 'https://facebook.com/100070345475708',
+  });
+  assert.deepEqual(classifyLink('https://www.facebook.com/photo?fbid=1270547115300126', opts), { kind: 'post', profileUrl: null }, 'no page anywhere in the link');
+  assert.deepEqual(classifyLink('https://www.facebook.com/watch/?v=123456', opts), { kind: 'post', profileUrl: null });
+  assert.deepEqual(classifyLink('https://www.tumblr.com/mariacallous/832322209601224704?source=share', opts), { kind: 'post', profileUrl: 'https://mariacallous.tumblr.com' });
+  assert.deepEqual(classifyLink('https://staff.tumblr.com/post/831491763581648896', opts), { kind: 'post', profileUrl: 'https://staff.tumblr.com' });
+});
+
+test('M17 classify: a website page is a post of its origin, a root or a feed is a source', () => {
+  assert.deepEqual(classifyLink('https://blog.example.test/story/a-quiet-return', opts), { kind: 'post', profileUrl: 'https://blog.example.test' });
+  assert.deepEqual(classifyLink('https://blog.example.test/', opts), { kind: 'source' });
+  assert.deepEqual(classifyLink('https://feeds.bbci.co.uk/news/world/rss.xml', opts), { kind: 'source' });
+});
+
+test('M17 classify: an unusable link keeps its §11 code for every screen', () => {
+  assert.throws(() => classifyLink('nonsense', opts), (err) => err instanceof Coded && err.code === E.LINK_INVALID);
+  assert.throws(() => classifyLink('https://x.com/elonmusk', opts), (err) => err instanceof Coded && err.code === E.COOKIE_REQUIRED);
+  assert.throws(() => classifyLink('https://www.snapchat.com/@someone', opts), (err) => err instanceof Coded && err.code === E.NO_FEED);
+  assert.throws(() => classifyLink('https://www.pinterest.com/ideas/food/90809/', opts), (err) => err instanceof Coded && err.code === E.PROFILE_ONLY);
 });
 
 test('M13 registry: every TikTok post shape and share host is a single post', () => {

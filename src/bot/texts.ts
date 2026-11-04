@@ -74,6 +74,10 @@ export const downloadDone = (lang: Lang = 'en'): string => t(lang, 'done.downloa
 /** A post link pasted outside a flow: offer the download, and the account when we can name it. */
 export const postLinkPrompt = (lang: Lang = 'en'): string => t(lang, 'prompt.postLink');
 
+/** A flow got the wrong kind of link: name the one it takes, and offer no Retry that would fail again. */
+export const linkRequired = (want: 'post' | 'source', lang: Lang = 'en'): string =>
+  t(lang, want === 'post' ? 'notice.postLinkRequired' : 'notice.sourceLinkRequired');
+
 /** S3 — the bot's answer while stage 1 and 2 run. */
 export function s3Text(canonicalUrl: string, lang: Lang = 'en'): string {
   return `${t(lang, 's3.checking')}\n\n${esc(canonicalUrl)}`;

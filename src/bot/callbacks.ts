@@ -13,7 +13,7 @@ import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread } from '../platform/feed/threads.ts';
 import { fetchYouTubePost } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
-import { detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type SourceRef } from '../platform/registry.ts';
+import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pageText } from '../platform/page-text.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
@@ -50,7 +50,7 @@ import { s13View, s14View, s15View } from './screens/s13.ts';
 import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
 import { ADM } from './screens/s17.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
-import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, postLinkPrompt, sourceBody } from './texts.ts';
+import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -230,17 +230,24 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
   }
 }
 
-/** A source link arrived in `awaiting_source_link`; the mode decides the pipeline (ADR-013). */
+/** A link arrived in `awaiting_source_link`; the mode decides which flow owns it (ADR-013). */
 export async function handleSourceLink(ctx: Context, deps: BotDeps): Promise<void> {
   const userId = ctx.from?.id;
   const link = ctx.message?.text?.trim();
   if (userId === undefined || !link) return;
-  if (getSession(userId).mode === 'download') await runDownload(ctx, deps, userId, link);
-  else await runResolve(ctx, deps, userId, link);
+
+  const download = getSession(userId).mode === 'download';
+  const kind = kindOf(link, deps);
+  if (download && kind === 'post') return runDownload(ctx, deps, userId, link);
+  if (!download && kind === 'source') return runResolve(ctx, deps, userId, link);
+
+  // The wrong kind of link for this screen: say which one it wants, since Retry would fail again.
+  const lang = langOf(deps, userId);
+  await ctx.reply(linkRequired(download ? 'post' : 'source', lang), { parse_mode: 'HTML', reply_markup: noticeKeyboard(lang) });
 }
 
 /**
- * A link pasted outside any flow is still useful: a profile goes straight to S4, a post link asks
+ * A link pasted outside any flow is still useful: a source goes straight to S4, a post asks
  * whether to download it or subscribe to the account behind it.
  */
 export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void> {
@@ -250,9 +257,9 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   const { state } = getSession(userId);
   if (state !== 'idle' && state !== 'done' && state !== 'error') return;
 
-  let ref: SourceRef;
+  let match: LinkMatch;
   try {
-    ref = detectSource(text, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+    match = classifyLink(text, detectOpts(deps));
   } catch (err) {
     // Ordinary chatter in a private chat is not an error; only something that looks like a link is.
     if (!/^\s*https?:\/\//i.test(text)) return;
@@ -263,12 +270,24 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
     return;
   }
 
-  ensureUser(deps.db, userId);
-  if (ref.strategy !== 'single_post' && !isWebsitePage(ref)) return runResolve(ctx, deps, userId, text);
+  if (match.kind === 'source') return runResolve(ctx, deps, userId, text);
 
   setSession(userId, { state: 'choosing', chooser: { link: text } });
-  await ctx.reply(postLinkPrompt(langOf(deps, userId)), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileOfPost(text) !== null, langOf(deps, userId)) });
+  const lang = langOf(deps, userId);
+  await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(match.profileUrl !== null, lang) });
 }
+
+/** The classifier's answer, or null for a link no flow can use. */
+function kindOf(link: string, deps: BotDeps): LinkMatch['kind'] | null {
+  try {
+    return classifyLink(link, detectOpts(deps)).kind;
+  } catch {
+    return null;
+  }
+}
+
+/** Stage 1 reads the same two settings wherever a link is classified. */
+const detectOpts = (deps: BotDeps): DetectOptions => ({ rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
 
 /** The chooser from a pasted post link (`dl:post` / `add:post`). */
 async function choosePost(ctx: Context, deps: BotDeps, userId: number, download: boolean): Promise<void> {
@@ -312,7 +331,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
   try {
     // §12.4: one source-add per 10 s.
     if (!allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
-    const ref = resolveProfile(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+    const ref = resolveProfile(link, detectOpts(deps));
 
     // Checked before any fetch: a source the user already follows needs no preview, only a pointer.
     const known = findSourceByUrl(deps.db, ref.canonicalUrl);
@@ -670,9 +689,9 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
   let working: number | undefined;
 
   try {
-    const ref = detectSource(link, { rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+    const ref = detectSource(link, detectOpts(deps));
     // A website page is a post too: only a real profile on a known platform is refused here.
-    const websitePage = ref.platform === 'rss';
+    const websitePage = isWebsitePage(ref);
     if (ref.strategy !== 'single_post' && !websitePage) throw new Coded(E.POST_REQUIRED, 'profile link in download mode');
 
     const since = Date.now() - 24 * 60 * 60 * 1000;

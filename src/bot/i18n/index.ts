@@ -63,6 +63,8 @@ const EN = {
   'prompt.downloadList': 'Supported sites: websites/blogs, Instagram, X/Twitter, Bluesky, TikTok, Snapchat, Tumblr, Pinterest, Facebook, YouTube, Threads.',
   'done.download': '✅ Delivered.',
   'prompt.postLink': '🔗 This is a post link.',
+  'notice.postLinkRequired': '⬇️ Send a post link, not a profile.',
+  'notice.sourceLinkRequired': '➕ Send a source link, not a post.',
   'notice.alreadySource': '📁 «{title}» is already in your sources.',
 
   'supported.title': '🌐 Supported sites',
