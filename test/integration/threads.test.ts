@@ -16,6 +16,7 @@ import type { MediaEngine } from '../../src/media/cobalt.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { parseThreadDocument } from '../../src/platform/feed/threads.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 777;
@@ -74,6 +75,7 @@ test('threads: one post link delivers the whole thread, its words and its media'
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-threads-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const pages: TelegraphPage[] = [];
   const telegraph = {
     async createPage(page: TelegraphPage): Promise<string> {
@@ -129,6 +131,7 @@ test('threads: a text-only thread is delivered as text, not as a failure', async
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-threads-text-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const calls = { resolve: 0, download: 0 };
   const { http } = threadsHttp(textThreadHtml());
 
@@ -157,6 +160,7 @@ test('threads: the app shell falls back to cobalt instead of failing', async () 
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-threads-shell-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const calls = { resolve: 0, download: 0 };
   const { http } = threadsHttp(evidence('01-root-post-html.html'));
 

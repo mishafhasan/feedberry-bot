@@ -11,6 +11,8 @@ import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
 import { TelegramSender } from '../telegram/api.ts';
 import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openScheduleFor, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
+import { deny, gate, isAdmin } from './access.ts';
+import { handleAdminInput, openAdminPanel } from './admin.ts';
 import { getSession, resetSession } from './fsm.ts';
 import { langFor, t } from './i18n/index.ts';
 import { replyMenu } from './reply-menu.ts';
@@ -42,6 +44,11 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
   const network: Http = http ?? networkFor(cfg);
   const deps = { cfg, db, http: network, media: media ?? cobaltEngine, sender: new TelegramSender(bot.api), telegraph };
 
+  // The allowlist gate sits in front of every handler: commands, text, callbacks and chat changes.
+  bot.use(async (ctx, next) => {
+    if (await gate(ctx, db, cfg)) await next();
+  });
+
   // The slash-command list under Telegram's Menu button. Best effort: a failed call must not stop the bot.
   void bot.api
     .setMyCommands([
@@ -51,6 +58,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
       { command: 'schedule', description: 'Check schedule' },
       { command: 'supported_sites', description: 'Supported Sites' },
       { command: 'language', description: 'Change Interface Language' },
+      { command: 'admin_panel', description: 'Admin Panel' },
       { command: 'about', description: 'About' },
     ])
     .catch((err: unknown) => log('warn', 'set_commands_failed', { cause: err instanceof Error ? err.message : String(err) }));
@@ -106,10 +114,20 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     await ctx.reply(statusText(db));
   });
 
+  // The panel is the operator's; anyone else gets the same closed-door answer as a stranger.
+  bot.command('admin_panel', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId === undefined) return;
+    if (!isAdmin(cfg, userId)) return deny(ctx, db, userId);
+    await openAdminPanel(ctx, deps);
+  });
+
   bot.on('message:text', async (ctx) => {
     const userId = ctx.from.id;
     const threadId = ctx.message.message_thread_id;
     if (threadId !== undefined) captureTopic(db, ctx.chat.id, threadId);
+    // An admin typing into a panel step is never a source link or a menu label.
+    if (await handleAdminInput(ctx, deps, userId)) return;
     // A tapped reply-keyboard button is an action, never a link to resolve.
     if (await handleReplyMenu(ctx, deps, userId, ctx.message.text)) return;
     if (getSession(userId).state === 'awaiting_source_link') await handleSourceLink(ctx, deps);

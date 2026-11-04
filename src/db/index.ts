@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -26,6 +26,14 @@ const MIGRATION_V2 = `
   ALTER TABLE deliveries_v2 RENAME TO deliveries;
 `;
 
+/**
+ * v2 → v3: a closed allowlist. Existing rows become 'pending' on purpose: a v2 bot accepted
+ * everyone, so granting them silently would keep the old open model. The admin approves each.
+ */
+const MIGRATION_V3 = `
+  ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -43,8 +51,9 @@ function migrate(db: Db): void {
 
   if (current === 0) {
     db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
-  } else if (current === 1) {
-    db.exec(MIGRATION_V2);
+  } else {
+    if (current <= 1) db.exec(MIGRATION_V2);
+    if (current <= 2) db.exec(MIGRATION_V3);
   }
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

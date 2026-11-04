@@ -15,6 +15,7 @@ import { openDb } from '../../src/db/index.ts';
 import type { MediaEngine } from '../../src/media/cobalt.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 777;
@@ -60,6 +61,7 @@ test('youtube: one post link delivers its channel, its words and its photo', asy
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const calls = { resolve: 0, download: 0 };
   const { http, seen } = postHttp(evidence('post-image.html'));
 
@@ -104,6 +106,7 @@ test('youtube: an album post ships every photo in one media group', async () => 
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-album-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const calls = { resolve: 0, download: 0 };
   const { http } = postHttp(evidence('post-multi-image.html'));
 
@@ -134,6 +137,7 @@ test('youtube: a post that attaches a video ships it as a link, not as a downloa
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-video-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const calls = { resolve: 0, download: 0 };
   const { http } = postHttp(evidence('post-video.html'));
 

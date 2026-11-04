@@ -18,6 +18,7 @@ import { deliverPending, runFetchSource } from '../../src/pipeline/run.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -55,6 +56,7 @@ async function addHeadless(http: Http) {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-dup-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });
   await bot.init();
   return { api, dir, cfg, db, bot };

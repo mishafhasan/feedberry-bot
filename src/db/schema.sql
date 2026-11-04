@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS users (
   tg_user_id  INTEGER NOT NULL UNIQUE,
   tz          TEXT NOT NULL DEFAULT 'UTC',
   locale      TEXT,
-  created_at  INTEGER NOT NULL
+  created_at  INTEGER NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending'   -- pending|allowed|blocked; only 'allowed' opens the bot
 );
 
 CREATE TABLE IF NOT EXISTS chats (

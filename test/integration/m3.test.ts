@@ -12,6 +12,7 @@ import { parseConfig } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -30,6 +31,7 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m3-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_SOURCES_PER_USER: '2' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   let updateId = 10;
 
   try {

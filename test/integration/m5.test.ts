@@ -24,6 +24,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -200,6 +201,7 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-dl-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '1' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   let updateId = 10;
 
   try {
@@ -243,6 +245,7 @@ test('M5 download mode: a long caption arrives as one photo with a Read more lin
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-dl-more-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const pages: TelegraphPage[] = [];
   const telegraph = {
     async createPage(page: TelegraphPage): Promise<string> {

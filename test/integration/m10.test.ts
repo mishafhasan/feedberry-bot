@@ -23,6 +23,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { deliverPending, runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -81,6 +82,7 @@ test('M10 menu: five buttons, /supported_sites and /language answer, language is
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-menu-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
@@ -211,6 +213,7 @@ test('M10 free text: a profile link goes straight to the source preview', async 
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-profile-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const feed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Cristiano</title>
     <item><title>Latest post</title><link>https://instagram.com/p/1</link><guid>i-1</guid>
     <pubDate>Sat, 25 Oct 2026 10:00:00 GMT</pubDate><description>Body</description></item>
@@ -245,6 +248,7 @@ test('M10 free text: an unusable link is a one-line notice with Help, not a Retr
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-notice-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
@@ -269,6 +273,7 @@ test('M10 download: a post link pasted in idle offers the choice, and a success 
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m10-dl-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });

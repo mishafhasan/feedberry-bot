@@ -5,7 +5,20 @@ import type { Platform, Strategy } from '../platform/registry.ts';
  * In-memory FSM (ARCHITECTURE §7.1, OQ-15). Keyed by Telegram user id: a restart forgets
  * where a user was, which is safe because every screen can be re-rendered from the DB.
  */
-export type FsmState = 'idle' | 'awaiting_source_link' | 'checking' | 'preview' | 'add_mode' | 'done' | 'error' | 'confirming_delete' | 'choosing';
+export type FsmState =
+  | 'idle'
+  | 'awaiting_source_link'
+  | 'checking'
+  | 'preview'
+  | 'add_mode'
+  | 'done'
+  | 'error'
+  | 'confirming_delete'
+  | 'choosing'
+  | 'awaiting_admin_user_id'
+  | 'awaiting_admin_notify_target'
+  | 'awaiting_admin_notify'
+  | 'awaiting_admin_notify_all';
 
 /** What S4 showed, kept for 60 s so M3's add step does not refetch (plan §4 M2.5). */
 export interface PendingSource {
@@ -49,6 +62,10 @@ export interface Session {
   s16?: S16State;
   /** A link waiting on the download/add choice; `profile` is set when a download named the account. */
   chooser?: { link: string; profile?: string };
+  /** Admin panel page, so Back from details returns to the list the admin was reading. */
+  adm?: { page: number };
+  /** Notify target, kept while the admin types the message body. */
+  adminTarget?: number;
 }
 
 export const PREVIEW_TTL_MS = 60_000;

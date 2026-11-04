@@ -25,7 +25,7 @@ export const alerts = {
   async queueBacklog(db: Db, notifier: Notifier, now = Date.now()): Promise<boolean> {
     const queued = (db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE state = 'queued'").get() as { n: number }).n;
     if (queued <= QUEUE_LIMIT) return false;
-    if (hasRecent(db, 'alert:queue', 0, now - DAY_MS)) return false;
+    if (hasRecent(db, 'alert:queue', null, now - DAY_MS)) return false;
     recordEvent(db, { level: 'warn', code: 'alert:queue', detail: `${queued} jobs`, at: now });
     await notifier.notify(`Job queue has ${queued} queued jobs.`);
     return true;
@@ -37,7 +37,7 @@ export const alerts = {
     if (sources === 0) return false;
     const last = lastFetchOkAt(db);
     if (last !== null && now - last < SILENT_FETCH_MS) return false;
-    if (hasRecent(db, 'alert:silent', 0, now - DAY_MS)) return false;
+    if (hasRecent(db, 'alert:silent', null, now - DAY_MS)) return false;
     recordEvent(db, { level: 'warn', code: 'alert:silent', detail: `${sources} sources`, at: now });
     await notifier.notify(`No successful fetch in 26 h across ${sources} sources.`);
     return true;

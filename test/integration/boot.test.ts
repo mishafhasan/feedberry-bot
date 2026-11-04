@@ -16,6 +16,7 @@ import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -100,6 +101,7 @@ test('boot: the real entry point polls, fetches over HTTP and delivers a post', 
     // Seed one due subscription; everything else is the process's own work.
     const seed = openDb(dbPath);
     const user = ensureUser(seed, USER_ID);
+    allowUser(seed, USER_ID);
     const chat = ensurePrivateChat(seed, user.id, USER_ID);
     const source = upsertSource(seed, {
       platform: 'rss',

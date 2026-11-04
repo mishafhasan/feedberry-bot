@@ -22,6 +22,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 777;
@@ -55,6 +56,7 @@ test('M12 S16: the schedule screen sets a cadence and moves the slot at once', a
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const http: Http = async (url) => {
     if (url === 'https://blog.example.test/' || url === 'https://blog.example.test') return { status: 200, url, contentType: 'application/rss+xml', body: FEED };
     throw new Error(`unexpected fetch ${url}`);
@@ -137,6 +139,7 @@ test('M12 Download: an extractor without metadata keeps the page description as 
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-dl-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const http: Http = async (url) => {
     if (url === 'https://x.com/blue/status/123') {
       return { status: 200, url, contentType: 'text/html; charset=utf-8', body: '<html><head><meta name="twitter:description" content="Hello from the post"></head><body></body></html>' };
@@ -184,6 +187,7 @@ test('M12 Download: an engine caption above 1024 chars goes to Instant View with
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-long-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const pages: Array<{ title: string; content: string }> = [];
   const telegraph = {
     async createPage(page: { title: string; content: string }) {
@@ -233,6 +237,7 @@ test('M12 Download: X long-form text comes from the full-text mirror, not the 28
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-xlong-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const pages: Array<{ title: string; content: string }> = [];
   const telegraph = {
     async createPage(page: { title: string; content: string }) {

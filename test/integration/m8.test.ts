@@ -25,6 +25,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { fakeBotApi } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -160,6 +161,7 @@ test('M8: /status answers the admin only', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-status-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });

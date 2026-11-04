@@ -36,6 +36,7 @@ import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
 import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
+import { handleAdminCallback } from './admin.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
 import { s2View } from './screens/s2.ts';
@@ -47,6 +48,7 @@ import { s7View, PAGE_SIZE } from './screens/s7.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
 import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
+import { ADM } from './screens/s17.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
 import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, postLinkPrompt, sourceBody } from './texts.ts';
 
@@ -115,6 +117,9 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   const { data } = ctx.callbackQuery ?? {};
   const userId = ctx.from?.id;
   if (data === undefined || userId === undefined) return;
+
+  // The admin panel owns its callbacks; it re-checks the admin id and answers its own toast.
+  if (data.startsWith(ADM.prefix)) return handleAdminCallback(ctx, deps, userId, data);
 
   // Answer before any network work: otherwise the client keeps its spinner running.
   const lang = langOf(deps, userId);

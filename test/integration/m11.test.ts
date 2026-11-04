@@ -23,6 +23,7 @@ import { unseenItems } from '../../src/pipeline/s4-dedupe.ts';
 import { runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -66,6 +67,7 @@ test('reply keyboard: /start shows the custom keyboard and its labels act like t
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-menu-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http: articleHttp, media: engine });
@@ -99,6 +101,7 @@ test('download mode: a blog post is accepted and delivered as Instant View', asy
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-blog-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   const client = telegraph();
 
   try {
@@ -127,6 +130,7 @@ test('a website link pasted in idle offers both download and subscribe', async (
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-choose-'));
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http: articleHttp, media: engine, telegraph: telegraph() });

@@ -7,6 +7,7 @@ import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, schemaVersion } from '../../src/db/index.ts';
 import { callbackUpdate, fakeBotApi, startUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -18,8 +19,9 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
 
   let db = openDb(dbPath);
+  allowUser(db, USER_ID);
   try {
-    assert.equal(schemaVersion(db), 2, 'schema_version = 2 after boot on an empty file');
+    assert.equal(schemaVersion(db), 3, 'schema_version = 3 after boot on an empty file');
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot });
     await bot.init(); // production calls this from bot.start()

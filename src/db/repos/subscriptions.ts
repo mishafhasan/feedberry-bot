@@ -123,6 +123,16 @@ export function ownsSource(db: Db, userId: number, sourceId: number): boolean {
   return db.prepare('SELECT 1 AS ok FROM subscriptions WHERE user_id = ? AND source_id = ?').get(userId, sourceId) !== undefined;
 }
 
+/** Admin user details: platform + title of everything this user follows. */
+export function listSourcesForUser(db: Db, userId: number): Array<{ source_id: number; platform: string; title: string | null }> {
+  return db
+    .prepare(
+      `SELECT DISTINCT s.id AS source_id, s.platform, s.title FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
+       WHERE sub.user_id = ? ORDER BY s.platform, s.title`,
+    )
+    .all(userId) as unknown as Array<{ source_id: number; platform: string; title: string | null }>;
+}
+
 export function getSourceCard(db: Db, userId: number, sourceId: number): SourceCard | undefined {
   return db
     .prepare(

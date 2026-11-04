@@ -13,6 +13,7 @@ import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { callbackUpdate, chatMemberUpdate, fakeBotApi, startUpdate, textUpdate, type FakeChat } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -46,6 +47,7 @@ test('M2: profile → S3 → S4 with five ascending titles and verified destinat
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m2-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
 
   try {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });

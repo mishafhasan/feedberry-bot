@@ -17,6 +17,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
@@ -56,6 +57,7 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m4-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
   let updateId = 10;
 
   try {

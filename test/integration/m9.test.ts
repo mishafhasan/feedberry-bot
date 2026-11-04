@@ -236,7 +236,7 @@ test('M9 restore drill: an online backup restores to the same state', () => {
       subscriptions: count(restored, 'SELECT COUNT(*) AS n FROM subscriptions'),
       posts: count(restored, 'SELECT COUNT(*) AS n FROM posts'),
     };
-    assert.equal(schemaVersion(restored), 2, 'the restored file keeps its schema version');
+    assert.equal(schemaVersion(restored), 3, 'the restored file keeps its schema version');
     assert.deepEqual(after, before, '/status would report the same counts after the restore');
     restored.close();
   } finally {
