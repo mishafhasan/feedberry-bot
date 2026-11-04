@@ -31,6 +31,8 @@ export interface SourceRef {
 export interface DetectOptions {
   rsshubBase: string;
   telegramBeta: boolean;
+  /** RSSHub has a Twitter token, so an x.com profile has a route to follow. */
+  xProfiles?: boolean;
 }
 
 /**
@@ -56,8 +58,9 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     }
     case 'x': {
       if (seg[1] === 'status') return single(u, platform, seg[2] ?? '');
-      // §10 row D + ADR-017: no instance tokens are stored, so a profile add is refused up front.
-      throw new Coded(E.COOKIE_REQUIRED, 'x.com needs instance OAuth tokens (ADR-017)');
+      // §10 row D + ADR-017: without an instance token a profile add is refused up front.
+      if (!opts.xProfiles) throw new Coded(E.COOKIE_REQUIRED, 'x.com needs instance OAuth tokens (ADR-017)');
+      return profile(platform, `https://x.com/${user(seg[0])}`, user(seg[0]), rsshub(opts, `/twitter/user/${user(seg[0])}`));
     }
     case 'tiktok': {
       const [first, second, third] = seg;
@@ -237,7 +240,7 @@ export function profileFromAuthor(platform: Platform, author: string): string | 
     case 'bluesky':
       return `https://bsky.app/profile/${name}`;
     default:
-      // x needs instance tokens (ADR-017), so offering it would only fail later.
+      // X names no author in cobalt's metadata and needs instance tokens (ADR-017).
       return null;
   }
 }

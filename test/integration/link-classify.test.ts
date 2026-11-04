@@ -44,10 +44,10 @@ const http: Http = async (url) => {
   return { status: 200, url, contentType: 'application/rss+xml', body: FEED };
 };
 
-/** A /C1/ link stands for a post the engine can name the account of. */
+/** A /C1/ or /reel/ link stands for a post the engine can name the account of. */
 const engine: MediaEngine = {
   async resolve(url) {
-    return { items: [{ kind: 'photo', url: 'https://cdn.test/p.jpg', picker: true }], title: 'Cobalt post', artist: url.includes('/C1') ? 'cristiano' : null };
+    return { items: [{ kind: 'photo', url: 'https://cdn.test/p.jpg', picker: true }], title: 'Cobalt post', artist: /C1|reel/i.test(url) ? 'cristiano' : null };
   },
   async download(item, dir) {
     mkdirSync(dir, { recursive: true });
@@ -72,12 +72,12 @@ test('M17: one IG post link is a post in every screen', async () => {
     await bot.init();
     await bot.handleUpdate(startUpdate(updateId++, USER_ID));
 
-    // Free text: the chooser, without an Add button because a bare /p/ link names no account.
+    // Free text: the chooser. A bare /p/ link names no account, but the extractor does.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
     const chooser = api.last('sendMessage');
     assert.match(String(chooser?.body.text), /post link/);
     assert.ok(buttons(chooser).includes('dl:post'), 'the download is offered');
-    assert.ok(!buttons(chooser).includes('add:post'), 'and no account is invented');
+    assert.ok(buttons(chooser).includes('add:post'), 'and the account the extractor names');
 
     // Add Source: the same link is a post, so it gets the notice instead of a failing preview.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:add'));
@@ -206,6 +206,63 @@ test('M17 download: the result offers Download more, Add source, Back — adding
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'add:post'));
     assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the source behind the link is previewed');
     assert.ok(fetched.includes('http://rsshub.test/instagram/user/zuck'));
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M18: an IG reel names no account, but the extractor does, so the chooser offers it', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-reel-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  fetched.length = 0;
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.instagram.com/reel/DbndR7CNuhv/?hl=en'));
+
+    const chooser = api.last('sendMessage');
+    assert.ok(buttons(chooser).includes('add:post'), 'the poster the extractor named is offered as a source');
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'add:post'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the poster feed is previewed');
+    assert.ok(fetched.includes('http://rsshub.test/instagram/user/cristiano'));
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M18: with a Twitter token, an X post offers its account before and after download, and the caption names it', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-x-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  fetched.length = 0;
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5', TWITTER_AUTH_TOKEN: 'auth' });
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/QAiStudio/status/2117256134616818159'));
+
+    const chooser = api.last('sendMessage');
+    assert.ok(buttons(chooser).includes('add:post'), 'the account the link names is offered before download');
+
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
+    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/QAiStudio\/status\/2117256134616818159">@QAiStudio<\/a>/, 'the account names the source, not the bare host');
+    assert.ok(buttons(api.last('sendMessage')).includes('add:post'), 'and the result offers it too');
+
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'add:post'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the X feed is previewed');
+    assert.ok(fetched.includes('http://rsshub.test/twitter/user/QAiStudio'));
   } finally {
     db.close();
     await api.close();

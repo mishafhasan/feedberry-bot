@@ -171,7 +171,7 @@ test('M12 Download: an extractor without metadata keeps the page description as 
     const photo = api.last('sendPhoto');
     const caption = String(photo?.body.caption ?? '');
     assert.match(caption, /Hello from the post/, 'the post text is kept, not dropped');
-    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">x\.com<\/a>/, 'the host names the source');
+    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">@blue<\/a>/, 'the account the link names is the source');
     assert.equal(photo?.body.parse_mode, 'HTML');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE post_id IS NULL AND status = 'sent'"), 1);
     assert.doesNotMatch(JSON.stringify(api.last('sendMessage')?.body ?? {}), /add:post/, 'no profile is invented for a post-only platform');

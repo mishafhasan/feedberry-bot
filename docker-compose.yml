@@ -24,6 +24,8 @@ services:
       NODE_ENV: production
       CACHE_TYPE: memory
       CACHE_EXPIRE: "300"
+      # X profile feeds need a logged-in account's cookie; absent, only single posts are downloadable.
+      TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN:-}
     volumes:
       - ./rsshub-cache:/app/.cache
     healthcheck:

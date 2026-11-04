@@ -274,7 +274,7 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   if (match.kind === 'source') return runResolve(ctx, deps, userId, text);
 
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
-  const profileUrl = await ownerOf(text, deps);
+  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps));
   setSession(userId, { state: 'choosing', chooser: { link: text, profile: profileUrl ?? undefined } });
   const lang = langOf(deps, userId);
   await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
@@ -296,8 +296,27 @@ async function ownerOf(link: string, deps: BotDeps): Promise<string | null> {
   return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps)));
 }
 
-/** Stage 1 reads the same two settings wherever a link is classified. */
-const detectOpts = (deps: BotDeps): DetectOptions => ({ rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta });
+/** Platforms whose extractor names the poster, and whose profile has a feed to follow. */
+const EXTRACTOR_OWNERS = new Set(['instagram', 'threads', 'tiktok', 'bluesky']);
+
+/**
+ * A bare post link names no account, but the extractor does (an Instagram reel); the chooser asks
+ * it once so Download is not the only honest button. The download resolves the same post again.
+ */
+async function engineOwnerOf(link: string, deps: BotDeps): Promise<string | null> {
+  try {
+    const ref = detectSource(link, detectOpts(deps));
+    if (!EXTRACTOR_OWNERS.has(ref.platform)) return null;
+    const resolved = await deps.media.resolve(ref.canonicalUrl, mediaSignal(OWNER_TIMEOUT_MS));
+    return resolved.artist === null ? null : profileFromAuthor(ref.platform, resolved.artist);
+  } catch {
+    // A post the engine cannot read is still downloadable; it just cannot offer a source.
+    return null;
+  }
+}
+
+/** Stage 1 reads the same settings wherever a link is classified. */
+const detectOpts = (deps: BotDeps): DetectOptions => ({ rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta, xProfiles: deps.cfg.xProfiles });
 
 /** The chooser from a pasted post link (`dl:post` / `add:post`). */
 async function choosePost(ctx: Context, deps: BotDeps, userId: number, download: boolean): Promise<void> {
@@ -754,8 +773,9 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const engineText = resolved.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
-        // The page names the account as it prints it; a handle is only the fallback, then the host.
-        const source = meta.name ?? engineAuthor ?? (text === null ? null : hostOf(ref.canonicalUrl));
+        // The page names the account as it prints it; then the extractor, then the account the link names.
+        const owner = profileOfPost(ref.canonicalUrl);
+        const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
         // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
         const page: ReadMorePage = {
@@ -971,6 +991,13 @@ const idOf = (data: string, prefix: string): number => Number(data.slice(prefix.
 /** A header label for a post nobody signed: the site itself is the least invented name. */
 const hostOf = (url: string): string => new URL(url).hostname.replace(/^www\./, '');
 
+/** `@account` for a profile URL, the site itself for an origin: what a caption can promise. */
+function nameOf(profileUrl: string): string {
+  const segment = new URL(profileUrl).pathname.split('/').filter(Boolean).pop();
+  // A numeric Facebook page id reads better as its host than as a fake handle.
+  return segment === undefined || /^\d+$/.test(segment) ? hostOf(profileUrl) : `@${decodeURIComponent(segment).replace(/^@/, '')}`;
+}
+
 /** Screens replace the current message so the chat does not fill with drafts. */
 async function paint(ctx: Context, view: View): Promise<void> {
   try {
@@ -1027,3 +1054,6 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 /** One link must never hold a worker slot forever (M8 adds the job-level timeout). */
 const DOWNLOAD_TIMEOUT_MS = 120_000;
+
+/** Naming the poster of a pasted link is a nicety; it never holds the chooser for long. */
+const OWNER_TIMEOUT_MS = 10_000;

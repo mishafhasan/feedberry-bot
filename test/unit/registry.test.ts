@@ -170,6 +170,16 @@ test('M17 classify: an unusable link keeps its §11 code for every screen', () =
   assert.throws(() => classifyLink('https://www.pinterest.com/ideas/food/90809/', opts), (err) => err instanceof Coded && err.code === E.PROFILE_ONLY);
 });
 
+test('M18 registry: an X profile is a source only when RSSHub holds a Twitter token', () => {
+  assert.equal(codeOf('https://x.com/elonmusk'), E.COOKIE_REQUIRED, 'no token: refused up front (ADR-017)');
+
+  const ref = detectSource('https://twitter.com/QAiStudio', { ...opts, xProfiles: true });
+  assert.equal(ref.platform, 'x');
+  assert.equal(ref.canonicalUrl, 'https://x.com/QAiStudio');
+  assert.equal(ref.feedUrl, 'http://rsshub.test/twitter/user/QAiStudio');
+  assert.deepEqual(classifyLink('https://x.com/blue/status/123', { ...opts, xProfiles: true }), { kind: 'post', profileUrl: 'https://x.com/blue' });
+});
+
 test('M13 registry: every TikTok post shape and share host is a single post', () => {
   assert.equal(detectSource('https://www.tiktok.com/@user/video/123', opts).strategy, 'single_post');
   assert.equal(detectSource('https://www.tiktok.com/@user/photo/123', opts).strategy, 'single_post', 'carousel posts');

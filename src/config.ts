@@ -26,6 +26,8 @@ export interface Config {
   limits: Limits;
   trialEnabled: boolean;
   telegramBeta: boolean;
+  /** X profile feeds exist only when the operator gave RSSHub a Twitter token (ADR-017). */
+  xProfiles: boolean;
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
@@ -60,6 +62,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     },
     trialEnabled: flag(env.TRIAL_ENABLED),
     telegramBeta: flag(env.TELEGRAM_BETA),
+    // The same token the RSSHub sidecar needs; its presence is what makes an X profile addable.
+    xProfiles: (env.TWITTER_AUTH_TOKEN ?? '').trim() !== '',
   };
 }
 

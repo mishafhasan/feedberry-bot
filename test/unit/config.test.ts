@@ -19,6 +19,11 @@ test('parseConfig applies the §6 defaults', () => {
   assert.equal(cfg.telegramBeta, false, 'OQ-3: Telegram beta off by default');
 });
 
+test('parseConfig enables X profile sources only with a Twitter token', () => {
+  assert.equal(parseConfig(base).xProfiles, false, 'no token: X profiles stay refused');
+  assert.equal(parseConfig({ ...base, TWITTER_AUTH_TOKEN: ' abc ' }).xProfiles, true);
+});
+
 test('parseConfig normalizes the RSSHub base and rejects garbage limits', () => {
   assert.equal(parseConfig(base).rsshubBase, 'http://rsshub:1200');
   assert.throws(() => parseConfig({ ...base, MAX_SOURCES_PER_USER: 'many' }), /MAX_SOURCES_PER_USER/);
