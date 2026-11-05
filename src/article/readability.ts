@@ -7,6 +7,8 @@ import { HTML_LIMIT, type Http } from '../platform/http.ts';
 export interface Article {
   title: string;
   byline: string | null;
+  /** The page's own site name (`og:site_name`), when it declares one. */
+  siteName: string | null;
   html: string;
   /** Readable text length; R13 fires below 400 characters. */
   textLength: number;
@@ -41,6 +43,7 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
   return {
     title: (parsed.title ?? '').trim() || url,
     byline: parsed.byline?.trim() || null,
+    siteName: parsed.siteName?.trim() || null,
     html,
     textLength: textOf(html).length,
     url: res.url,

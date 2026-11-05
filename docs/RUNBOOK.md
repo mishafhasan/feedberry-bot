@@ -99,7 +99,7 @@ The agent never runs these; the operator does, once per release, with real links
 | YouTube community post `/post/…` | the post's words and album, caption headed by the channel title, plus an `➕ @handle` button offering the channel feed |
 | YouTube post that was deleted | `E_NO_FEED`, not `E_NO_MEDIA` — there is no cobalt fallback for a post |
 | Threads post link | the whole thread (root + sub-posts) in one message; a shell page falls back to cobalt |
-| One Wired/TechCrunch link | a `telegra.ph` link that opens in Instant View |
+| One Wired/TechCrunch link | the headline is a `telegra.ph` link, and Instant View opens under the post |
 
 ## 8. Diagnosing `E_FEED_DOWN` on an Instagram add
 

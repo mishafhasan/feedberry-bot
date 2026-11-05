@@ -5,13 +5,14 @@ import { PAGE_SIZE, s7View } from '../../src/bot/screens/s7.ts';
 
 const NOW = Date.UTC(2026, 0, 1, 12);
 
-/** The reference card: icon + linked title, then `id: #<id>, source checked: <age>`. */
+/** The reference card: icon + linked name and its platform, then `id: #<id>, source checked: <age>`.
+ * The titles are the ones RSSHub actually ships: the card must print each platform once. */
 const card = (overrides: Partial<SourceCard>): SourceCard => ({
   subscription_id: 1,
   source_id: 538644,
   platform: 'instagram',
   canonical_url: 'https://instagram.com/cristiano',
-  title: 'Cristiano Ronaldo',
+  title: 'Cristiano Ronaldo - Instagram',
   avatar_url: null,
   enabled: 1,
   last_check_at: NOW - 41_000,
@@ -28,7 +29,7 @@ const godly = card({
   source_id: 637556,
   platform: 'x',
   canonical_url: 'https://x.com/godly',
-  title: 'godly',
+  title: 'Twitter @godly',
   enabled: 0,
   last_check_at: NOW - 600_000,
 });
@@ -41,10 +42,10 @@ test('S7 rich message: a rule, then each card with its pills directly under it',
     [
       '<p><b>Source list · Private messages</b><br/>Showing 1–2 of 2</p>',
       '<hr/>',
-      '<p><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji> <b><a href="https://instagram.com/cristiano">Cristiano Ronaldo</a></b><br/>id: #538644, source checked: 41s</p>',
+      '<p><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji> <b><a href="https://instagram.com/cristiano">Cristiano Ronaldo</a></b> | Instagram<br/>id: #538644, source checked: 41s</p>',
       '<tg-button-row align="left"><tg-button type="callback_data" style="danger" data="src:off:538644">Off</tg-button><tg-button type="callback_data" data="src:check:538644">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:538644">🗑</tg-button></tg-button-row>',
       '<hr/>',
-      '<p><tg-emoji emoji-id="6282804857829074968">✖️</tg-emoji> <b><a href="https://x.com/godly">godly</a></b><br/>id: #637556, source checked: 10m</p>',
+      '<p><tg-emoji emoji-id="6282804857829074968">✖️</tg-emoji> <b><a href="https://x.com/godly">@godly</a></b> | X<br/>id: #637556, source checked: 10m</p>',
       '<tg-button-row align="left"><tg-button type="callback_data" style="success" data="src:on:637556">On</tg-button><tg-button type="callback_data" data="src:check:637556">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:637556">🗑</tg-button></tg-button-row>',
       '<hr/>',
       '<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="src:filter:all">All</tg-button><tg-button type="callback_data" data="src:filter:instagram"><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji> IG</tg-button><tg-button type="callback_data" data="src:filter:x"><tg-emoji emoji-id="6282804857829074968">✖️</tg-emoji> X</tg-button></tg-button-row>',

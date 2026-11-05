@@ -77,7 +77,7 @@ test('M3: add, E_DUPLICATE, E_SOURCE_LIMIT, toggle, cascade delete', async () =>
     const html = String(list?.body.rich_message?.html ?? '');
     assert.match(html, /<b>Source list · Private messages<\/b><br\/>Showing 1–2 of 2/);
     assert.match(html, /id: #\d+, source checked: never/, 'every source is listed in the same message');
-    assert.match(html, /<a href="https:\/\/instagram\.com\/cristiano">Cristiano Ronaldo<\/a>/, 'the card title links to the source');
+    assert.match(html, /<a href="https:\/\/instagram\.com\/cristiano">Cristiano Ronaldo<\/a><\/b> \| Instagram/, 'the card title links to the source and names its platform');
     assert.match(
       html,
       /<tg-button-row align="left"><tg-button type="callback_data" style="danger" data="src:off:\d+">Off<\/tg-button>/,

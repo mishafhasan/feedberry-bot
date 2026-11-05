@@ -73,13 +73,29 @@ function openTagIndex(slice: string): number {
  * its URL spells: a blog on a custom domain is still RSS.
  */
 export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string }): string {
-  const name = esc(params.sourceTitle ?? 'Source');
+  const name = esc(sourceName(params.sourceTitle ?? 'Source', params.platform));
   const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
   const when = params.publishedAt === null ? null : mmddhhmm(params.publishedAt, params.tz);
+  return [`🌐 ${title} | ${esc(platformLabel(params.platform))}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+}
+
+/** The display name of a source platform, for every screen that names one: post header, source list. */
+export function platformLabel(platform: string): string {
   // The row stores the platform as text; an unknown one prints as it arrived rather than dropping the label.
-  // `hasOwn` keeps a value like `constructor` off the prototype chain, `esc` keeps it out of the markup.
-  const label = Object.hasOwn(PLATFORM_LABEL, params.platform) ? PLATFORM_LABEL[params.platform as Platform] : params.platform;
-  return [`🌐 ${title} | ${esc(label)}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+  // `hasOwn` keeps a value like `constructor` off the prototype chain.
+  return Object.hasOwn(PLATFORM_LABEL, platform) ? PLATFORM_LABEL[platform as Platform] : platform;
+}
+
+/**
+ * A source's own name, without the platform the label already prints. RSSHub titles a channel
+ * "… - Instagram", "… on Threads", "… - Profile | Pinterest"; X's route prefixes "Twitter @handle".
+ * shortcut: text matching only; an account whose real name ends in its own platform word loses the tail.
+ */
+export function sourceName(title: string, platform: string): string {
+  const label = platformLabel(platform).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const decorated = new RegExp(`\\s*(?:[|·—–-]|\\bon\\b)\\s*(?:Profile\\s*[|·—–-]\\s*)?${label}\\s*$`, 'i');
+  const bare = (platform === 'x' ? title.replace(/^Twitter\s+/i, '') : title).replace(decorated, '').trim();
+  return bare === '' ? title : bare;
 }
 
 /** A platform missing here is a type error, so no source type can ship without its label. */

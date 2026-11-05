@@ -35,9 +35,11 @@ export interface ArticleDeps {
 export async function planArticle(deps: ArticleDeps, input: ArticleInput): Promise<MessagePlan | null> {
   try {
     const article = await extractArticle(deps.http, input.url);
+    // A downloaded page names itself; the host is the last resort only when it declares no site name.
+    const sourceTitle = input.sourceTitle ?? article.siteName ?? new URL(input.url).hostname.replace(/^www\./, '');
     // The feed's date wins; a downloaded page only has its own.
     const header = postHeader({
-      sourceTitle: input.sourceTitle,
+      sourceTitle,
       url: input.url,
       publishedAt: input.publishedAt ?? article.publishedAt,
       platform: input.platform,

@@ -739,7 +739,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         url: ref.canonicalUrl,
         title: null,
         publishedAt: null,
-        sourceTitle: new URL(ref.canonicalUrl).hostname.replace(/^www\./, ''),
+        // The page names itself (`og:site_name`); the host is the fallback inside planArticle.
+        sourceTitle: null,
         platform: ref.platform,
       });
       if (!article) throw new Coded(E.FEED_DOWN, 'article extraction failed');

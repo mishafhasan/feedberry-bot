@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { detectSource } from '../../src/platform/registry.ts';
-import { postHeader } from '../../src/render/caption.ts';
+import { postHeader, sourceName } from '../../src/render/caption.ts';
 
 /** ARCHITECTURE §8.2: one label per source type, spelled the way the platform itself spells it. */
 const LABELS: Array<[string, string]> = [
@@ -49,6 +49,29 @@ test('caption header: every source type ends the linked line with its own platfo
     const header = postHeader({ sourceTitle: 'Hiru News', url: 'https://facebook.com/reel/1597277074976135', publishedAt: null, platform });
     assert.equal(header, `🌐 <a href="https://facebook.com/reel/1597277074976135">Hiru News</a> | ${label}`, platform);
   }
+});
+
+/** RSSHub decorates its channel titles with the platform; the label already prints it. */
+const DECORATED: Array<[string, string, string]> = [
+  ['Evolving AI (@evolving.ai) - Instagram', 'instagram', 'Evolving AI (@evolving.ai)'],
+  ['Mark Zuckerberg (@zuck) on Threads', 'threads', 'Mark Zuckerberg (@zuck)'],
+  ['Josim (josimabout) - Profile | Pinterest', 'pinterest', 'Josim (josimabout)'],
+  ['Twitter @strike', 'x', '@strike'],
+  ['Hiru News', 'facebook', 'Hiru News'],
+  ['The Verge', 'rss', 'The Verge'],
+  ['Life on Threads', 'rss', 'Life on Threads'],
+  ['Instagram', 'instagram', 'Instagram'],
+];
+
+test('caption header: the source name drops the platform the label already names', () => {
+  for (const [title, platform, name] of DECORATED) {
+    assert.equal(sourceName(title, platform), name, title);
+  }
+  assert.equal(
+    postHeader({ sourceTitle: 'Evolving AI (@evolving.ai) - Instagram', url: null, publishedAt: null, platform: 'instagram' }),
+    '🌐 Evolving AI (@evolving.ai) | Instagram',
+    'the header prints the platform once',
+  );
 });
 
 test('caption header: the label is the source type, not the domain, and the time keeps its own line', () => {

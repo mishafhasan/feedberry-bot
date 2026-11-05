@@ -4,7 +4,7 @@
  */
 import type { ErrorCode } from '../platform/errors.ts';
 import type { Platform } from '../platform/registry.ts';
-import { mmddhhmm } from '../render/caption.ts';
+import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
 import { esc } from '../render/plan.ts';
 import { t, type Lang } from './i18n/index.ts';
 
@@ -151,8 +151,9 @@ export function s7CardHtml(
   lang: Lang = 'en',
 ): string {
   const age = humanAge(card.lastCheckAt ?? card.lastOkAt, now, lang);
-  const label = esc(card.title ?? `#${card.sourceId}`);
-  const name = `${platformIcon(card.platform)} <b>${card.url === null ? label : `<a href="${esc(card.url)}">${label}</a>`}</b>`;
+  const label = esc(sourceName(card.title ?? `#${card.sourceId}`, card.platform));
+  // Same tail as a post header (§8.2): the linked name, then the platform it came from.
+  const name = `${platformIcon(card.platform)} <b>${card.url === null ? label : `<a href="${esc(card.url)}">${label}</a>`}</b> | ${esc(platformLabel(card.platform))}`;
   return `<p>${t(lang, 's7.card', { title: name, id: card.sourceId, age }).replace('\n', '<br/>')}</p>`;
 }
 

@@ -84,7 +84,7 @@ async function pageUrl(client: TelegraphClient, ctx: ReadMoreCtx, page: ReadMore
       ...body.map((part) => `<p>${esc(part)}</p>`),
       ...images.map((url) => `<figure><img src="${esc(url)}"/></figure>`),
     ].join('');
-    const published = await publishArticle(client, { title, byline: ctx.sourceTitle ?? 'FeedBerry', html, textLength: 0, url: page.url ?? '', publishedAt: page.publishedAt });
+    const published = await publishArticle(client, { title, byline: ctx.sourceTitle ?? 'FeedBerry', siteName: null, html, textLength: 0, url: page.url ?? '', publishedAt: page.publishedAt });
     log('info', 'readmore_published', { post: page.id, images: images.length });
     return published;
   } catch (err) {

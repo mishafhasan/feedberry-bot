@@ -32,9 +32,10 @@ function recorder(): { client: { createPage(page: TelegraphPage): Promise<string
   };
 }
 
-test('M7 article: Readability keeps the body and only http(s) images survive', async () => {
+test('M7 article: Readability keeps the body, the site name and only http(s) images survive', async () => {
   const article = await extractArticle(http, 'https://blog.example.test/wired');
   assert.equal(article.title, 'The quiet return of the personal website');
+  assert.equal(article.siteName, 'WIRED', 'the page names its own site, so a header need not fall back to the host');
   assert.ok(article.textLength > 400, `readable text is ${article.textLength}`);
   assert.match(article.html, /src="https:\/\/blog\.example\.test\/images\/hero\.jpg"/, 'relative image resolved');
   assert.doesNotMatch(article.html, /sprite/, 'style/sprite paths are dropped');

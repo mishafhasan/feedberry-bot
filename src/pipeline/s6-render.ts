@@ -56,10 +56,12 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], ex
 /** R12: the Instant View link, opened by Telegraph (ADR-007, OQ-13/OQ-14). */
 export function renderArticle(article: Article, ivUrl: string, header: string): MessagePlan {
   const lead = leadOf(article.html);
+  // The headline *is* the Instant View link: the post ends with its own words instead of a bare URL.
+  const title = article.title === '' ? esc(ivUrl) : `<a href="${esc(ivUrl)}">${esc(article.title)}</a>`;
   return {
     kind: 'text',
-    text: [header, `<b>${esc(article.title)}</b>`, esc(lead), esc(ivUrl)].filter(Boolean).join('\n\n'),
-    // The header link points at the original post; the preview must open the Instant View copy.
+    text: [header, `<b>${title}</b>`, esc(lead)].filter(Boolean).join('\n\n'),
+    // The preview must open the Instant View copy, not the original page the header links.
     previewUrl: ivUrl,
   };
 }

@@ -291,7 +291,7 @@ test('threads: a scheduled source prints the whole thread, not the feed preview 
     assert.equal(calls.download, 2, 'every photo of the post is downloaded');
     const caption = String(items[0]?.caption ?? '');
     // The layout Download Mode prints, with the source the feed named.
-    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads', 'Threads');
+    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
     assert.doesNotMatch(caption, /feed preview|@prompt\.__hub :/, 'the feed preview is not printed as a body of its own');
     assert.match(caption, /👉🏻 Read more/, 'the thread tail moves to Instant View');
     assertReadMoreTail(caption);
@@ -351,7 +351,7 @@ test('threads: a blocked permalink keeps the feed text instead of losing the pos
 
     const text = String(api.last('sendMessage')?.body.text ?? '');
     assert.match(text, /feed preview/, 'the feed text ships when the permalink says no');
-    assertHeaderBlock(text, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads', 'Threads');
+    assertHeaderBlock(text, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number }).n, 1, 'one delivery, not two');
   } finally {
     db.close();
