@@ -495,7 +495,7 @@ The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source che
 | R9 | video, duration unknown | `sendVideo` if ≤ 50 MB, else R7 | 1024 | A5 | 2–7 |
 | R10 | GIF | `sendAnimation` | 1024 | mp4 conversion by engine if `gif` | 2–7 |
 | R11 | audio | `sendAudio` | 1024 | — | 2–7 |
-| R12 | article / website | `sendMessage` with IV link | headline links the IV + 1-line lead | §8.5 | 2,3,4,6,7 |
+| R12 | article / website | `sendMessage` with IV link | headline + 1-line lead, then `👇🏼👇🏼👇🏼` links the IV | §8.5 | 2,3,4,6,7 |
 | R13 | article too thin (< 400 chars readable text) | `sendMessage` | title + link, no IV | — | fallback of R12 |
 | R14 | unknown / unsupported | `sendMessage` | text + original link | — | 2,3,4,6,7 |
 

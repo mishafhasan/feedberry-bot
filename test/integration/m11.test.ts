@@ -119,7 +119,8 @@ test('download mode: a blog post is accepted and delivered as Instant View', asy
     assert.match(String(payload?.body.text), /🌐 <a href="[^"]*blog\.example\.test[^"]*">WIRED<\/a> \| RSS/, 'the page names itself, not the host');
     assert.match(String(payload?.body.text), /⏱️ Time: 10\/30 12:00/, 'and the page\'s own publication time');
     assert.equal((payload?.body.link_preview_options as { url?: string } | undefined)?.url, 'https://telegra.ph/Test-page-1', 'the preview opens the Instant View copy');
-    assert.match(String(payload?.body.text), /<b><a href="https:\/\/telegra\.ph\/Test-page-1">[^<]+<\/a><\/b>/, 'the headline itself carries the Instant View link');
+    assert.match(String(payload?.body.text), /<b>The quiet return of the personal website<\/b>/, 'the headline stays plain text');
+    assert.match(String(payload?.body.text), /<a href="https:\/\/telegra\.ph\/Test-page-1">👇🏼👇🏼👇🏼<\/a>$/, 'the arrow row carries the Instant View link, last');
     assert.doesNotMatch(String(payload?.body.text), /\n\nhttps:\/\/telegra\.ph\//, 'no bare Instant View URL left at the end');
     assert.doesNotMatch(String(api.last('sendMessage')?.body.text), /Send a post link, not a profile/, 'a blog link is a post link');
   } finally {

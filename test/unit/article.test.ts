@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { extractArticle } from '../../src/article/readability.ts';
+import { extractArticle, fixImageUrls } from '../../src/article/readability.ts';
 import { publishArticle, telegraphNodes, type TelegraphPage } from '../../src/article/telegraph.ts';
 import type { Http } from '../../src/platform/http.ts';
 
@@ -11,6 +11,7 @@ const PAGES: Record<string, string> = {
   'https://blog.example.test/wired': fixture('wired.html'),
   'https://blog.example.test/long': fixture('long-70kb.html'),
   'https://blog.example.test/thin': fixture('thin.html'),
+  'https://blog.example.test/bbc': fixture('bbc.html'),
 };
 
 const http: Http = async (url) => {
@@ -44,6 +45,29 @@ test('M7 article: Readability keeps the body, the site name and only http(s) ima
 test('M7 article: a thin page is detected, not published', async () => {
   const thin = await extractArticle(http, 'https://blog.example.test/thin');
   assert.ok(thin.textLength < 400, `thin page has ${thin.textLength} chars`);
+});
+
+test('M7 article: a picture whose real file lives in srcset keeps the image, never the placeholder', async () => {
+  const article = await extractArticle(http, 'https://blog.example.test/bbc');
+  const imgs = article.html.match(/<img\b[^>]*>/gi) ?? [];
+
+  assert.equal(imgs.length, 1, 'the grey placeholder is dropped, the real picture is kept');
+  assert.match(imgs[0] ?? '', /src="https:\/\/ichef\.bbci\.co\.uk\/news\/1536\/[^"]+"/, 'the widest srcset candidate becomes the source');
+  assert.doesNotMatch(article.html, /placeholder|srcset/i, 'no placeholder URL and no srcset survive');
+  assert.doesNotMatch(article.html, /<img(?![^>]*\bsrc=)[^>]*>/i, 'no image without a source: Instant View would draw a white box');
+});
+
+test('M7 article: an unsanitized srcset with no spaces still yields the widest file', () => {
+  const html = fixImageUrls('<img srcset="https://a.test/240/x.png 240w,https://a.test/1536/x.png 1536w">', 'https://blog.example.test/bbc');
+  assert.match(html, /src="https:\/\/a\.test\/1536\/x\.png"/, 'a missing space after the comma is not a missing candidate');
+});
+
+test('M7 article: image fixing prefers a usable candidate and drops the broken ones', () => {
+  const fixed = (html: string): string => fixImageUrls(html, 'https://blog.example.test/bbc');
+
+  assert.match(fixed('<img srcset="https://a.test/spacer.gif 2400w, https://a.test/real.jpg 800w">'), /src="https:\/\/a\.test\/real\.jpg"/, 'a spacer in the largest slot does not delete the picture');
+  assert.equal(fixed('<img src="#">'), '', 'a source that resolves to the page itself is not an image');
+  assert.equal(fixed('<img src="https://a.test/2026/blank.png">'), '<img src="https://a.test/2026/blank.png">', '“blank” in a filename is an ordinary word');
 });
 
 test('M7 article: Telegraph nodes only carry href and src', async () => {
