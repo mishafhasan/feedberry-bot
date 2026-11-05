@@ -18,14 +18,16 @@ export interface S1Text {
   lang?: Lang;
 }
 
-/** S1 — main menu. Rich message: one <p> per dictionary block, `**bold**` becomes real bold. */
+/** S1 — main menu. Rich message: `**bold**` becomes real bold, a blank line in the dictionary is a section break. */
 export function s1Text({ userId, sourceCount, limit, trialEnabled, lang = 'en' }: S1Text): string {
   const plan = trialEnabled ? `${t(lang, 'plan.free')}\n${t(lang, 'plan.trial')}` : t(lang, 'plan.free');
-  return t(lang, 's1.body', { id: userId, plan, sources: `${sourceCount} / ${limit}` })
+  // The rich renderer spaces <p> blocks differently per client, so the blank line is markup, not a tag.
+  const body = t(lang, 's1.body', { id: userId, plan, sources: `${sourceCount} / ${limit}` })
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .split('\n\n')
-    .map((block) => `<p>${block.replace(/\n/g, '<br/>')}</p>`)
-    .join('');
+    .map((block) => block.replace(/\n/g, '<br/>'))
+    .join('<br/><br/>');
+  return `<p>${body}</p>`;
 }
 
 /** S2 — add source. Reddit is gone (OQ-2); Telegram is beta and hidden by default (OQ-3). */
