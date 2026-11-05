@@ -79,17 +79,18 @@ test('reply keyboard: /start shows the custom keyboard and its labels act like t
     const rows = (withKeyboard?.body.reply_markup as { keyboard: Array<Array<{ text: string }>> }).keyboard;
     const labels = rows.flat().map((button) => button.text);
     assert.ok(labels.includes('➕ Add Source'), 'the menu carries the same actions as S1');
-    assert.ok(labels.includes('✖️ Hide menu'), 'and a way to fold it away');
+    assert.ok(!labels.includes('✖️ Hide menu'), 'no dedicated hide row: Telegram\'s keyboard icon in the input area is the toggle');
+    assert.ok(!(withKeyboard?.body.reply_markup as { is_persistent?: boolean }).is_persistent, 'a non-persistent keyboard is the one Telegram lets the user fold and reopen');
 
     // A tapped label is an action: it opens the add flow instead of being parsed as a link.
     await bot.handleUpdate(textUpdate(2, USER_ID, '➕ Add Source'));
     assert.match(String(api.last('sendMessage')?.body.text), /Adding a source/);
 
-    // Hiding removes the keyboard.
+    // A chat still showing the old keyboard heals on the stale row: it gets the new foldable menu, never remove_keyboard.
     await bot.handleUpdate(textUpdate(3, USER_ID, '✖️ Hide menu'));
-    const hide = api.last('sendMessage');
-    assert.match(String(hide?.body.text), /Menu hidden/);
-    assert.deepEqual(hide?.body.reply_markup, { remove_keyboard: true });
+    const healed = api.last('sendMessage')?.body.reply_markup as { keyboard?: unknown; is_persistent?: boolean } | undefined;
+    assert.ok(healed?.keyboard, 'the stale label installs the current menu');
+    assert.ok(!healed?.is_persistent, 'and the menu it installs still carries the input-area toggle');
   } finally {
     db.close();
     await api.close();

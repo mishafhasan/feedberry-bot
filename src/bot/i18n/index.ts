@@ -102,9 +102,7 @@ const EN = {
   'btn.on': 'On',
   'btn.all': 'All',
   'btn.openSources': '📁 My Sources',
-  'btn.hideMenu': '✖️ Hide menu',
-  'notice.menuHidden': 'Menu hidden. Send /start to bring it back.',
-  'notice.menuReady': 'Menu ready — tap a button any time.',
+  'notice.menuReady': 'Menu ready — the keyboard icon by the message box folds it away and brings it back.',
 
   'err.E_LINK_INVALID': "That link isn't a supported source.",
   'err.E_NO_FEED': "Couldn't find a feed for this page.",

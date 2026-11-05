@@ -27,7 +27,7 @@ import { postHeader } from '../render/caption.ts';
 import { type MediaFile, type MessagePlan } from '../render/plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
-import { hiddenMenu, menuLabels } from './reply-menu.ts';
+import { menuLabels, replyMenu } from './reply-menu.ts';
 import { recordDelivery } from '../pipeline/s8-record.ts';
 import { cleanupWorkDir, workDirFor } from '../pipeline/s9-cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
@@ -193,16 +193,22 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   }
 }
 
+/** The label the old keyboard shipped; only a chat that has not seen /start since can still send it. */
+const LEGACY_HIDE = '✖️ Hide menu';
+
 /** A reply-keyboard tap arrives as text; this maps it back to the same actions. */
 export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: number, text: string): Promise<boolean> {
   const lang = langOf(deps, userId);
+  // The row this rework deleted: a chat that still shows the old keyboard must not be stuck with a dead
+  // button and no keyboard icon. Tapping it installs the new, foldable menu instead.
+  if (text.trim() === LEGACY_HIDE) {
+    await ctx.reply(t(lang, 'notice.menuReady'), { reply_markup: replyMenu(lang) });
+    return true;
+  }
   const action = menuLabels(lang).get(text.trim());
   if (!action) return false;
 
   switch (action) {
-    case 'hide':
-      await ctx.reply(t(lang, 'notice.menuHidden'), { reply_markup: hiddenMenu });
-      return true;
     case 'add': {
       setSession(userId, { state: 'awaiting_source_link', mode: undefined, error: undefined });
       const view = s2View(deps.cfg.telegramBeta, lang);
