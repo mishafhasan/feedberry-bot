@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
 import { parseFeed, discoverAlternate } from '../../src/platform/feed/native.ts';
+import { fetchRsshubFeed } from '../../src/platform/feed/rsshub.ts';
+import type { Http } from '../../src/platform/http.ts';
 
 const fixture = readFileSync(new URL('../fixtures/ig-profile.rss', import.meta.url), 'utf8');
 
@@ -81,6 +83,28 @@ test('M2 feed parser: an empty feed is E_NO_FEED, not a crash', () => {
   assert.throws(
     () => parseFeed('<rss><channel><title>empty</title></channel></rss>', 'https://example.com/'),
     (err) => err instanceof Coded && err.code === E.NO_FEED,
+  );
+});
+
+test('M2 rsshub adapter: a cold route is given longer than the 20 s trusted-fetch default', async () => {
+  let timeoutMs: number | undefined;
+  const http: Http = async (url, options) => {
+    timeoutMs = options.timeoutMs;
+    return { status: 200, url, contentType: 'application/rss+xml', body: fixture };
+  };
+
+  const feed = await fetchRsshubFeed(http, {
+    platform: 'instagram',
+    canonicalUrl: 'https://instagram.com/evolving.ai',
+    externalId: 'evolving.ai',
+    feedUrl: 'http://rsshub.test/instagram/user/evolving.ai',
+    strategy: 'rsshub',
+  });
+
+  assert.equal(feed.items.length, 7);
+  assert.ok(
+    (timeoutMs ?? 0) > 20_000 && (timeoutMs ?? 0) <= 120_000,
+    'longer than the trusted-fetch default, and still bounded by the queue: the stale lock is 10 min',
   );
 });
 

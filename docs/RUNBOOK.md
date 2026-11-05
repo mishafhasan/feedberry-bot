@@ -94,14 +94,33 @@ The agent never runs these; the operator does, once per release, with real links
 |---|---|
 | Snapchat single link | Download Mode returns the media (`E_NO_FEED` for a profile) |
 | Pinterest `/ideas/…` | `E_PROFILE_ONLY` at add time |
-| Instagram profile on a datacenter IP | either S4, or `E_COOKIE_REQUIRED` — never a silent failure |
+| Instagram profile on a datacenter IP | either S4, `E_COOKIE_REQUIRED` (login wall) or `E_FEED_DOWN` (the route took over 60 s or RSSHub answered 5xx); `check_failed`/`job_retry` log the cause |
 | YouTube 4-minute video | thumbnail + link, no upload |
 | YouTube community post `/post/…` | the post's words and album, caption headed by the channel title, plus an `➕ @handle` button offering the channel feed |
 | YouTube post that was deleted | `E_NO_FEED`, not `E_NO_MEDIA` — there is no cobalt fallback for a post |
 | Threads post link | the whole thread (root + sub-posts) in one message; a shell page falls back to cobalt |
 | One Wired/TechCrunch link | a `telegra.ph` link that opens in Instant View |
 
-## 8. Two operator-only escape hatches
+## 8. Diagnosing `E_FEED_DOWN` on an Instagram add
+
+Every Instagram add runs through RSSHub (`/instagram/user/<name>`), so `E_FEED_DOWN` is a timeout or
+RSSHub's 5xx — never a cobalt failure: a `/reel/` link only offers "Add source" after cobalt named the
+poster, so cobalt already reached Instagram when the error appears.
+
+1. **Read the cause.** `docker compose logs bot | grep -E 'check_failed|job_retry' | tail`
+   `aborted due to timeout` → step 2. `feed replied 5xx` → step 3. `fetch failed`/`ENOTFOUND` → step 4.
+2. **Time the route from the bot.**
+   `docker compose exec bot node -e "const t=Date.now();fetch('http://rsshub:1200/instagram/user/evolving.ai').then(async r=>console.log(r.status,Date.now()-t,'ms',(await r.text()).length)).catch(e=>console.log('ERR',e.message,Date.now()-t,'ms'))"`
+   A 200 under 60 s means the route is fine and the wait was the bot's cap.
+3. **5xx is the route, not the bot.** `docker compose logs rsshub | tail -40`. A guest scrape that hits
+   `/accounts/login/` needs `INSTAGRAM_COOKIE` in `.env` (`sessionid=…; ds_user_id=…`), then
+   `docker compose up -d rsshub`. The bot never receives that value; compose clears it there.
+4. **DNS and egress.** `docker compose exec bot getent hosts rsshub` must resolve; the rsshub
+   container's egress IP is what Instagram throttles, and RSSHub's healthcheck only proves `/` answers.
+5. **Clear the cache before retrying.** RSSHub holds a route for `CACHE_EXPIRE` (300 s), so
+   `docker compose restart rsshub` is what makes the next attempt a cold one.
+
+## 9. Two operator-only escape hatches
 
 - **`t.me/iv?url=…&rhash=…`** works only for domains you own and have an approved Instant View
 template for (OQ-13). The bot never uses it: every article becomes a Telegra.ph page instead.

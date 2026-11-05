@@ -41,7 +41,8 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
       log('error', 'job_failed', { job: job.id, kind: job.kind, code, cause });
     } else {
       reschedule(deps.db, job.id, now + delay, code);
-      log('warn', 'job_retry', { job: job.id, kind: job.kind, code, inMs: delay });
+      // The cause is the only thing that tells a 5xx, a login wall and a timeout apart.
+      log('warn', 'job_retry', { job: job.id, kind: job.kind, code, inMs: delay, cause });
     }
   }
   return true;

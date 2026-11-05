@@ -7,6 +7,9 @@ services:
     environment:
       DB_PATH: /data/bot.db
       RSSHUB_BASE: http://rsshub:1200
+      # .env is this service's env_file, so a secret that belongs to the RSSHub sidecar (ADR-006)
+      # must be cleared here or compose injects it into the bot as well.
+      INSTAGRAM_COOKIE: ""
     volumes:
       - ./data:/data
     # Media never survives the job that downloaded it (§5.5, stage 9), so keep it in RAM.
@@ -26,6 +29,10 @@ services:
       CACHE_EXPIRE: "300"
       # X profile feeds need a logged-in account's cookie; absent, only single posts are downloadable.
       TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN:-}
+      # ADR-006: instance-wide credentials live here, never in the bot. The Instagram route scrapes
+      # as a guest without it, which a datacenter IP gets throttled for; only sessionid and
+      # ds_user_id are needed ("sessionid=...; ds_user_id=...").
+      INSTAGRAM_COOKIE: ${INSTAGRAM_COOKIE:-}
     volumes:
       - ./rsshub-cache:/app/.cache
     healthcheck:
