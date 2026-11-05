@@ -171,7 +171,7 @@ test('M12 Download: an extractor without metadata keeps the page description as 
     const photo = api.last('sendPhoto');
     const caption = String(photo?.body.caption ?? '');
     assert.match(caption, /Hello from the post/, 'the post text is kept, not dropped');
-    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">@blue<\/a>/, 'the account the link names is the source');
+    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">@blue<\/a> \| X/, 'the account the link names is the source, and the platform follows it');
     assert.equal(photo?.body.parse_mode, 'HTML');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE post_id IS NULL AND status = 'sent'"), 1);
     assert.doesNotMatch(JSON.stringify(api.last('sendMessage')?.body ?? {}), /add:post/, 'no profile is invented for a post-only platform');
@@ -224,7 +224,7 @@ test('M12 Download: the page names the account and dates the post, like a schedu
     const caption = String(api.last('sendPhoto')?.body.caption ?? '');
     assert.match(
       caption,
-      /^🌐 <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a>\n⏱️ Time: 08\/10 16:55\n\nBro turned the whole resort up!/,
+      /^🌐 <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X\n⏱️ Time: 08\/10 16:55\n\nBro turned the whole resort up!/,
       `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
     );
   } finally {
@@ -281,7 +281,7 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
     const caption = String(api.last('sendVideo')?.body.caption ?? '');
     assert.match(
       caption,
-      /^🌐 <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a>\n⏱️ Time: 08\/23 18:34\n\nWatch as Funny Vidz captures another unsuspecting victim\./,
+      /^🌐 <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat\n⏱️ Time: 08\/23 18:34\n\nWatch as Funny Vidz captures another unsuspecting victim\./,
       `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
     );
   } finally {
@@ -427,7 +427,7 @@ test('M12 Scheduled: a media-only feed item falls back to the page description',
 
     const text = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? '')).join('\n');
     assert.match(text, /Video caption from the page/, 'the caption comes from the page, not the link only');
-    assert.match(text, /🌐 <a href="https:\/\/tiktok\.com\/@demo\/video\/1">TikTok Demo<\/a>/);
+    assert.match(text, /🌐 <a href="https:\/\/tiktok\.com\/@demo\/video\/1">TikTok Demo<\/a> \| TikTok/);
   } finally {
     db.close();
     await api.close();

@@ -14,6 +14,8 @@ export interface RenderExtras {
   thumbnailRemote?: boolean;
   /** Every post opens with the source it came from, so the renderer needs its title. */
   sourceTitle?: string | null;
+  /** The source's platform, printed as the header's label; the feed's own type, never the post URL's. */
+  platform: string;
   /** The reader's timezone for the `⏱️ Time:` line; UTC until a user timezone is stored. */
   tz?: string;
   /** Used when the feed carried no title; the media engine usually knows one. */
@@ -21,7 +23,7 @@ export interface RenderExtras {
 }
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
-export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras = {}): MessagePlan {
+export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras): MessagePlan {
   const caption = bodyOf(post, extras);
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
 
@@ -63,11 +65,11 @@ export function renderArticle(article: Article, ivUrl: string, header: string): 
 }
 
 /** Download mode has no `posts` row, so the engine supplies the text and the link is the input. */
-export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null; publishedAt?: number | null }, link: string): MessagePlan {
+export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null; publishedAt?: number | null; platform: string }, link: string): MessagePlan {
   // The account names the source; its caption is the post's own words underneath.
   const artist = meta.artist ?? null;
   const title = meta.title ?? null;
-  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null });
+  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform });
   const caption = artist !== null && title !== null ? `${header}\n\n${esc(title)}` : header;
   const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
   if (files.length === 0) return { kind: 'link_only', text: esc(link) };
@@ -85,7 +87,7 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
-  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, tz: extras.tz });
+  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz });
   return [header, ...bodyParts(post, extras).map((part) => esc(part))].filter((part) => part !== '').join('\n\n');
 }
 

@@ -39,7 +39,7 @@ const captionOf = (plan: MessagePlan): string => ('caption' in plan ? plan.capti
 
 test('Read more: a caption that already fits is returned untouched and publishes nothing', async () => {
   const row = post('A short body.');
-  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const { client, pages } = recorder();
 
   const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
@@ -54,14 +54,14 @@ test('Read more: an over-long caption keeps the media, ends in an Instant View l
     { url: 'https://cdn.test/clip.mp4', type: 'video' },
     { url: 'not a url', type: 'photo' },
   ]);
-  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const { client, pages } = recorder();
 
   const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
   const caption = captionOf(out);
 
   assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
-  assert.match(caption, /^🌐 <a href="https:\/\/blog\.example\.test\/post">My Blog<\/a>/, 'the header survives the cut');
+  assert.match(caption, /^🌐 <a href="https:\/\/blog\.example\.test\/post">My Blog<\/a> \| RSS/, 'the header and its platform survive the cut');
   assert.ok(caption.includes('...\n\n'), 'the cut text ends in three dots, then a blank line');
   assert.match(caption, /<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/, 'the phrase itself is the link');
   assert.doesNotMatch(caption, /\(1\//, 'nothing is split into numbered parts anymore');
@@ -76,7 +76,7 @@ test('Read more: an over-long caption keeps the media, ends in an Instant View l
 
 test('Read more: a Telegraph failure leaves today’s plan alone', async () => {
   const row = post(LONG);
-  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const broken = {
     async createPage(): Promise<string> {
       throw new Error('E_TELEGRAPH');
@@ -89,7 +89,7 @@ test('Read more: a Telegraph failure leaves today’s plan alone', async () => {
 
 test('Read more: one post publishes one page, failures included', async () => {
   const row = post(LONG);
-  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'My Blog' });
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const pages = new Map<number, string | null>();
   const { client, pages: recorded } = recorder();
 
@@ -120,7 +120,7 @@ test('Read more: a cut inside a link still closes the tag', () => {
 
 test('Read more: an album keeps its items and gets the same caption tail', async () => {
   const row = post(LONG);
-  const plan = renderPost(row, 'album', [photo, photo], { sourceTitle: 'My Blog' });
+  const plan = renderPost(row, 'album', [photo, photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const { client, pages } = recorder();
 
   const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());

@@ -20,7 +20,7 @@ const post = (title: string, summary: string): PostRow => ({
 
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
 const captionOf = (title: string, summary: string): string => {
-  const plan = renderPost(post(title, summary), 'photo', [photo], { sourceTitle: 'Evolving AI (@evolving.ai) - Instagram' });
+  const plan = renderPost(post(title, summary), 'photo', [photo], { platform: 'instagram', sourceTitle: 'Evolving AI (@evolving.ai) - Instagram' });
   return plan.kind === 'photo' ? plan.caption : '';
 };
 
@@ -78,7 +78,7 @@ test('delivery: a parsed multi-paragraph post is printed once, with its paragrap
     url: item.link,
     payload_json: JSON.stringify({ title: item.title, summary: item.summary, media: item.media }),
   };
-  const plan = renderPost(row, 'photo', [photo], { sourceTitle: 'Evolving AI' });
+  const plan = renderPost(row, 'photo', [photo], { platform: 'instagram', sourceTitle: 'Evolving AI' });
   const caption = plan.kind === 'photo' ? plan.caption : '';
 
   assert.equal(caption.match(/Altman on RAM/g)?.length, 1, 'the title is a copy of the body');

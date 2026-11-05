@@ -17,17 +17,17 @@ test('Instagram post links: the owner comes from the URL, or from the download',
 });
 
 test('Download caption: the account names the source and the post text follows it', () => {
-  const plan = renderDownload([photo], { title: 'Sunset over the bay', artist: 'cristiano' }, 'https://instagram.com/p/C1xYz/');
+  const plan = renderDownload([photo], { title: 'Sunset over the bay', artist: 'cristiano', platform: 'instagram' }, 'https://instagram.com/p/C1xYz/');
   const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.match(caption, /🌐 <a href="https:\/\/instagram\.com\/p\/C1xYz\/">cristiano<\/a>/, 'the header links the post under the account');
+  assert.match(caption, /🌐 <a href="https:\/\/instagram\.com\/p\/C1xYz\/">cristiano<\/a> \| Instagram/, 'the header links the post under the account, and names the platform');
   assert.match(caption, /\n\nSunset over the bay$/, 'the post text is kept, not dropped');
 });
 
 test('Download caption: without an author the title stays the source and is not repeated', () => {
-  const plan = renderDownload([photo], { title: 'Big Buck Bunny', artist: null }, 'https://youtu.be/abc');
+  const plan = renderDownload([photo], { title: 'Big Buck Bunny', artist: null, platform: 'youtube' }, 'https://youtu.be/abc');
   const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.match(caption, />Big Buck Bunny<\/a>/);
+  assert.match(caption, />Big Buck Bunny<\/a> \| YouTube/);
   assert.doesNotMatch(caption, /\n\nBig Buck Bunny/, 'no duplicated title');
 });

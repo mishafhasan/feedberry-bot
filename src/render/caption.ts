@@ -1,3 +1,4 @@
+import type { Platform } from '../platform/registry.ts';
 import { esc } from './plan.ts';
 
 /**
@@ -68,14 +69,34 @@ function openTagIndex(slice: string): number {
 
 /**
  * Every delivered post opens with where it came from and when the site published it, so a
- * forwarded post is traceable without opening it.
+ * forwarded post is traceable without opening it. The platform is what the *source* is, not what
+ * its URL spells: a blog on a custom domain is still RSS.
  */
-export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; tz?: string }): string {
+export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string }): string {
   const name = esc(params.sourceTitle ?? 'Source');
   const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
   const when = params.publishedAt === null ? null : mmddhhmm(params.publishedAt, params.tz);
-  return [`🌐 ${title}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+  // The row stores the platform as text; an unknown one prints as it arrived rather than dropping the label.
+  // `hasOwn` keeps a value like `constructor` off the prototype chain, `esc` keeps it out of the markup.
+  const label = Object.hasOwn(PLATFORM_LABEL, params.platform) ? PLATFORM_LABEL[params.platform as Platform] : params.platform;
+  return [`🌐 ${title} | ${esc(label)}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
 }
+
+/** A platform missing here is a type error, so no source type can ship without its label. */
+const PLATFORM_LABEL: Record<Platform, string> = {
+  rss: 'RSS',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  threads: 'Threads',
+  youtube: 'YouTube',
+  tiktok: 'TikTok',
+  x: 'X',
+  tumblr: 'Tumblr',
+  pinterest: 'Pinterest',
+  bluesky: 'Bluesky',
+  telegram: 'Telegram',
+  snapchat: 'Snapchat',
+};
 
 /** `MM/DD HH:MM` in the given timezone (UTC until a user timezone is stored). */
 export function mmddhhmm(ms: number, tz = 'UTC'): string {

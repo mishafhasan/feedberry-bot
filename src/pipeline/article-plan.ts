@@ -17,6 +17,8 @@ export interface ArticleInput {
   publishedAt: number | null;
   /** The source name for the header link; the post title in Download mode. */
   sourceTitle: string | null;
+  /** The source's platform, printed as the header's label. */
+  platform: string;
   tz?: string;
 }
 
@@ -38,6 +40,7 @@ export async function planArticle(deps: ArticleDeps, input: ArticleInput): Promi
       sourceTitle: input.sourceTitle,
       url: input.url,
       publishedAt: input.publishedAt ?? article.publishedAt,
+      platform: input.platform,
       tz: input.tz,
     });
     if (article.textLength < ARTICLE_MIN_CHARS) {

@@ -740,6 +740,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         title: null,
         publishedAt: null,
         sourceTitle: new URL(ref.canonicalUrl).hostname.replace(/^www\./, ''),
+        platform: ref.platform,
       });
       if (!article) throw new Coded(E.FEED_DOWN, 'article extraction failed');
       const ids = await deps.sender.send(article, target);
@@ -763,7 +764,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       if (page !== null) {
         engineAuthor = page.author;
         channel = page.channel;
-        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal);
+        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal, ref.platform);
       } else {
         const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
@@ -787,7 +788,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
           parts: text === null ? [] : [text],
           images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
         };
-        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt: meta.publishedAt }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt: meta.publishedAt, platform: ref.platform }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
       }
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
@@ -892,11 +893,11 @@ function pageFallback(err: unknown, adapter: string, url: string): null {
 }
 
 /** One message for a post the page itself carried: its words, then its media, tail on Instant View. */
-async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal): Promise<MessagePlan> {
+async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal, platform: string): Promise<MessagePlan> {
   const text = post.text;
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
   const source = post.name ?? post.author ?? hostOf(link);
-  const header = postHeader({ sourceTitle: source, url: link, publishedAt: post.publishedAt });
+  const header = postHeader({ sourceTitle: source, url: link, publishedAt: post.publishedAt, platform });
 
   let files: MediaFile[] = [];
   try {
@@ -909,7 +910,7 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
 
   // A caption past the limit keeps the media and moves the post's tail to an Instant View page.
   const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: post.items.filter((item) => item.kind === 'photo').map((item) => item.url) };
-  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source, publishedAt: post.publishedAt }, link);
+  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source, publishedAt: post.publishedAt, platform }, link);
   return withReadMore(plan, page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
 }
 

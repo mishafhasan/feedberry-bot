@@ -76,11 +76,11 @@ function mediaEngine(photoCalls: { resolve: number; download: number }): MediaEn
   };
 }
 
-/** The layout both modes must print: one linked source line, one time line, then the post's words. */
-function assertHeaderBlock(caption: string, hrefPattern: string, name: string): void {
+/** The layout both modes must print: one linked source line with its platform, one time line, then the post's words. */
+function assertHeaderBlock(caption: string, hrefPattern: string, name: string, platform: string): void {
   assert.match(
     caption,
-    new RegExp(`^🌐 <a href="${hrefPattern}">${escapeRegExp(name)}</a>\\n⏱️ Time: \\d{2}\\/\\d{2} \\d{2}:\\d{2}\\n\\n`),
+    new RegExp(`^🌐 <a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}\\n⏱️ Time: \\d{2}\\/\\d{2} \\d{2}:\\d{2}\\n\\n`),
     `header block (saw ${caption.slice(0, 120)}…)`,
   );
   assert.equal((caption.match(/🌐/g) ?? []).length, 1, 'one header only');
@@ -134,7 +134,7 @@ test('threads: one post link delivers the whole thread, its words and its media'
     assert.match(caption, /👉🏻 Read more/, 'the thread tail moves to Instant View');
     assert.match(caption, /threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv/);
     // The same header block a scheduled delivery prints.
-    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB');
+    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB', 'Threads');
     assertReadMoreTail(caption);
 
     // Both posts' words reach the page: root (455) and the 3,779-char sub-post.
@@ -291,7 +291,7 @@ test('threads: a scheduled source prints the whole thread, not the feed preview 
     assert.equal(calls.download, 2, 'every photo of the post is downloaded');
     const caption = String(items[0]?.caption ?? '');
     // The layout Download Mode prints, with the source the feed named.
-    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads');
+    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads', 'Threads');
     assert.doesNotMatch(caption, /feed preview|@prompt\.__hub :/, 'the feed preview is not printed as a body of its own');
     assert.match(caption, /👉🏻 Read more/, 'the thread tail moves to Instant View');
     assertReadMoreTail(caption);
@@ -351,7 +351,7 @@ test('threads: a blocked permalink keeps the feed text instead of losing the pos
 
     const text = String(api.last('sendMessage')?.body.text ?? '');
     assert.match(text, /feed preview/, 'the feed text ships when the permalink says no');
-    assertHeaderBlock(text, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads');
+    assertHeaderBlock(text, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub) on Threads', 'Threads');
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number }).n, 1, 'one delivery, not two');
   } finally {
     db.close();
