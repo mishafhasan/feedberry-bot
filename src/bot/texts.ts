@@ -3,6 +3,7 @@
  * Text is sent with parse_mode HTML, so any interpolated value must go through esc().
  */
 import type { ErrorCode } from '../platform/errors.ts';
+import { parseContentTypes } from '../platform/content-types.ts';
 import type { Platform } from '../platform/registry.ts';
 import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
 import { esc } from '../render/plan.ts';
@@ -148,7 +149,7 @@ export function s7HeaderHtml(shown: string, lang: Lang = 'en'): string {
 
 /** One S7 card: its pills follow it as a rich button row, so the id line stays under the title. */
 export function s7CardHtml(
-  card: { platform: string; sourceId: number; title: string | null; url: string | null; lastCheckAt: number | null; lastOkAt: number | null },
+  card: { platform: string; sourceId: number; title: string | null; url: string | null; lastCheckAt: number | null; lastOkAt: number | null; contentTypes?: string | null },
   now = Date.now(),
   lang: Lang = 'en',
 ): string {
@@ -156,15 +157,26 @@ export function s7CardHtml(
   const label = esc(sourceName(card.title ?? `#${card.sourceId}`, card.platform));
   // Same tail as a post header (§8.2): the linked name, then the platform it came from.
   const name = `${platformIcon(card.platform)} <b>${card.url === null ? label : `<a href="${esc(card.url)}">${label}</a>`}</b> | ${esc(platformLabel(card.platform))}`;
-  return `<p>${t(lang, 's7.card', { title: name, id: card.sourceId, age }).replace('\n', '<br/>')}</p>`;
+  const kinds = kindsLine(card.platform, card.contentTypes, lang);
+  return `<p>${t(lang, 's7.card', { title: name, id: card.sourceId, age }).replace('\n', '<br/>')}${kinds === null ? '' : `<br/>${kinds}`}</p>`;
 }
 
-/** The pills under one card: red Off, neutral refresh, red trash — the reference's row. */
-export function s7ActionRow(card: { id: number; enabled: boolean }, lang: Lang = 'en'): string {
+/** A YouTube card says what it sends; every other platform has one feed and nothing to choose. */
+function kindsLine(platform: string, raw: string | null | undefined, lang: Lang): string | null {
+  if (platform !== 'youtube' || raw === null || raw === undefined) return null;
+  const kinds = parseContentTypes(raw);
+  if (kinds === null) return null;
+  return esc(t(lang, 's7.kinds', { kinds: kinds.map((kind) => t(lang, `types.${kind}`)).join(', ') }));
+}
+
+/** The pills under one card: red Off, neutral refresh, the content types of a YouTube channel, red trash. */
+export function s7ActionRow(card: { id: number; enabled: boolean; platform: string; subscriptionId: number }, lang: Lang = 'en'): string {
   const toggle = card.enabled ? 'src:off' : 'src:on';
   const style = card.enabled ? 'danger' : 'success';
   const label = card.enabled ? t(lang, 'btn.off') : t(lang, 'btn.on');
-  return `<tg-button-row align="left"><tg-button type="callback_data" style="${style}" data="${toggle}:${card.id}">${label}</tg-button><tg-button type="callback_data" data="src:check:${card.id}">⟳</tg-button><tg-button type="callback_data" style="danger" data="src:del:${card.id}">🗑</tg-button></tg-button-row>`;
+  // Only a YouTube channel has kinds to pick; every other row keeps its three buttons.
+  const types = card.platform === 'youtube' ? `<tg-button type="callback_data" data="ct:open:${card.subscriptionId}">📋</tg-button>` : '';
+  return `<tg-button-row align="left"><tg-button type="callback_data" style="${style}" data="${toggle}:${card.id}">${label}</tg-button><tg-button type="callback_data" data="src:check:${card.id}">⟳</tg-button>${types}<tg-button type="callback_data" style="danger" data="src:del:${card.id}">🗑</tg-button></tg-button-row>`;
 }
 
 /** Filters sit under the cards; four chips per row, the active one in the accent color. */

@@ -362,6 +362,7 @@ sources(id PK, platform TEXT, canonical_url TEXT UNIQUE, external_id TEXT,
 
 subscriptions(id PK, user_id FK, source_id FK, chat_id FK,
               deliver INTEGER DEFAULT 1, next_slot_at INTEGER,
+              content_types TEXT,            -- video,short,post for a YouTube channel; NULL = all
               created_at INTEGER, UNIQUE(source_id, chat_id))
 
 posts(id PK, source_id FK, guid TEXT, url TEXT, published_at INTEGER,
@@ -447,6 +448,10 @@ preview, add_mode, done`. I added `error` and `confirming_delete` because S10/S1
 | `src:del:<id>` | S7 | `onDeleteAsk` | source title | — | S10 confirm |
 | `src:delok:<id>` | S10 | `onDelete` | — | delete `subscriptions`, source if orphan, `posts` | toast "Source deleted." (S11), back to S7 |
 | `src:delno:<id>` | S10 | `onDeleteCancel` | — | — | re-render S7 |
+| `ct:open:<subscriptionId>` | S7 card | `openTypesForSource` | `subscriptions.content_types` | — | S18 picker for that chat |
+| `ct:t:<kind>` | S18 | `toggleType` | FSM `typePicker` | — | repaint S18 with the kind flipped |
+| `ct:done` | S18 | `saveTypes` | FSM `typePicker` | `subscriptions.content_types` (edit flow), stage 4 (add flow) | S7 repaint, or S3 → S4 |
+| `ct:back` | S18 | `backFromTypes` | FSM `typePicker` | — | S7 for an edit, S2 for an add |
 | `add:dest:<chatId>` | S4 | `onPickDest` | `chats` row, `chats.can_post` | — | edit to S5 |
 | `add:save` | S5 | `onAddSave` | pending source | insert `sources`/`subscriptions`, backfill job | S6 "Data source «X» is added…" |
 | `add:save_silent` | S5 | `onAddSaveSilent` | pending source | same, `deliver_latest=0` | S6 |
@@ -636,7 +641,7 @@ Every row names the exact engine path and the failure it will hit.
 | **Tumblr** | native `/rss` on every blog (no auth); RSSHub `tumblr` needs OAuth client creds `[RH-CONFIG]` | cobalt `/post/<id>`, `/blog/view/…` | none (native RSS) | low | A | RSSHub with creds |
 | **Pinterest** | RSSHub `/pinterest/user/:username/:type?` **only** — created pins or boards `[RH-PINTEREST]`; `/ideas/…` and `/search/…` are browse pages, unsupported | cobalt `/pin/<id>`, `pin.it` (single pin) `[COBALT-README]` | none | medium | B | reject `/ideas/` links at add time with a clear toast |
 | **Facebook** | RSSHub `facebook` namespace requires `FACEBOOK_COOKIE` `[RH-CONFIG]` | cobalt `/videos/`, `/reel/`, `/photo?fbid=`, `fb.watch` `[COBALT-README]` | **none stored (ADR-017)** | high (login wall) | C | public pages may work; otherwise the add is refused, single posts via Download mode |
-| **YouTube** | native `youtube.com/feeds/videos.xml?channel_id=…` (no key) `[YT-FEED]`; RSSHub needs optional API key `[RH-CONFIG]` | cobalt: `youtu.be`, `/shorts/`, `/live/`; **ffmpeg needed for separate A/V tracks** `[COBALT-README]`; a community post `/post/<id>` is read from its own page, not from cobalt `[YT-POST]` | none | low | A | RSSHub route + link-only |
+| **YouTube** | native `youtube.com/feeds/videos.xml?channel_id=…` (no key) `[YT-FEED]` — labels Shorts by entry link; a handle page names its own feed, so a channel add needs no RSSHub route; the Posts tab is parsed from `@handle/posts` `[YT-POST]` | cobalt: `youtu.be`, `/shorts/`, `/live/`; **ffmpeg needed for separate A/V tracks** `[COBALT-README]`; a community post `/post/<id>` is read from its own page, not from cobalt `[YT-POST]` | none | low | A | none needed |
 | **Threads** | RSSHub `/threads/:user` — HTML scrape via cheerio, no config `[RH-THREADS]` | the whole thread is read from the permalink page first `[THREADS-SSR]`, cobalt (`/post/<code>`, `/t/<code>`, both hosts) is the fallback `[COBALT-README]` | none | medium | B | link-only |
 | **Reddit** | **ending**: Reddit stops RSS on 2026-11-13 and public API by March 2027 `[REDDIT-RSS]`; RSSHub has no `lib/routes/reddit` (404) | cobalt generic | — | — | D | remove from picker (OQ-2) |
 | **Telegram (t.me)** | RSSHub `/telegram/channel/:username` needs **MTProto user credentials** (`TELEGRAM_TOKEN`, `TELEGRAM_SESSION`, api id/hash) `[RH-CONFIG]`, i.e. a real account — out of MVP | cobalt generic extractor | **none** (public `t.me/s` scrape, beta) | medium + ToS risk | C | public `t.me/s/<channel>` scrape (beta, opt-in) |
@@ -647,9 +652,13 @@ Platform reality check from the supplied test links:
 - Pinterest `/ideas/…` (links 6, 7) are **not** subscribable — the route only covers users `[RH-PINTEREST]`.
 - Snapchat (link 10) has no profile feed path; only the single Spotlight post is downloadable.
 - Reddit has no test link and no viable engine after 2026-11-13.
-- YouTube **community posts are Download mode only**: the channel feed carries uploads, and the Posts tab
-  has no feed — it answers only through a stateful InnerTube continuation with a key scraped from a page
-  `[YT-POST]`. A post link still names its channel, so the download offers the keyless channel feed as a source.
+- YouTube **community posts are a second feed, per subscription**: the keyless uploads feed
+  (`feeds/videos.xml`) carries videos *and* Shorts and labels them (`/watch?v=` vs `/shorts/`), but never
+  the Posts tab. A chat that picks Posts makes that channel's tab one extra page GET per check; its
+  first page is ~11 posts, dated only relatively, so `shortcut:` its window is what the poller sees.
+- A YouTube **handle resolves to the keyless feed** at add time (the channel page carries its own
+  `rel=alternate application/rss+xml`), so no RSSHub route and no API key sit in the path. An older
+  source row keeps whatever feed URL it stored.
 - Everything else (TikTok, Facebook, Instagram post/reel, YouTube, Threads, Tumblr, X, Bluesky, Wired,
   TechCrunch) has a route and/or a cobalt handler.
 

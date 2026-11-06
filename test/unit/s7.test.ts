@@ -20,6 +20,7 @@ const card = (overrides: Partial<SourceCard>): SourceCard => ({
   last_error_code: null,
   consecutive_failures: 0,
   interval_minutes: null,
+  content_types: null,
   ...overrides,
 });
 

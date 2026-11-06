@@ -62,8 +62,8 @@ All limits are config, never hard-coded (ARCHITECTURE §6). Defaults in `.env.ex
 - **A post link is Download Mode, not a subscription.** A Threads thread and a YouTube community post
   (`youtube.com/post/…`) are read out of the post's own page, so the whole text, every image of an album and the
   account behind the post survive — a YouTube download even offers its channel as a source, on the keyless native
-  feed. Any other platform's post link goes through cobalt. A channel's *posts* are not a subscribable feed: YouTube's
-  channel RSS carries uploads only (ARCHITECTURE §10).
+  feed. Any other platform's post link goes through cobalt. A YouTube channel is followed by *kind*: the bot asks
+  whether a chat wants Videos, Shorts, Community posts or a mix, and only those arrive (ARCHITECTURE §10).
 - **50 MB is a hard Bot API ceiling.** Bigger videos arrive as a thumbnail + caption + link; nothing is
   transcoded. Any clip 3 minutes or longer goes the thumbnail route too (ADR-012).
 - **"Instant View" is a Telegra.ph rewrite.** Telegram's IV works per domain and a bot cannot register a

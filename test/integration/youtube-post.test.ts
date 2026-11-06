@@ -90,7 +90,7 @@ test('youtube: one post link delivers its channel, its words and its photo', asy
     const keyboard = JSON.stringify(api.last('sendMessage')?.body.reply_markup ?? {});
     assert.match(keyboard, /add:post/, 'the "add as source" button is offered');
     assert.match(keyboard, /@CeylonFocusNews/);
-    assert.equal(getSession(USER_ID).chooser?.link, 'https://youtube.com/channel/UCHxWFaBKe7EuOlOX3DFDm-Q');
+    assert.equal(getSession(USER_ID).chooser?.link, 'https://youtube.com/@CeylonFocusNews', 'the handle form is one source, not a second row');
 
     const row = db.prepare('SELECT post_id, status FROM deliveries ORDER BY id DESC LIMIT 1').get() as { post_id: number | null; status: string };
     assert.equal(row.post_id, null, 'Download mode has no posts row');

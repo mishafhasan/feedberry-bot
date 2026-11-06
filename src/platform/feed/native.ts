@@ -20,6 +20,8 @@ export interface ParsedFeed {
   title: string | null;
   avatarUrl: string | null;
   items: FeedItem[];
+  /** The URL that actually answered with the feed, so a discovered one can be stored (stage 2). */
+  feedUrl?: string | null;
 }
 
 /** §11: the status of a feed response decides the user-visible code. */
@@ -34,7 +36,7 @@ export function handleFeedStatus(status: number): void {
 export async function fetchAndParse(http: Http, url: string): Promise<ParsedFeed> {
   const res = await http(url, { maxBytes: FEED_LIMIT });
   handleFeedStatus(res.status);
-  return parseFeed(res.body, res.url);
+  return { ...parseFeed(res.body, res.url), feedUrl: res.url };
 }
 
 /** Stage 2 for `native_rss`: use the feed, or discover `rel=alternate` / common paths. */
@@ -46,7 +48,11 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<Parse
   if (/xml/.test(page.contentType) || page.body.trimStart().startsWith('<?xml')) return parseFeed(page.body, page.url);
 
   const alternate = discoverAlternate(page.body, page.url);
-  if (alternate) return fetchAndParse(http, alternate);
+  if (alternate) {
+    const feed = await fetchAndParse(http, alternate);
+    // A channel page states its avatar; YouTube's own feed carries none, so the preview would be text.
+    return feed.avatarUrl === null ? { ...feed, avatarUrl: pageImage(page.body) } : feed;
+  }
 
   for (const path of ['/feed', '/rss', '/feed.xml', '/rss.xml', '/atom.xml']) {
     try {
@@ -58,6 +64,16 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<Parse
     }
   }
   throw new Coded(E.NO_FEED, 'no feed discovered');
+}
+
+/** The page's own card image (`og:image`): the avatar a feed without an `<image>` cannot offer. */
+function pageImage(html: string): string | null {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    if (!/property\s*=\s*["']og:image["']/i.test(tag)) continue;
+    const content = attr(tag, 'content');
+    if (content) return decodeEntities(content);
+  }
+  return null;
 }
 
 export function discoverAlternate(html: string, baseUrl: string): string | null {

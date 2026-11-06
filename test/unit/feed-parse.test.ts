@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { parseFeed, discoverAlternate } from '../../src/platform/feed/native.ts';
+import { parseFeed, discoverAlternate, fetchNativeFeed } from '../../src/platform/feed/native.ts';
 import { fetchRsshubFeed } from '../../src/platform/feed/rsshub.ts';
 import type { Http } from '../../src/platform/http.ts';
 
@@ -112,6 +112,23 @@ test('M2 feed parser: rel=alternate discovery picks the RSS link', () => {
   const html = '<html><head><link rel="alternate" type="application/rss+xml" href="/feed.xml"><link rel="stylesheet" href="/a.css"></head></html>';
   assert.equal(discoverAlternate(html, 'https://example.com/blog'), 'https://example.com/feed.xml');
   assert.equal(discoverAlternate('<html><head></head></html>', 'https://example.com'), null);
+});
+
+test('M2 feed parser: a discovered feed reports its URL and borrows the page avatar', async () => {
+  const page =
+    '<html><head><meta property="og:image" content="https://yt3.example.test/avatar"><link rel="alternate" type="application/rss+xml" href="https://www.youtube.com/feeds/videos.xml?channel_id=UCTEST"></head></html>';
+  const feed = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Channel</title>
+    <entry><id>yt:video:V1</id><title>One</title><link rel="alternate" href="https://www.youtube.com/shorts/V1"/></entry></feed>`;
+  const http: Http = async (url) =>
+    url.includes('/feeds/')
+      ? { status: 200, url, contentType: 'application/atom+xml', body: feed }
+      : { status: 200, url, contentType: 'text/html; charset=utf-8', body: page };
+
+  const parsed = await fetchNativeFeed(http, { platform: 'youtube', canonicalUrl: 'https://youtube.com/@Channel', externalId: 'Channel', feedUrl: null, strategy: 'native_rss' });
+
+  assert.equal(parsed.feedUrl, 'https://www.youtube.com/feeds/videos.xml?channel_id=UCTEST', 'stage 2 can store the feed it found');
+  assert.equal(parsed.avatarUrl, 'https://yt3.example.test/avatar', 'the feed has no image, so the page lends its own');
+  assert.equal(parsed.items[0]?.link, 'https://www.youtube.com/shorts/V1');
 });
 
 test('M2 feed parser: a caption keeps the paragraphs it was written in', () => {

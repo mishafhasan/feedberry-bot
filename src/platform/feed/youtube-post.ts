@@ -1,7 +1,7 @@
 import { Coded, E } from '../errors.ts';
 import { HTML_LIMIT, type Http } from '../http.ts';
 import { publishedAtOf } from '../page-text.ts';
-import { handleFeedStatus } from './native.ts';
+import { handleFeedStatus, SUMMARY_LIMIT, type FeedItem } from './native.ts';
 
 /**
  * A community post is rendered into its permalink document as `ytInitialData`: no key, no cookie,
@@ -15,7 +15,7 @@ const YOUTUBE_HEADERS: Record<string, string> = {
 };
 
 export interface YouTubeChannel {
-  /** `youtube.com/channel/UC…` is the native-feed route: adding it needs no RSSHub API key. */
+  /** The channel's own page, spelled the way the add flow stores it: `youtube.com/@handle`. */
   url: string;
   /** The `@handle`, which is what the "add as source" button prints. */
   handle: string;
@@ -35,7 +35,7 @@ export interface YouTubePostDoc {
 
 /** Stage 2 for one community post: the page carries the post, so one GET is the whole job. */
 export async function fetchYouTubePost(http: Http, url: string): Promise<YouTubePostDoc> {
-  const id = postIdOf(url);
+  const id = youtubePostId(url);
   if (id === null) throw new Coded(E.LINK_INVALID, 'not a youtube post url');
   // The page is ~880 KB and answered in 9–16 s on a real link, so the 20 s default is too tight.
   const res = await http(`https://www.youtube.com/post/${id}`, { maxBytes: HTML_LIMIT, timeoutMs: 30_000, headers: YOUTUBE_HEADERS });
@@ -57,8 +57,8 @@ export function parseYouTubePost(html: string, postId: string): YouTubePostDoc |
   return { author: textOf(post.authorText) || null, channel: channelOf(post), text, media: imagesOf(post.backstageAttachment), publishedAt: publishedAtOf(html) };
 }
 
-/** `…/post/<id>`, the only shape this adapter accepts. */
-function postIdOf(url: string): string | null {
+/** `…/post/<id>`, the only shape the post adapter accepts; null for a video, a Short or a channel. */
+export function youtubePostId(url: string): string | null {
   let path: string[];
   try {
     path = new URL(url).pathname.split('/').filter(Boolean);
@@ -66,6 +66,50 @@ function postIdOf(url: string): string | null {
     return null;
   }
   return path[0] === 'post' ? (path[1] ?? null) : null;
+}
+
+/**
+ * The channel's Posts tab as a feed. A channel with no posts answers 200 without a renderer, so an
+ * empty list is a normal answer and the uploads feed still stands on its own.
+ * shortcut: the first page only (≈11 posts); a longer outage needs the InnerTube continuation.
+ */
+export async function fetchYouTubeChannelPosts(http: Http, channelUrl: string): Promise<FeedItem[]> {
+  try {
+    const res = await http(`${channelUrl}/posts`, { maxBytes: HTML_LIMIT, timeoutMs: 30_000, headers: YOUTUBE_HEADERS });
+    return res.status === 200 ? parseYouTubeChannelPosts(res.body) : [];
+  } catch {
+    // The Posts tab is a bonus: a shell page or a timeout leaves the uploads feed alone.
+    return [];
+  }
+}
+
+/** Pure, so the fixtures drive it without the network. */
+export function parseYouTubeChannelPosts(html: string, now = Date.now()): FeedItem[] {
+  const data = initialData(html);
+  if (data === null) return [];
+  const nodes: RawPost[] = [];
+  collectPosts(data, nodes);
+
+  const items: FeedItem[] = [];
+  const seen = new Set<string>();
+  for (const post of nodes) {
+    const id = post.postId;
+    if (typeof id !== 'string' || id === '' || seen.has(id)) continue;
+    seen.add(id);
+    const text = [textOf(post.contentText), ...attachmentParts(post.backstageAttachment)].filter((part) => part !== '').join('\n\n');
+    const images = imagesOf(post.backstageAttachment);
+    if (text === '' && images.length === 0) continue;
+    items.push({
+      guid: id,
+      link: `https://youtube.com/post/${id}`,
+      // No invented title: the post's own words are the body, and a copy here would print twice.
+      title: '',
+      publishedAt: relativeTimeOf(post.publishedTimeText, now),
+      summary: text === '' ? null : text.slice(0, SUMMARY_LIMIT),
+      media: images.map((url) => ({ url, type: 'photo' as const })),
+    });
+  }
+  return items;
 }
 
 const DATA = /(?:var ytInitialData|window\["ytInitialData"\])\s*=\s*(\{[\s\S]*?\});\s*<\/script>/;
@@ -99,14 +143,28 @@ function findPost(value: unknown, postId: string, depth = 0): RawPost | null {
   return null;
 }
 
-/** A channel names the source a download could be subscribed to, and its native feed. */
+/** Every post the tab lists, in page order. */
+function collectPosts(value: unknown, out: RawPost[], depth = 0): void {
+  if (value === null || typeof value !== 'object' || depth > 64) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectPosts(item, out, depth + 1);
+    return;
+  }
+  const node = value as RawPost;
+  if (typeof node.postId === 'string' && (node.contentText !== undefined || node.backstageAttachment !== undefined)) out.push(node);
+  for (const child of Object.values(value)) collectPosts(child, out, depth + 1);
+}
+
+/** A channel names the source a download could be subscribed to, on the keyless native feed. */
 function channelOf(post: RawPost): YouTubeChannel | null {
   const endpoint = post.authorEndpoint?.browseEndpoint;
   const id = endpoint?.browseId;
   if (typeof id !== 'string' || !id.startsWith('UC')) return null;
   const base = endpoint?.canonicalBaseUrl;
   const handle = typeof base === 'string' && base.startsWith('/@') ? base.slice(2) : textOf(post.authorText);
-  return handle === '' ? null : { url: `https://youtube.com/channel/${id}`, handle };
+  if (handle === '') return null;
+  // The `@handle` spelling is what every other add path canonicalises to: one channel, one source row.
+  return { url: `https://youtube.com/@${handle}`, handle };
 }
 
 function imagesOf(attachment: RawAttachment | null | undefined): string[] {
@@ -155,6 +213,15 @@ function attachmentParts(attachment: RawAttachment | null | undefined): string[]
   return [];
 }
 
+const UNITS: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000, month: 2_592_000_000, year: 31_536_000_000 };
+
+/** The tab dates a post only as "15 hours ago"; close enough to order a feed, never shown as an exact time. */
+function relativeTimeOf(value: Text | null | undefined, now: number): number | null {
+  const match = /(\d+)\s+(second|minute|hour|day|week|month|year)/i.exec(textOf(value));
+  if (match === null) return null;
+  return now - Number(match[1]) * (UNITS[(match[2] ?? '').toLowerCase()] ?? 0);
+}
+
 /** Post text arrives as runs; a label arrives as one run or as `simpleText`. */
 function textOf(value: { runs?: Array<{ text?: unknown }>; simpleText?: unknown } | null | undefined): string {
   if (value === null || value === undefined) return '';
@@ -189,4 +256,5 @@ interface RawPost {
   authorEndpoint?: { browseEndpoint?: { browseId?: string; canonicalBaseUrl?: string } } | null;
   contentText?: Text | null;
   backstageAttachment?: RawAttachment | null;
+  publishedTimeText?: Text | null;
 }

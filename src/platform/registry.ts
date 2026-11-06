@@ -138,7 +138,9 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
         return single(u, platform, second);
       }
       const handle = user(second ?? first);
-      return profile(platform, `https://youtube.com/@${handle}`, handle, rsshub(opts, `/youtube/user/${handle}`));
+      // A handle is a channel page: its own RSS link is discovered from that page (no RSSHub key),
+      // and only that feed labels Shorts apart from videos.
+      return profile(platform, `https://youtube.com/@${handle}`, handle, null, 'native_rss');
     }
     case 'bluesky': {
       const [first, second, third, fourth] = seg;
@@ -294,7 +296,7 @@ function parse(link: string): URL {
   return u;
 }
 
-function profile(platform: Platform, canonicalUrl: string, externalId: string, feedUrl: string, strategy: Strategy = 'rsshub'): SourceRef {
+function profile(platform: Platform, canonicalUrl: string, externalId: string, feedUrl: string | null, strategy: Strategy = 'rsshub'): SourceRef {
   return { platform, canonicalUrl, externalId, feedUrl, strategy };
 }
 

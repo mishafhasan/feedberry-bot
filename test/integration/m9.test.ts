@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
-import { openDb, schemaVersion, type Db } from '../../src/db/index.ts';
+import { openDb, SCHEMA_VERSION, schemaVersion, type Db } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { markPendingDelivery } from '../../src/db/repos/deliveries.ts';
 import { recordEvent } from '../../src/db/repos/events.ts';
@@ -236,7 +236,7 @@ test('M9 restore drill: an online backup restores to the same state', () => {
       subscriptions: count(restored, 'SELECT COUNT(*) AS n FROM subscriptions'),
       posts: count(restored, 'SELECT COUNT(*) AS n FROM posts'),
     };
-    assert.equal(schemaVersion(restored), 3, 'the restored file keeps its schema version');
+    assert.equal(schemaVersion(restored), SCHEMA_VERSION, 'the restored file keeps its schema version');
     assert.deepEqual(after, before, '/status would report the same counts after the restore');
     restored.close();
   } finally {

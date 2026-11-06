@@ -40,11 +40,12 @@ export function s7View(params: {
           url: card.canonical_url,
           lastCheckAt: card.last_check_at,
           lastOkAt: card.last_ok_at,
+          contentTypes: card.content_types,
         },
         now,
         lang,
       ),
-      s7ActionRow({ id: card.source_id, enabled: card.enabled === 1 }, lang),
+      s7ActionRow({ id: card.source_id, enabled: card.enabled === 1, platform: card.platform, subscriptionId: card.subscription_id }, lang),
       S7_DIVIDER,
     );
   }

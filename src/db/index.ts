@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -34,6 +34,14 @@ const MIGRATION_V3 = `
   ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
 `;
 
+/**
+ * v3 → v4: a subscription chooses what a YouTube channel sends (video, short, post). A NULL keeps
+ * every kind, which is what every existing row already receives.
+ */
+const MIGRATION_V4 = `
+  ALTER TABLE subscriptions ADD COLUMN content_types TEXT;
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -54,6 +62,7 @@ function migrate(db: Db): void {
   } else {
     if (current <= 1) db.exec(MIGRATION_V2);
     if (current <= 2) db.exec(MIGRATION_V3);
+    if (current <= 3) db.exec(MIGRATION_V4);
   }
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

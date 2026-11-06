@@ -4,21 +4,22 @@ import { tx, type Db } from '../db/index.ts';
 import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } from '../db/repos/chats.ts';
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
 import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, setSourceInterval } from '../db/repos/sources.ts';
-import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionSlots } from '../db/repos/subscriptions.ts';
+import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
-import { fetchYouTubePost } from '../platform/feed/youtube-post.ts';
+import { fetchYouTubePost, youtubePostId } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
+import { CONTENT_KINDS, filterByContentTypes, parseContentTypes, type ContentKind } from '../platform/content-types.ts';
 import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageMeta } from '../platform/page-text.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
-import { fetchFeed } from '../pipeline/s2-feed.ts';
+import { fetchSourceFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
@@ -49,6 +50,7 @@ import { s7View, PAGE_SIZE } from './screens/s7.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
 import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
+import { s18View } from './screens/s18.ts';
 import { ADM } from './screens/s17.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
 import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody } from './texts.ts';
@@ -85,6 +87,11 @@ export const cb = {
   schedPage: 'sched:page:',
   schedAll: 'sched:all',
   schedSetAll: 'sched:setall:',
+  typesOpen: 'ct:open:',
+  typesToggle: 'ct:t:',
+  typesDone: 'ct:done',
+  typesAll: 'ct:all',
+  typesBack: 'ct:back',
 } as const;
 
 export interface BotDeps {
@@ -142,6 +149,12 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data === cb.schedAll) return paint(ctx, s16Picker(null, lang));
 
   if (data.startsWith(cb.lang)) return setLanguage(ctx, deps, userId, data.slice(cb.lang.length));
+
+  if (data === cb.typesDone) return saveTypes(ctx, deps, userId, lang);
+  if (data === cb.typesAll) return selectAllTypes(ctx, deps, userId, lang);
+  if (data === cb.typesBack) return backFromTypes(ctx, deps, userId, lang);
+  if (data.startsWith(cb.typesToggle)) return toggleType(ctx, deps, userId, data.slice(cb.typesToggle.length), lang);
+  if (data.startsWith(cb.typesOpen)) return openTypesForSource(ctx, deps, userId, idOf(data, cb.typesOpen), lang);
 
   if (data === cb.downloadPost || data === cb.addPost) return choosePost(ctx, deps, userId, data === cb.downloadPost);
 
@@ -246,7 +259,7 @@ export async function handleSourceLink(ctx: Context, deps: BotDeps): Promise<voi
   const download = getSession(userId).mode === 'download';
   const kind = kindOf(link, deps);
   if (download && kind === 'post') return runDownload(ctx, deps, userId, link);
-  if (!download && kind === 'source') return runResolve(ctx, deps, userId, link);
+  if (!download && kind === 'source') return resolveOrAskTypes(ctx, deps, userId, link);
 
   // The wrong kind of link for this screen: say which one it wants, since Retry would fail again.
   const lang = langOf(deps, userId);
@@ -277,10 +290,10 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
     return;
   }
 
-  if (match.kind === 'source') return runResolve(ctx, deps, userId, text);
+  if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, text);
 
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
-  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps));
+  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await pageOwnerOf(text, deps));
   setSession(userId, { state: 'choosing', chooser: { link: text, profile: profileUrl ?? undefined } });
   const lang = langOf(deps, userId);
   await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
@@ -321,6 +334,24 @@ async function engineOwnerOf(link: string, deps: BotDeps): Promise<string | null
   }
 }
 
+/** Platforms whose page names the channel that posted it, even when the link does not. */
+const PAGE_OWNERS = new Set(['youtube']);
+
+/**
+ * A YouTube video, Short or community post spells its channel only on the page itself, so the
+ * chooser reads that page once instead of offering Download alone. Only YouTube states a channel
+ * this way, and a failed page still downloads.
+ */
+async function pageOwnerOf(link: string, deps: BotDeps): Promise<string | null> {
+  try {
+    const ref = detectSource(link, detectOpts(deps));
+    if (!PAGE_OWNERS.has(ref.platform)) return null;
+    return (await pageMeta(deps.http, ref.canonicalUrl)).channel?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Stage 1 reads the same settings wherever a link is classified. */
 const detectOpts = (deps: BotDeps): DetectOptions => ({ rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta, xProfiles: deps.cfg.xProfiles });
 
@@ -331,8 +362,107 @@ async function choosePost(ctx: Context, deps: BotDeps, userId: number, download:
   // After a download the chooser already carries the profile, which is not always derivable from a URL.
   const profileUrl = download ? null : (chooser.profile ?? profileOfPost(chooser.link));
   setSession(userId, { state: 'idle', chooser: undefined });
-  if (profileUrl) await runResolve(ctx, deps, userId, profileUrl);
+  if (profileUrl) await resolveOrAskTypes(ctx, deps, userId, profileUrl);
   else await runDownload(ctx, deps, userId, chooser.link);
+}
+
+/** §5.4: the posts tab is a second feed, so only a channel that will deliver posts pays for it. */
+const wantsPostsFeed = (platform: string, selected: ContentKind[] | null): boolean => platform === 'youtube' && (selected?.includes('post') ?? false);
+
+/** The kinds the picker is holding, or null for a link that never opened it. */
+const chosenTypes = (userId: number): ContentKind[] | null => getSession(userId).typePicker?.selected ?? null;
+
+/**
+ * A YouTube channel is asked what to watch before anything is fetched; every other source keeps the
+ * one-step add. A link no flow can use falls through, so runResolve reports its own code.
+ */
+async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
+  // Only the classification is guarded: a paint that fails must not become an add with default kinds.
+  let ref: SourceRef | undefined;
+  try {
+    ref = detectSource(link, detectOpts(deps));
+  } catch {
+    // A bad link is runResolve's to report, with the keyboard that fits the code.
+  }
+  if (ref?.platform === 'youtube') return openTypePicker(ctx, deps, userId, ref, link);
+  await runResolve(ctx, deps, userId, link);
+}
+
+/** `@handle`, or the channel id when the link named no handle. */
+const channelLabel = (ref: SourceRef): string => (ref.externalId.startsWith('UC') ? ref.externalId : `@${ref.externalId}`);
+
+/** S18 for a channel about to be added; the choice rides in the session until stage 4 writes it. */
+async function openTypePicker(ctx: Context, deps: BotDeps, userId: number, ref: SourceRef, link: string): Promise<void> {
+  const selected: ContentKind[] = [...CONTENT_KINDS];
+  const handle = channelLabel(ref);
+  setSession(userId, { state: 'choosing_types', typePicker: { link, handle, selected } });
+  await paintOrReply(ctx, s18View({ handle, selected, lang: langOf(deps, userId) }));
+}
+
+/** S18 for a card in My Sources: a new message, so the list underneath keeps its place. */
+async function openTypesForSource(ctx: Context, deps: BotDeps, userId: number, subscriptionId: number, lang: Lang): Promise<void> {
+  const card = subscriptionCard(deps.db, ensureUser(deps.db, userId).id, subscriptionId);
+  if (!card) return;
+  const selected = parseContentTypes(card.content_types) ?? [...CONTENT_KINDS];
+  const handle = card.title ?? card.canonical_url;
+  setSession(userId, { state: 'choosing_types', typePicker: { subscriptionId, handle, selected } });
+  const view = s18View({ handle, selected, lang });
+  await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+}
+
+/** A tap flips one kind in place; the last one cannot be turned off, so Done is always valid. */
+async function toggleType(ctx: Context, deps: BotDeps, userId: number, kind: string, lang: Lang): Promise<void> {
+  const picker = getSession(userId).typePicker;
+  if (!picker || !(CONTENT_KINDS as readonly string[]).includes(kind)) return;
+  const name = kind as ContentKind;
+  const off = picker.selected.includes(name);
+  if (off && picker.selected.length === 1) return;
+  const selected = off ? picker.selected.filter((other) => other !== name) : [...picker.selected, name];
+  setSession(userId, { typePicker: { ...picker, selected } });
+  await paint(ctx, s18View({ handle: picker.handle, selected, lang }));
+}
+
+/** `ct:all`: the requested "All content" preset, which leaves the toggles free for a mix. */
+async function selectAllTypes(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
+  const picker = getSession(userId).typePicker;
+  if (!picker) return;
+  const selected: ContentKind[] = [...CONTENT_KINDS];
+  setSession(userId, { typePicker: { ...picker, selected } });
+  await paint(ctx, s18View({ handle: picker.handle, selected, lang }));
+}
+
+/** `ct:done`: the add flow continues into stage 1, the My Sources flow writes the row and repaints. */
+async function saveTypes(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
+  const picker = getSession(userId).typePicker;
+  if (!picker) return restarted(ctx, deps, userId);
+  // Unreachable from the picker (it refuses to empty), kept for a forged callback: an empty list would
+  // store '' and read back as "everything".
+  if (picker.selected.length === 0) return;
+  await ctx.deleteMessage().catch(() => {});
+
+  if (picker.subscriptionId !== undefined) {
+    const saved = setSubscriptionContentTypes(deps.db, ensureUser(deps.db, userId).id, picker.subscriptionId, picker.selected);
+    log('info', saved ? 'content_types_set' : 'content_types_denied', { subscription: picker.subscriptionId, kinds: picker.selected.join(',') });
+    const state = getSession(userId).s7;
+    setSession(userId, { state: 'idle', typePicker: undefined });
+    return renderS7(ctx, deps, userId, state?.page ?? 0, state?.platform ?? null, state?.headerId ?? null);
+  }
+  // A picker reached without a link cannot add anything; the Add Source screen is the answer.
+  if (picker.link === undefined) return restarted(ctx, deps, userId);
+  await runResolve(ctx, deps, userId, picker.link);
+}
+
+/** `ct:back`: an edit returns to the list, an add returns to the Add Source screen. */
+async function backFromTypes(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
+  const picker = getSession(userId).typePicker;
+  setSession(userId, { state: 'idle', typePicker: undefined });
+  if (picker?.subscriptionId !== undefined) {
+    await ctx.deleteMessage().catch(() => {});
+    const state = getSession(userId).s7;
+    return renderS7(ctx, deps, userId, state?.page ?? 0, state?.platform ?? null, state?.headerId ?? null);
+  }
+  setSession(userId, { state: 'awaiting_source_link' });
+  await paint(ctx, s2View(deps.cfg.telegramBeta, lang));
 }
 
 /** `/download` and the S1 button do the same work; only the delivery differs (reply vs edit). */
@@ -380,12 +510,14 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
-    const feed = await fetchFeed(deps.http, ref);
+    const feed = await fetchSourceFeed(deps.http, ref, wantsPostsFeed(ref.platform, chosenTypes(userId)));
     // §5.4: every item is recorded as seen; the preview and the backfill use the newest few.
-    const preview = newest(feed.items, deps.cfg.limits.backfillCount);
+    const preview = newest(filterByContentTypes(ref.platform, feed.items, chosenTypes(userId)), deps.cfg.limits.backfillCount);
     const pending: PendingSource = {
       link,
       ...ref,
+      // A feed discovered from the page is what stage 2 and every later check will use.
+      feedUrl: feed.feedUrl ?? ref.feedUrl,
       author: feed.title ?? ref.externalId,
       avatarUrl: feed.avatarUrl,
       items: feed.items,
@@ -458,7 +590,8 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
     // The 60 s cache saves a refetch; after it expires stage 2 runs again (§4 M2.5).
     let items = pending.items;
     if (Date.now() - pending.at > PREVIEW_TTL_MS) {
-      const feed = await fetchFeed(deps.http, refOf(pending));
+      const ref = refOf(pending);
+      const feed = await fetchSourceFeed(deps.http, ref, wantsPostsFeed(ref.platform, chosenTypes(userId)));
       items = feed.items;
     }
 
@@ -471,10 +604,11 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
       items,
       deliverLatest,
       backfillCount: deps.cfg.limits.backfillCount,
+      contentTypes: chosenTypes(userId),
     });
 
     log('info', 'source_added', { source: result.sourceId, pending: result.pending });
-    setSession(userId, { state: 'done', pending: undefined, destChatId: undefined });
+    setSession(userId, { state: 'done', pending: undefined, destChatId: undefined, typePicker: undefined });
     const view = s6View(pending.author, langOf(deps, userId));
     await editSourceMessage(ctx, pending.photo, view);
   } catch (err) {
@@ -656,7 +790,8 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
       platform: session.pending.platform,
       author: session.pending.author,
       avatarUrl: session.pending.avatarUrl,
-      items: newest(session.pending.items, deps.cfg.limits.backfillCount),
+      // Back shows the same preview the picker promised: only the kinds this chat still watches.
+      items: newest(filterByContentTypes(session.pending.platform, session.pending.items, chosenTypes(userId)), deps.cfg.limits.backfillCount),
       personalChatId: personalChat(deps.db, owner.id).id,
       chats: destinations(deps.db, owner.id),
       lang: langOf(deps, userId),
@@ -664,7 +799,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
     return editSourceMessage(ctx, session.pending.photo, view);
   }
   if (session.state === 'preview') {
-    setSession(userId, { state: 'awaiting_source_link', pending: undefined });
+    setSession(userId, { state: 'awaiting_source_link', pending: undefined, typePicker: undefined });
     return paint(ctx, s2View(deps.cfg.telegramBeta, langOf(deps, userId)));
   }
   resetSession(userId);
@@ -778,6 +913,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
         // One page fetch carries what the extractor did not: the account, the date, the words.
         const meta = await pageMeta(deps.http, ref.canonicalUrl);
+        // A video page names its channel, so the download can offer that channel as a source.
+        channel = meta.channel;
         const engineText = resolved.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
@@ -828,7 +965,7 @@ interface PagePost {
   name: string | null;
   publishedAt: number | null;
   /** The account to offer as a source; only a page that names its channel can. */
-  channel: { url: string; handle: string } | null;
+  channel: { url: string; handle: string | null } | null;
   text: string;
   items: MediaItem[];
 }
@@ -862,6 +999,9 @@ async function threadsPage(deps: BotDeps, url: string): Promise<PagePost | null>
 }
 
 async function youtubePage(deps: BotDeps, url: string): Promise<PagePost | null> {
+  // Only a community post lives in its own page. A video, a Short or a live stream is cobalt's job,
+  // and sending it here made every YouTube download fail as "not a supported source".
+  if (youtubePostId(url) === null) return null;
   // cobalt has no extractor for a community post, so a failure here is the honest answer: a
   // fallback would only turn "this post is gone" into "couldn't extract media".
   const post = await fetchYouTubePost(deps.http, url);
@@ -947,6 +1087,8 @@ function toastFor(data: string, lang: Lang): string | undefined {
   if (data.startsWith(cb.schedSet)) return toast.scheduleSet;
   // The list, its pager and the bulk picker answer silently; only a cadence change deserves a toast.
   if (data.startsWith(cb.schedOpen) || data.startsWith(cb.schedPage) || data === cb.schedAll) return undefined;
+  // The picker repaints itself; every tap is silent.
+  if (data.startsWith(cb.typesOpen) || data.startsWith(cb.typesToggle) || data === cb.typesDone || data === cb.typesAll || data === cb.typesBack) return undefined;
   if (data.startsWith(cb.delOk)) return toast.deleted;
   switch (data) {
     case cb.sources:

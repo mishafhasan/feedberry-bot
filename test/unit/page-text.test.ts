@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { metaDescription, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
+import { channelOf, metaDescription, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
 
 test('page text: og:description wins over the Twitter card and the plain description', () => {
   const html = `
@@ -33,6 +33,18 @@ test('page text: the card video is read for the platforms cobalt cannot reach', 
   const html = '<meta property="og:video" content="https://cdn.example.test/clip.mp4?token=1">';
   assert.match(metaVideoOf(html) ?? '', /clip\.mp4/);
   assert.equal(metaVideoOf('<html></html>'), null);
+});
+
+test('page text: a video page names the channel behind it, tab suffix and all', () => {
+  const page = (id: string, base: string): string => `<script>{"channelId":"${id}","canonicalBaseUrl":"${base}"}</script>`;
+
+  assert.deepEqual(channelOf(page('UCHxWFaBKe7EuOlOX3DFDm-Q', '/@CeylonFocusNews')), {
+    url: 'https://youtube.com/@CeylonFocusNews',
+    handle: 'CeylonFocusNews',
+  }, 'the handle spelling is what the add flow stores, so one channel stays one source');
+  assert.deepEqual(channelOf(page('UCHxWFaBKe7EuOlOX3DFDm-Q', '')), { url: 'https://youtube.com/channel/UCHxWFaBKe7EuOlOX3DFDm-Q', handle: null });
+  assert.equal(channelOf(page('UCRIrAXzyn11EzeLpEKhVDuQ', '/@DWTamil/shorts'))?.handle, 'DWTamil', 'a Shorts page appends its tab');
+  assert.equal(channelOf('<meta property="og:title" content="No channel here">'), null);
 });
 
 test('page text: the og:title names the account in every shape the platforms use', () => {

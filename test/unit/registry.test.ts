@@ -124,7 +124,9 @@ test('M17 registry: a YouTube community post is a single post, never a channel h
   assert.equal(detectSource('https://m.youtube.com/post/UgkxX', opts).strategy, 'single_post', 'the mobile host is the same host');
   assert.equal(codeOf('https://www.youtube.com/post/'), E.LINK_INVALID, 'a post without an id cannot be fetched');
   // A channel is still a feed: the post case must not swallow it.
-  assert.equal(detectSource('https://www.youtube.com/@MrBeast', opts).strategy, 'rsshub');
+  assert.equal(detectSource('https://www.youtube.com/@MrBeast', opts).strategy, 'native_rss');
+  // The handle page discovers its own RSS link, so no RSSHub key is needed and Shorts stay labelled.
+  assert.equal(detectSource('https://www.youtube.com/@MrBeast', opts).feedUrl, null);
 });
 
 test('M17 classify: a profile is a source, a post is a post, per platform', () => {

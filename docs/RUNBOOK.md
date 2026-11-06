@@ -96,6 +96,9 @@ The agent never runs these; the operator does, once per release, with real links
 | Pinterest `/ideas/…` | `E_PROFILE_ONLY` at add time |
 | Instagram profile on a datacenter IP | either S4, `E_COOKIE_REQUIRED` (login wall) or `E_FEED_DOWN` (the route took over 60 s or RSSHub answered 5xx); `check_failed`/`job_retry` log the cause |
 | YouTube 4-minute video | thumbnail + link, no upload |
+| YouTube link in Download Mode (`watch?v=`, `youtu.be`, `/shorts/`) | the media uploads; never "That link isn't a supported source" — that answer means the post adapter was given a video |
+| YouTube channel add | S18 asks Videos / Shorts / Posts before any fetch; the S4 preview shows only the picked kinds, and the card in My Sources prints `receiving: …` |
+| YouTube channel with Posts picked | one extra page GET per check; a delivered community post arrives with its words and photos, and its own `/post/…` link |
 | YouTube community post `/post/…` | the post's words and album, caption headed by the channel title, plus an `➕ @handle` button offering the channel feed |
 | YouTube post that was deleted | `E_NO_FEED`, not `E_NO_MEDIA` — there is no cobalt fallback for a post |
 | Threads post link | the whole thread (root + sub-posts) in one message; a shell page falls back to cobalt |

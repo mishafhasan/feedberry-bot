@@ -1,4 +1,5 @@
 import type { Db } from '../db/index.ts';
+import { allowsContent, youtubeKindOf, type ContentKind } from '../platform/content-types.ts';
 import { Coded, E } from '../platform/errors.ts';
 import type { FeedItem } from '../platform/feed/native.ts';
 import type { SourceRef } from '../platform/registry.ts';
@@ -19,6 +20,8 @@ export interface AddSourceInput {
   /** S5 "Add and send latest posts" vs "Add without sending" (§5.4). */
   deliverLatest: boolean;
   backfillCount: number;
+  /** The kinds this chat watches; null keeps every one. */
+  contentTypes?: ContentKind[] | null;
   now?: number;
 }
 
@@ -136,6 +139,7 @@ export function addSource(db: Db, input: AddSourceInput): { sourceId: number; pe
       chatId: input.chatId,
       deliver: true,
       nextSlotAt: null, // M4 fills the slot; a null slot is not due
+      contentTypes: input.contentTypes ?? null,
       now,
     });
     if (!subscription) throw new Coded(E.DUPLICATE, 'same source and chat');
@@ -145,7 +149,11 @@ export function addSource(db: Db, input: AddSourceInput): { sourceId: number; pe
 
     let pending = 0;
     if (input.deliverLatest) {
-      const newest = [...posts].sort((a, b) => (a.published_at ?? 0) - (b.published_at ?? 0)).slice(-input.backfillCount);
+      // A YouTube channel sends only the kinds this chat picked; everything stays recorded as seen.
+      const watchable = posts.filter((post) =>
+        allowsContent(input.contentTypes ?? null, input.source.platform === 'youtube' ? youtubeKindOf(post.url) : null),
+      );
+      const newest = [...watchable].sort((a, b) => (a.published_at ?? 0) - (b.published_at ?? 0)).slice(-input.backfillCount);
       for (const post of newest) {
         markPendingDelivery(db, post.id, input.chatId, now);
         pending++;

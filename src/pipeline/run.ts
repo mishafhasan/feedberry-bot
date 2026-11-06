@@ -2,9 +2,9 @@ import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { listPendingForSource, markPendingDelivery } from '../db/repos/deliveries.ts';
 import { getPost, insertPosts, type PostRow } from '../db/repos/posts.ts';
-import { getSource, type SourceRow } from '../db/repos/sources.ts';
+import { getSource, setSourceFeedUrl, type SourceRow } from '../db/repos/sources.ts';
 import { demoteChat } from '../db/repos/chats.ts';
-import { deliveryTargets } from '../db/repos/subscriptions.ts';
+import { deliveryTargets, wantsPosts } from '../db/repos/subscriptions.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
@@ -13,6 +13,7 @@ import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { probeDuration } from '../media/probe.ts';
 import type { Thumbnailer } from '../media/thumb.ts';
 import { E, isCoded } from '../platform/errors.ts';
+import { allowsContent, parseContentTypes, youtubeKindOf } from '../platform/content-types.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import type { Http } from '../platform/http.ts';
@@ -21,7 +22,7 @@ import type { SourceRef } from '../platform/registry.ts';
 import { payloadOf, type MessagePlan } from '../render/plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
-import { fetchFeed } from './s2-feed.ts';
+import { fetchSourceFeed } from './s2-feed.ts';
 import { classifyMedia } from './s3-classify.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './s4-dedupe.ts';
@@ -97,10 +98,12 @@ export async function runFetchSource(deps: RunDeps, sourceId: number, now = Date
 
   let fresh = 0;
   try {
-    const feed = await fetchFeed(deps.http, refOfSource(source));
+    const feed = await fetchSourceFeed(deps.http, refOfSource(source), source.platform === 'youtube' && wantsPosts(deps.db, sourceId));
+    // A discovered feed URL is stored once, so the next check goes straight to the feed (§5.3).
+    if (source.feed_url === null && feed.feedUrl) setSourceFeedUrl(deps.db, sourceId, feed.feedUrl);
     const newItems = unseenItems(deps.db, sourceId, feed.items);
     fresh = newItems.length;
-    if (fresh > 0) persistNew(deps.db, sourceId, feed, newItems, now);
+    if (fresh > 0) persistNew(deps.db, source, feed, newItems, now);
     recordSuccess(deps.db, sourceId, now);
     recordEvent(deps.db, { level: 'info', code: 'fetch_ok', sourceId, detail: `${fresh} new`, at: now });
   } catch (err) {
@@ -118,14 +121,19 @@ export async function runFetchSource(deps: RunDeps, sourceId: number, now = Date
 }
 
 /** Records every item as seen (§5.4) and leaves the fresh ones pending for each target chat. */
-function persistNew(db: Db, sourceId: number, feed: ParsedFeed, freshItems: FeedItem[], now: number): void {
-  const targets = deliveryTargets(db, sourceId);
+function persistNew(db: Db, source: SourceRow, feed: ParsedFeed, freshItems: FeedItem[], now: number): void {
+  const targets = deliveryTargets(db, source.id);
   const freshGuids = new Set(freshItems.map((item) => item.guid));
   tx(db, () => {
-    const posts = insertPosts(db, sourceId, uniqueItems(feed.items), now);
+    const posts = insertPosts(db, source.id, uniqueItems(feed.items), now);
     for (const post of posts) {
       if (!freshGuids.has(post.guid)) continue;
-      for (const target of targets) markPendingDelivery(db, post.id, target.chat_id, now);
+      const kind = source.platform === 'youtube' ? youtubeKindOf(post.url) : null;
+      for (const target of targets) {
+        // Every post is recorded once per source; each chat only hears about the kinds it chose.
+        if (!allowsContent(parseContentTypes(target.content_types), kind)) continue;
+        markPendingDelivery(db, post.id, target.chat_id, now);
+      }
     }
   });
 }
@@ -232,6 +240,9 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     }
   }
+  // A community post has no extractor: the feed's own photos are the media, so the album still ships.
+  // An upload's feed media is only its thumbnail, so a failed extraction stays a link card (R14).
+  if (items.length === 0 && youtubeKindOf(post.url) === 'post') items = feedPhotos(payload.media);
 
   const kind = classifyMedia(items, hadFeedMedia);
   // A feed that ships media only (X/Twitter, TikTok) leaves the caption to the page's own words.
@@ -295,6 +306,11 @@ async function threadRow(http: Http, post: PostRow): Promise<PostRow> {
     log('warn', 'threads_text_failed', { post: post.id, cause: err instanceof Error ? err.message : String(err) });
     return post;
   }
+}
+
+/** A feed that ships photo URLs and no extractor behind them (a YouTube community post album). */
+function feedPhotos(media: Array<{ url: string; type: string }>): MediaItem[] {
+  return media.filter((item) => item.type === 'photo').map((item) => ({ kind: 'photo' as const, url: item.url, picker: false }));
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

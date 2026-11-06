@@ -1,3 +1,4 @@
+import type { ContentKind } from '../platform/content-types.ts';
 import type { FeedItem } from '../platform/feed/native.ts';
 import type { Platform, Strategy } from '../platform/registry.ts';
 
@@ -15,6 +16,7 @@ export type FsmState =
   | 'error'
   | 'confirming_delete'
   | 'choosing'
+  | 'choosing_types'
   | 'awaiting_admin_user_id'
   | 'awaiting_admin_notify'
   | 'awaiting_admin_notify_all'
@@ -51,6 +53,18 @@ export interface S7State {
 /** S16 keeps only the page, so Back from a picker returns to the list the user was reading. */
 export type S16State = { page: number };
 
+/**
+ * S18: the kinds a YouTube channel may send. `link` is a channel waiting to be added; `subscriptionId`
+ * is an existing row being changed. The choice survives S3/S4 so stage 4 writes it once.
+ */
+export interface TypePicker {
+  link?: string;
+  subscriptionId?: number;
+  /** What the screen calls the channel: `@handle`, or the `UC…` id when the link named none. */
+  handle: string;
+  selected: ContentKind[];
+}
+
 export interface Session {
   state: FsmState;
   /** awaiting_source_link in Download Mode (ADR-013); unused until M5. */
@@ -61,7 +75,8 @@ export interface Session {
   error?: LastError;
   s7?: S7State;
   s16?: S16State;
-  /** A link waiting on the download/add choice; `profile` is set when a download named the account. */
+  typePicker?: TypePicker;
+  /** A link waiting on the download/add choice; `profile` is set when a download or the page named the account. */
   chooser?: { link: string; profile?: string };
   /** Admin panel page, so Back from details returns to the list the admin was reading. */
   adm?: { page: number };

@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   deliver      INTEGER NOT NULL DEFAULT 1,
   next_slot_at INTEGER,
   created_at   INTEGER NOT NULL,
+  -- video,short,post for a YouTube channel; NULL means every kind (rows from before the picker).
+  content_types TEXT,
   UNIQUE (source_id, chat_id)
 );
 

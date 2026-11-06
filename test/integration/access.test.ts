@@ -13,7 +13,7 @@ import type { Update } from 'grammy/types';
 import { createBot } from '../../src/bot/index.ts';
 import { getSession, setSession } from '../../src/bot/fsm.ts';
 import { parseConfig } from '../../src/config.ts';
-import { openDb, schemaVersion, type Db } from '../../src/db/index.ts';
+import { openDb, SCHEMA_VERSION, schemaVersion, type Db } from '../../src/db/index.ts';
 import { allowUser } from '../seed.ts';
 import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate, type FakeApi, type FakeChat } from '../fake-api.ts';
 
@@ -334,7 +334,7 @@ test('a forged admin callback from another user changes nothing', async () => {
   }
 });
 
-test('migration v2 → v3 keeps old users but sets them to pending, so they need approval', async () => {
+test('migration v2 → v4 keeps old users but sets them to pending, so they need approval', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-access-v2-'));
   const dbPath = join(dir, 'bot.db');
 
@@ -352,6 +352,12 @@ test('migration v2 → v3 keeps old users but sets them to pending, so they need
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, level TEXT NOT NULL, code TEXT NOT NULL,
       source_id INTEGER, chat_id INTEGER, detail TEXT
     );
+    -- v4 adds a column to this table, so a v2 file must carry it, exactly as it did in production.
+    CREATE TABLE subscriptions (
+      id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, source_id INTEGER NOT NULL, chat_id INTEGER NOT NULL,
+      deliver INTEGER NOT NULL DEFAULT 1, next_slot_at INTEGER, created_at INTEGER NOT NULL,
+      UNIQUE (source_id, chat_id)
+    );
     INSERT INTO users (tg_user_id, created_at) VALUES (${OLD_USER}, 1);
     PRAGMA user_version = 2;
   `);
@@ -360,7 +366,7 @@ test('migration v2 → v3 keeps old users but sets them to pending, so they need
   const api = await fakeBotApi();
   const db = openDb(dbPath);
   try {
-    assert.equal(schemaVersion(db), 3);
+    assert.equal(schemaVersion(db), SCHEMA_VERSION);
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM users'), 1, 'the migration keeps rows');
     // Decision: a v2 row was auto-approved by the old open model; granting it silently after the
     // upgrade would keep that model. It starts pending and the admin approves it explicitly.

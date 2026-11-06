@@ -1,4 +1,5 @@
 import type { Db } from '../index.ts';
+import { formatContentTypes, parseContentTypes, type ContentKind } from '../../platform/content-types.ts';
 
 export interface SubscriptionRow {
   id: number;
@@ -8,6 +9,8 @@ export interface SubscriptionRow {
   deliver: number;
   next_slot_at: number | null;
   created_at: number;
+  /** `video,short,post`; NULL means every kind. */
+  content_types: string | null;
 }
 
 export interface SubscriptionInput {
@@ -16,6 +19,8 @@ export interface SubscriptionInput {
   chatId: number;
   deliver: boolean;
   nextSlotAt: number | null;
+  /** The kinds this chat watches; null keeps every one. */
+  contentTypes?: ContentKind[] | null;
   now?: number;
 }
 
@@ -23,14 +28,20 @@ export interface SubscriptionInput {
 export function insertSubscription(db: Db, input: SubscriptionInput): SubscriptionRow | null {
   const row = db
     .prepare(
-      `INSERT INTO subscriptions (user_id, source_id, chat_id, deliver, next_slot_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO subscriptions (user_id, source_id, chat_id, deliver, next_slot_at, created_at, content_types)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(source_id, chat_id) DO NOTHING
        RETURNING *`,
     )
-    .get(input.userId, input.sourceId, input.chatId, input.deliver ? 1 : 0, input.nextSlotAt, input.now ?? Date.now()) as unknown as
-    | SubscriptionRow
-    | undefined;
+    .get(
+      input.userId,
+      input.sourceId,
+      input.chatId,
+      input.deliver ? 1 : 0,
+      input.nextSlotAt,
+      input.now ?? Date.now(),
+      input.contentTypes == null ? null : formatContentTypes(input.contentTypes),
+    ) as unknown as SubscriptionRow | undefined;
   return row ?? null;
 }
 
@@ -68,6 +79,7 @@ export interface SourceCard {
   last_error_code: string | null;
   consecutive_failures: number;
   interval_minutes: number | null;
+  content_types: string | null;
 }
 
 /** S7 rows: the caller's subscriptions joined with their health fields (§6). */
@@ -82,7 +94,7 @@ export function listSourceCards(db: Db, userId: number, platform: string | null,
   const rows = db
     .prepare(
       `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.canonical_url, s.title, s.avatar_url, s.enabled,
-              s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes
+              s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes, sub.content_types
        FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
        WHERE sub.user_id = ?${filter}
        ORDER BY sub.id DESC LIMIT ? OFFSET ?`,
@@ -137,11 +149,35 @@ export function getSourceCard(db: Db, userId: number, sourceId: number): SourceC
   return db
     .prepare(
       `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.canonical_url, s.title, s.avatar_url, s.enabled,
-              s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes
+              s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes, sub.content_types
        FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
        WHERE sub.user_id = ? AND s.id = ?`,
     )
     .get(userId, sourceId) as unknown as SourceCard | undefined;
+}
+
+/** The card behind one S7 row: a user may follow the same channel from two chats. */
+export function subscriptionCard(db: Db, userId: number, subscriptionId: number): SourceCard | undefined {
+  return db
+    .prepare(
+      `SELECT sub.id AS subscription_id, s.id AS source_id, s.platform, s.canonical_url, s.title, s.avatar_url, s.enabled,
+              s.last_check_at, s.last_ok_at, s.last_error_code, s.consecutive_failures, s.interval_minutes, sub.content_types
+       FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
+       WHERE sub.user_id = ? AND sub.id = ?`,
+    )
+    .get(userId, subscriptionId) as unknown as SourceCard | undefined;
+}
+
+/** The picker writes one subscription it owns; the source row is shared, the choice is not. */
+export function setSubscriptionContentTypes(db: Db, userId: number, subscriptionId: number, kinds: ContentKind[]): boolean {
+  const result = db.prepare('UPDATE subscriptions SET content_types = ? WHERE id = ? AND user_id = ?').run(formatContentTypes(kinds), subscriptionId, userId);
+  return Number(result.changes) > 0;
+}
+
+/** True when any chat following this source asked for community posts, which no feed carries. */
+export function wantsPosts(db: Db, sourceId: number): boolean {
+  const rows = db.prepare('SELECT content_types FROM subscriptions WHERE source_id = ?').all(sourceId) as Array<{ content_types: string | null }>;
+  return rows.some((row) => parseContentTypes(row.content_types)?.includes('post') ?? false);
 }
 
 export interface DeliveryTargetRow {
@@ -149,13 +185,15 @@ export interface DeliveryTargetRow {
   tg_chat_id: number;
   message_thread_id: number | null;
   type: string;
+  /** This chat's own choice of kinds; NULL means every one. */
+  content_types: string | null;
 }
 
 /** Stage 7 targets: every active subscription whose chat may still receive posts (§9.4). */
 export function deliveryTargets(db: Db, sourceId: number): DeliveryTargetRow[] {
   return db
     .prepare(
-      `SELECT c.id AS chat_id, c.tg_chat_id, c.message_thread_id, c.type
+      `SELECT c.id AS chat_id, c.tg_chat_id, c.message_thread_id, c.type, sub.content_types
        FROM subscriptions sub JOIN chats c ON c.id = sub.chat_id
        WHERE sub.source_id = ? AND sub.deliver = 1 AND c.can_post = 1
        ORDER BY c.id`,

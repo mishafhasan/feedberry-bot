@@ -63,6 +63,11 @@ export function getSource(db: Db, id: number): SourceRow | undefined {
   return db.prepare('SELECT * FROM sources WHERE id = ?').get(id) as unknown as SourceRow | undefined;
 }
 
+/** Stage 2 discovered the feed behind a bare page; the next check goes straight to it. */
+export function setSourceFeedUrl(db: Db, id: number, feedUrl: string): void {
+  db.prepare('UPDATE sources SET feed_url = ? WHERE id = ?').run(feedUrl, id);
+}
+
 /** S8: on/off only touches `sources.enabled`; nothing is deleted. */
 export function setSourceEnabled(db: Db, id: number, enabled: boolean): void {
   db.prepare('UPDATE sources SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);

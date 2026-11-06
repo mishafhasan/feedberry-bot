@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { Coded, E, isCoded } from '../../src/platform/errors.ts';
 import type { Http } from '../../src/platform/http.ts';
-import { fetchYouTubePost, parseYouTubePost } from '../../src/platform/feed/youtube-post.ts';
+import { fetchYouTubePost, parseYouTubeChannelPosts, parseYouTubePost } from '../../src/platform/feed/youtube-post.ts';
 
 const evidence = (name: string): string => readFileSync(fileURLToPath(new URL(`../fixtures/youtube/${name}`, import.meta.url)), 'utf8');
 
@@ -25,8 +25,8 @@ test('youtube: a post link yields its channel, its words and its one photo', () 
   const doc = parseYouTubePost(evidence('post-image.html'), IMAGE);
   assert.ok(doc, 'the post is in the document');
   assert.equal(doc.author, 'Ceylon Focus News', 'the channel title, not the handle');
-  // The native feed route needs no RSSHub key, which is why the browseId is what gets offered.
-  assert.deepEqual(doc.channel, { url: 'https://youtube.com/channel/UCHxWFaBKe7EuOlOX3DFDm-Q', handle: 'CeylonFocusNews' });
+  // One canonical spelling per channel: the handle form the add path already stores.
+  assert.deepEqual(doc.channel, { url: 'https://youtube.com/@CeylonFocusNews', handle: 'CeylonFocusNews' });
   assert.equal(doc.text.length, 725);
   assert.match(doc.text, /^ஈரானின்/);
   assert.equal(doc.media.length, 1, 'one photo');
@@ -66,6 +66,54 @@ test('youtube: no post data is a null document, never an empty post', () => {
   assert.equal(parseYouTubePost(evidence('post-image.html'), 'UgkSomeOtherPost'), null, 'a payload for another post is not this post');
   assert.equal(parseYouTubePost('<html><body>nope</body></html>', IMAGE), null);
   assert.equal(parseYouTubePost('<script>var ytInitialData = {broken};</script>', IMAGE), null);
+});
+
+/** A channel tab carries many posts in one document; the walk must find them all, not one. */
+const TAB = `<script>var ytInitialData = ${JSON.stringify({
+  contents: {
+    sectionListRenderer: {
+      contents: [
+        {
+          backstagePostThreadRenderer: {
+            post: {
+              backstagePostRenderer: {
+                postId: 'UgkxTAB_ONE',
+                contentText: { runs: [{ text: 'First community post' }] },
+                publishedTimeText: { runs: [{ text: '3 hours ago' }] },
+                backstageAttachment: {
+                  backstageImageRenderer: {
+                    image: { thumbnails: [{ url: 'https://yt3.ggpht.com/small=s88', width: 88, height: 88 }, { url: 'https://yt3.ggpht.com/orig=s1600', width: 800, height: 800 }] },
+                  },
+                },
+              },
+            },
+          },
+        },
+        { backstagePostRenderer: { postId: 'UgkxTAB_TWO', contentText: { simpleText: 'A text-only post' }, publishedTimeText: { runs: [{ text: '2 days ago' }] } } },
+        // A tab with no posts at all is an ordinary answer, not an error.
+        { backstagePostRenderer: { postId: 'UgkxTAB_EMPTY' } },
+      ],
+    },
+  },
+})};</script>`;
+
+test('youtube: a channel Posts tab yields every post, with its photo and its rough date', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const items = parseYouTubeChannelPosts(TAB, now);
+
+  assert.deepEqual(items.map((item) => item.guid), ['UgkxTAB_ONE', 'UgkxTAB_TWO'], 'an empty renderer is skipped, order is kept');
+  assert.equal(items[0]?.link, 'https://youtube.com/post/UgkxTAB_ONE', 'the permalink stage 2 fetches');
+  assert.equal(items[0]?.title, '', 'no invented title: the words are the body');
+  assert.equal(items[0]?.summary, 'First community post');
+  assert.deepEqual(items[0]?.media, [{ url: 'https://yt3.ggpht.com/orig=s1600', type: 'photo' }], 'the widest thumbnail is the original');
+  assert.equal(items[0]?.publishedAt, now - 3 * 3_600_000, 'a relative "3 hours ago" becomes an ordering hint');
+  assert.equal(items[1]?.publishedAt, now - 2 * 86_400_000);
+  assert.deepEqual(items[1]?.media, []);
+});
+
+test('youtube: a tab without post data is an empty list, never a crash', () => {
+  assert.deepEqual(parseYouTubeChannelPosts('<html><body>shell</body></html>'), []);
+  assert.deepEqual(parseYouTubeChannelPosts('<script>var ytInitialData = {broken};</script>'), []);
 });
 
 test('youtube: the page is fetched on www with a browser-shaped accept (302s would drop headers)', async () => {

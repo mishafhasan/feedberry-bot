@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
-import { openDb, schemaVersion } from '../../src/db/index.ts';
+import { openDb, SCHEMA_VERSION, schemaVersion } from '../../src/db/index.ts';
 import { callbackUpdate, fakeBotApi, startUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
 
@@ -21,7 +21,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
   let db = openDb(dbPath);
   allowUser(db, USER_ID);
   try {
-    assert.equal(schemaVersion(db), 3, 'schema_version = 3 after boot on an empty file');
+    assert.equal(schemaVersion(db), SCHEMA_VERSION, 'a fresh file is migrated to the current schema');
 
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot });
     await bot.init(); // production calls this from bot.start()
