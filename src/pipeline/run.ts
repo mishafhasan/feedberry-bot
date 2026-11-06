@@ -98,7 +98,7 @@ export async function runFetchSource(deps: RunDeps, sourceId: number, now = Date
 
   let fresh = 0;
   try {
-    const feed = await fetchSourceFeed(deps.http, refOfSource(source), sourceContentKinds(deps.db, sourceId));
+    const feed = await fetchSourceFeed(deps.http, refOfSource(source), sourceContentKinds(deps.db, sourceId), deps.cfg.rsshubBase);
     // A discovered feed URL is stored once, so the next check goes straight to the feed (§5.3).
     if (source.feed_url === null && feed.feedUrl) setSourceFeedUrl(deps.db, sourceId, feed.feedUrl);
     const newItems = unseenItems(deps.db, sourceId, feed.items);

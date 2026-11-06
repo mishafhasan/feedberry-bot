@@ -315,4 +315,18 @@ function genericWebsite(u: URL): SourceRef {
 
 const rsshub = (opts: DetectOptions, route: string): string => `${opts.rsshubBase}${route}`;
 
+/**
+ * The RSSHub YouTube route for a channel, for the window when YouTube closes the native feed to a
+ * busy IP. It scrapes the channel pages instead, so it still answers; null when the ref names no
+ * channel (a post link, another platform). A feed URL already carries the channel id, which keeps
+ * the route stable across handle renames; otherwise a handle keeps its `@` (without it RSSHub looks
+ * up a legacy vanity name and answers 503).
+ */
+export function youtubeRsshubRoute(ref: SourceRef, rsshubBase: string): string | null {
+  if (ref.platform !== 'youtube') return null;
+  const id = /channel_id=(UC[\w-]{22})/.exec(ref.feedUrl ?? '')?.[1] ?? (ref.externalId.startsWith('UC') ? ref.externalId : null);
+  if (id !== null) return `${rsshubBase}/youtube/channel/${id}`;
+  return ref.externalId === '' ? null : `${rsshubBase}/youtube/user/@${ref.externalId}`;
+}
+
 const user = (segment: string | undefined): string => (segment ?? '').replace(/^@/, '');

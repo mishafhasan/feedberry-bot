@@ -1,4 +1,4 @@
-import { Coded, E } from '../errors.ts';
+import { Coded, E, isCoded, type ErrorCode } from '../errors.ts';
 import { FEED_LIMIT, HTML_LIMIT, type Http } from '../http.ts';
 import type { SourceRef } from '../registry.ts';
 
@@ -39,6 +39,19 @@ export async function fetchAndParse(http: Http, url: string): Promise<ParsedFeed
   return { ...parseFeed(res.body, res.url), feedUrl: res.url };
 }
 
+/**
+ * A feed the page advertised that then refused. Keeping the URL lets the caller store it and key a
+ * fallback route by the channel id it carries, exactly like a source added from a channel URL.
+ */
+export class DiscoveredFeedError extends Coded {
+  readonly feedUrl: string;
+
+  constructor(code: ErrorCode, feedUrl: string, message: string) {
+    super(code, message);
+    this.feedUrl = feedUrl;
+  }
+}
+
 /** Stage 2 for `native_rss`: use the feed, or discover `rel=alternate` / common paths. */
 export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<ParsedFeed> {
   if (ref.feedUrl) return fetchAndParse(http, ref.feedUrl);
@@ -49,7 +62,13 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<Parse
 
   const alternate = discoverAlternate(page.body, page.url);
   if (alternate) {
-    const feed = await fetchAndParse(http, alternate);
+    let feed: ParsedFeed;
+    try {
+      feed = await fetchAndParse(http, alternate);
+    } catch (err) {
+      if (isCoded(err)) throw new DiscoveredFeedError(err.code, alternate, err.message);
+      throw err;
+    }
     // A channel page states its avatar; YouTube's own feed carries none, so the preview would be text.
     return feed.avatarUrl === null ? { ...feed, avatarUrl: pageImage(page.body) } : feed;
   }

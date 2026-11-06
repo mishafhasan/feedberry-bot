@@ -13,10 +13,10 @@ test('S18 picker: the chips carry the state, not a second checklist', () => {
   assert.match(view.html, /data="ct:all"/);
   assert.equal(view.html.match(/<tg-button-row/g)?.length, 2, 'three choices and the All preset are two rows, not six buttons');
   // Done closes the screen, so it is the keyboard row directly above Back.
-  assert.deepEqual(
-    view.keyboard.inline_keyboard.map((row) => row.map((button) => button.callback_data)),
-    [['ct:done'], ['ct:back']],
-  );
+  assert.deepEqual(view.keyboard.inline_keyboard, [
+    [{ text: '✅ Done', callback_data: 'ct:done' }],
+    [{ text: '← Back', callback_data: 'ct:back' }],
+  ]);
 });
 
 test('S18 picker: the summary follows the selection, and the handle is escaped', () => {

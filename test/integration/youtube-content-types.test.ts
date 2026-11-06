@@ -28,7 +28,7 @@ const USER_ID = 555;
 const VIDEO = fileURLToPath(new URL('../fixtures/media/video.mp4', import.meta.url));
 const PHOTO = fileURLToPath(new URL('../fixtures/media/photo.jpg', import.meta.url));
 const CHANNEL = 'https://youtube.com/@TestChannel';
-const FEED = 'https://www.youtube.com/feeds/videos.xml?channel_id=UCTEST0000000000000000';
+const FEED = 'https://www.youtube.com/feeds/videos.xml?channel_id=UCTEST000000000000000000';
 const POSTS = `${CHANNEL}/posts`;
 
 /** The channel page carries its own RSS link; stage 2 discovers it exactly as it does in production. */
@@ -200,8 +200,13 @@ test('youtube: a pasted Short offers its channel from the oEmbed card, before an
   const short = 'https://youtube.com/shorts/ccIE0DwsH4I';
   const http: Http = async (url) => {
     if (url.startsWith('https://www.youtube.com/oembed')) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ author_url: 'https://www.youtube.com/@TestChannel' }) };
+    // The handle the card named, then the feed its page names (refused), then the RSSHub route.
+    if (url === CHANNEL) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: CHANNEL_PAGE };
+    if (url === FEED) return { status: 404, url, contentType: 'text/html; charset=UTF-8', body: '<html>not found</html>' };
+    if (url === POSTS) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: POSTS_TAB };
+    if (url === 'http://rsshub.test/youtube/channel/UCTEST000000000000000000') return { status: 200, url, contentType: 'application/atom+xml', body: ATOM };
     // A real watch page outlived the page budget (11 s here), so reaching it at all is the bug.
-    throw new Error(`the chooser must not fetch the video page: ${url}`);
+    throw new Error(`unexpected fetch: ${url}`);
   };
 
   try {
@@ -225,6 +230,18 @@ test('youtube: a pasted Short offers its channel from the oEmbed card, before an
     assert.doesNotMatch(lastHtml(api), /style="primary" data="ct:t:post"/, 'Posts is off in the chips');
     await bot.handleUpdate(callbackUpdate(5, USER_ID, 'ct:all'));
     assert.match(lastHtml(api), /style="primary" data="ct:t:post"/, 'All content puts every kind back');
+
+    // And the add that follows survives YouTube refusing the native feed, like a channel-id link.
+    await bot.handleUpdate(callbackUpdate(6, USER_ID, 'ct:done'));
+    const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
+    assert.ok(!texts.some((text) => /Couldn't find a feed/.test(text)), 'a video link add is not refused either');
+    assert.match(String(texts.at(-1)), /A long video/, 'the preview comes from the fallback feed');
+
+    const chatId = personalChat(db, ensureUser(db, USER_ID).id).id;
+    await bot.handleUpdate(callbackUpdate(7, USER_ID, `add:dest:${chatId}`));
+    await bot.handleUpdate(callbackUpdate(8, USER_ID, 'add:save_silent'));
+    const row = db.prepare("SELECT canonical_url FROM sources WHERE platform = 'youtube' ORDER BY id DESC LIMIT 1").get() as { canonical_url: string };
+    assert.equal(row.canonical_url, CHANNEL, 'the channel the Short belongs to is what gets followed');
   } finally {
     db.close();
     await api.close();
@@ -308,6 +325,94 @@ test('youtube: a Posts-only channel adds even when its uploads feed is gone', as
 
     const row = db.prepare('SELECT content_types FROM subscriptions ORDER BY id DESC LIMIT 1').get() as { content_types: string | null };
     assert.equal(row.content_types, 'post', 'the channel is followed for its posts alone');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('youtube: a @handle channel adds while YouTube refuses the native feed', async () => {
+  // The reported case: the channel page answers and names its feed, feeds/videos.xml answers 404 for
+  // every channel from a busy IP, and only the RSSHub route (page scrape) still answers.
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-yt-handle-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const handleChannel = 'https://youtube.com/@RjChandruReport';
+  const fallback = 'http://rsshub.test/youtube/channel/UCTEST000000000000000000';
+  const http: Http = async (url) => {
+    if (url === handleChannel) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: CHANNEL_PAGE };
+    if (url === FEED) return { status: 404, url, contentType: 'text/html; charset=UTF-8', body: '<html>not found</html>' };
+    if (url === fallback) return { status: 200, url, contentType: 'application/atom+xml', body: ATOM };
+    if (url === `${handleChannel}/posts`) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: POSTS_TAB };
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    allowUser(db, USER_ID);
+    const bot = createBot({ cfg: config(), db, apiRoot: api.apiRoot, http, media: engine({ resolve: [] }) });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(3, USER_ID, `${handleChannel}?si=fmMGu2lcGlCcdKMw`));
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'ct:done'));
+
+    const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
+    assert.ok(!texts.some((text) => /Couldn't find a feed/.test(text)), 'the add is not refused');
+    const preview = api.calls.filter((call) => call.method === 'sendMessage').at(-1);
+    assert.match(String(preview?.body.text), /A long video/, 'the fallback feed supplies the uploads');
+    assert.match(String(preview?.body.text), /Community post words/, 'and the Posts tab still merges');
+
+    const chatId = personalChat(db, ensureUser(db, USER_ID).id).id;
+    await bot.handleUpdate(callbackUpdate(5, USER_ID, `add:dest:${chatId}`));
+    await bot.handleUpdate(callbackUpdate(6, USER_ID, 'add:save_silent'));
+
+    const row = db.prepare("SELECT canonical_url, feed_url FROM sources WHERE platform = 'youtube' ORDER BY id DESC LIMIT 1").get() as { canonical_url: string; feed_url: string | null };
+    assert.equal(row.canonical_url, handleChannel, 'the handle stays the identity, not the RSSHub route');
+    assert.equal(row.feed_url, FEED, 'the feed its page named is stored, exactly as a /channel/UC… add does');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('youtube: a scheduled handle source stores the feed its page named, then stops reading the page', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-yt-sched-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const handleChannel = 'https://youtube.com/@RjChandruReport';
+  const asked: string[] = [];
+  const http: Http = async (url) => {
+    asked.push(url);
+    if (url === handleChannel) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: CHANNEL_PAGE };
+    if (url === FEED) return { status: 404, url, contentType: 'text/html; charset=UTF-8', body: '<html>not found</html>' };
+    if (url === 'http://rsshub.test/youtube/channel/UCTEST000000000000000000') return { status: 200, url, contentType: 'application/atom+xml', body: ATOM };
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const cfg = config();
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    // A handle source as the add flow leaves it before any discovery: no feed URL yet.
+    const source = upsertSource(db, { platform: 'youtube', canonicalUrl: handleChannel, externalId: 'RjChandruReport', feedUrl: null, strategy: 'native_rss', title: 'Rj Chandru Report', avatarUrl: null });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null, contentTypes: ['video'] });
+
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: engine({ resolve: [] }) });
+    await bot.init();
+    const deps = { db, http, cfg, media: engine({ resolve: [] }), thumbnail: async () => null, sender: new TelegramSender(bot.api) };
+    const first = await runFetchSource(deps, source.id);
+
+    assert.equal(first.fresh, 2, 'the fallback feed supplied the uploads');
+    const stored = db.prepare('SELECT feed_url FROM sources WHERE id = ?').get(source.id) as { feed_url: string | null };
+    assert.equal(stored.feed_url, FEED, 'the discovered feed is stored, exactly as a /channel/UC… add stores it');
+
+    asked.length = 0;
+    await runFetchSource(deps, source.id);
+    assert.ok(!asked.includes(handleChannel), 'the next check goes straight to the feed, never the channel page');
+    assert.deepEqual(asked, [FEED, 'http://rsshub.test/youtube/channel/UCTEST000000000000000000'], 'native first, then the id keyed route');
   } finally {
     db.close();
     await api.close();

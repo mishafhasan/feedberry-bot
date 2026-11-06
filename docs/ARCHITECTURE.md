@@ -661,6 +661,12 @@ Platform reality check from the supplied test links:
 - The **channel behind a video or a Short** comes from YouTube's oEmbed card (`author_url`, ~200 ms).
   The watch page is 1.3 MB and outlived the 10 s page budget, so it is never the owner lookup; only a
   community post, which has no card, is read from its own page.
+- **YouTube closes `feeds/videos.xml` to a busy IP** — 404/500 for every channel while the channel
+  pages still answer (the feed URL is discovered normally, then refuses). Stage 2 falls back to the
+  RSSHub route, which scrapes those pages: `/youtube/user/@handle` (the `@` is required — without it
+  RSSHub looks up a legacy vanity name and answers 503) or `/youtube/channel/UC…`. The fallback is
+  never stored as `feed_url`, so the next check tries the native feed first; a Shorts-only selection
+  keeps its error instead, because that route flattens Shorts into videos.
 - A YouTube **handle resolves to the keyless feed** at add time (the channel page carries its own
   `rel=alternate application/rss+xml`), so no RSSHub route and no API key sit in the path. An older
   source row keeps whatever feed URL it stored.

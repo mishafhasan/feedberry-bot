@@ -492,7 +492,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
-    const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId));
+    const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId), deps.cfg.rsshubBase);
     // §5.4: every item is recorded as seen; the preview and the backfill use the newest few.
     const preview = newest(filterByContentTypes(ref.platform, feed.items, chosenTypes(userId)), deps.cfg.limits.backfillCount);
     const pending: PendingSource = {
@@ -573,7 +573,7 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
     let items = pending.items;
     if (Date.now() - pending.at > PREVIEW_TTL_MS) {
       const ref = refOf(pending);
-      const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId));
+      const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId), deps.cfg.rsshubBase);
       items = feed.items;
     }
 
