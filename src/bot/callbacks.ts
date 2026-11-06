@@ -17,6 +17,7 @@ import { CONTENT_KINDS, filterByContentTypes, parseContentTypes, type ContentKin
 import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageMeta } from '../platform/page-text.ts';
+import { youtubeChannelOf } from '../platform/youtube-channel.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchSourceFeed } from '../pipeline/s2-feed.ts';
@@ -293,7 +294,7 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, text);
 
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
-  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await pageOwnerOf(text, deps));
+  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await youtubeChannelOf(deps.http, text))?.url ?? null;
   setSession(userId, { state: 'choosing', chooser: { link: text, profile: profileUrl ?? undefined } });
   const lang = langOf(deps, userId);
   await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
@@ -334,24 +335,6 @@ async function engineOwnerOf(link: string, deps: BotDeps): Promise<string | null
   }
 }
 
-/** Platforms whose page names the channel that posted it, even when the link does not. */
-const PAGE_OWNERS = new Set(['youtube']);
-
-/**
- * A YouTube video, Short or community post spells its channel only on the page itself, so the
- * chooser reads that page once instead of offering Download alone. Only YouTube states a channel
- * this way, and a failed page still downloads.
- */
-async function pageOwnerOf(link: string, deps: BotDeps): Promise<string | null> {
-  try {
-    const ref = detectSource(link, detectOpts(deps));
-    if (!PAGE_OWNERS.has(ref.platform)) return null;
-    return (await pageMeta(deps.http, ref.canonicalUrl)).channel?.url ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Stage 1 reads the same settings wherever a link is classified. */
 const detectOpts = (deps: BotDeps): DetectOptions => ({ rsshubBase: deps.cfg.rsshubBase, telegramBeta: deps.cfg.telegramBeta, xProfiles: deps.cfg.xProfiles });
 
@@ -366,10 +349,7 @@ async function choosePost(ctx: Context, deps: BotDeps, userId: number, download:
   else await runDownload(ctx, deps, userId, chooser.link);
 }
 
-/** §5.4: the posts tab is a second feed, so only a channel that will deliver posts pays for it. */
-const wantsPostsFeed = (platform: string, selected: ContentKind[] | null): boolean => platform === 'youtube' && (selected?.includes('post') ?? false);
-
-/** The kinds the picker is holding, or null for a link that never opened it. */
+/** §5.4: the kinds the picker is holding, or null for a link that never opened it. */
 const chosenTypes = (userId: number): ContentKind[] | null => getSession(userId).typePicker?.selected ?? null;
 
 /**
@@ -396,7 +376,7 @@ async function openTypePicker(ctx: Context, deps: BotDeps, userId: number, ref: 
   const selected: ContentKind[] = [...CONTENT_KINDS];
   const handle = channelLabel(ref);
   setSession(userId, { state: 'choosing_types', typePicker: { link, handle, selected } });
-  await paintOrReply(ctx, s18View({ handle, selected, lang: langOf(deps, userId) }));
+  await paintRich(ctx, s18View({ handle, selected, lang: langOf(deps, userId) }));
 }
 
 /** S18 for a card in My Sources: a new message, so the list underneath keeps its place. */
@@ -407,7 +387,9 @@ async function openTypesForSource(ctx: Context, deps: BotDeps, userId: number, s
   const handle = card.title ?? card.canonical_url;
   setSession(userId, { state: 'choosing_types', typePicker: { subscriptionId, handle, selected } });
   const view = s18View({ handle, selected, lang });
-  await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  const chatId = ctx.chat?.id;
+  // A new message: the list underneath keeps its place, and the picker gets deleted when it closes.
+  if (chatId !== undefined) await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
 }
 
 /** A tap flips one kind in place; the last one cannot be turned off, so Done is always valid. */
@@ -419,7 +401,7 @@ async function toggleType(ctx: Context, deps: BotDeps, userId: number, kind: str
   if (off && picker.selected.length === 1) return;
   const selected = off ? picker.selected.filter((other) => other !== name) : [...picker.selected, name];
   setSession(userId, { typePicker: { ...picker, selected } });
-  await paint(ctx, s18View({ handle: picker.handle, selected, lang }));
+  await paintRich(ctx, s18View({ handle: picker.handle, selected, lang }));
 }
 
 /** `ct:all`: the requested "All content" preset, which leaves the toggles free for a mix. */
@@ -428,7 +410,7 @@ async function selectAllTypes(ctx: Context, deps: BotDeps, userId: number, lang:
   if (!picker) return;
   const selected: ContentKind[] = [...CONTENT_KINDS];
   setSession(userId, { typePicker: { ...picker, selected } });
-  await paint(ctx, s18View({ handle: picker.handle, selected, lang }));
+  await paintRich(ctx, s18View({ handle: picker.handle, selected, lang }));
 }
 
 /** `ct:done`: the add flow continues into stage 1, the My Sources flow writes the row and repaints. */
@@ -510,7 +492,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
-    const feed = await fetchSourceFeed(deps.http, ref, wantsPostsFeed(ref.platform, chosenTypes(userId)));
+    const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId));
     // §5.4: every item is recorded as seen; the preview and the backfill use the newest few.
     const preview = newest(filterByContentTypes(ref.platform, feed.items, chosenTypes(userId)), deps.cfg.limits.backfillCount);
     const pending: PendingSource = {
@@ -591,7 +573,7 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
     let items = pending.items;
     if (Date.now() - pending.at > PREVIEW_TTL_MS) {
       const ref = refOf(pending);
-      const feed = await fetchSourceFeed(deps.http, ref, wantsPostsFeed(ref.platform, chosenTypes(userId)));
+      const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId));
       items = feed.items;
     }
 
@@ -913,8 +895,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
         // One page fetch carries what the extractor did not: the account, the date, the words.
         const meta = await pageMeta(deps.http, ref.canonicalUrl);
-        // A video page names its channel, so the download can offer that channel as a source.
-        channel = meta.channel;
+        // A video page is too heavy for the page budget; oEmbed names its channel in a fraction of it.
+        channel = await youtubeChannelOf(deps.http, ref.canonicalUrl);
         const engineText = resolved.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
@@ -944,8 +926,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     const lang = langOf(deps, userId);
     const named = channel?.url ?? (engineAuthor === null ? null : profileFromAuthor(ref.platform, engineAuthor));
     const profile = named ?? (await ownerOf(link, deps));
-    // The label may only promise the account the button will add, so a link-derived source gets the plain one.
-    const handle = named === null ? null : (channel?.handle ?? engineAuthor);
+    // A channel without a handle (a topic channel) prints the plain button, never a fake @name.
+    const handle = channel !== null ? channel.handle : named === null ? null : engineAuthor;
     setSession(userId, { state: 'idle', mode: undefined, chooser: profile === null ? undefined : { link: profile, profile } });
     await ctx.reply(downloadDone(lang), {
       parse_mode: 'HTML',
@@ -1167,8 +1149,13 @@ async function paintOrReply(ctx: Context, view: View): Promise<void> {
 /** Same, for a rich message: the body travels in the html field, not in text. */
 async function paintRich(ctx: Context, view: RichView): Promise<void> {
   const chatId = ctx.chat?.id;
+  if (chatId === undefined) return;
   const messageId = ctx.callbackQuery?.message?.message_id;
-  if (chatId === undefined || messageId === undefined) return;
+  // A screen reached from plain text has no message to edit: the rich message is its own.
+  if (messageId === undefined) {
+    await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
+    return;
+  }
   try {
     await ctx.api.editMessageText(chatId, messageId, { html: view.html }, { reply_markup: view.keyboard });
   } catch (err) {

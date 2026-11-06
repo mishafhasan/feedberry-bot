@@ -17,8 +17,8 @@ const YOUTUBE_HEADERS: Record<string, string> = {
 export interface YouTubeChannel {
   /** The channel's own page, spelled the way the add flow stores it: `youtube.com/@handle`. */
   url: string;
-  /** The `@handle`, which is what the "add as source" button prints. */
-  handle: string;
+  /** The `@handle` a button prints; null for a topic channel, whose page carries only `UC…`. */
+  handle: string | null;
 }
 
 export interface YouTubePostDoc {
@@ -70,17 +70,14 @@ export function youtubePostId(url: string): string | null {
 
 /**
  * The channel's Posts tab as a feed. A channel with no posts answers 200 without a renderer, so an
- * empty list is a normal answer and the uploads feed still stands on its own.
+ * empty list is a normal answer; a failed fetch throws, and the caller decides whether the tab was
+ * the only feed it asked for.
  * shortcut: the first page only (≈11 posts); a longer outage needs the InnerTube continuation.
  */
 export async function fetchYouTubeChannelPosts(http: Http, channelUrl: string): Promise<FeedItem[]> {
-  try {
-    const res = await http(`${channelUrl}/posts`, { maxBytes: HTML_LIMIT, timeoutMs: 30_000, headers: YOUTUBE_HEADERS });
-    return res.status === 200 ? parseYouTubeChannelPosts(res.body) : [];
-  } catch {
-    // The Posts tab is a bonus: a shell page or a timeout leaves the uploads feed alone.
-    return [];
-  }
+  const res = await http(`${channelUrl}/posts`, { maxBytes: HTML_LIMIT, timeoutMs: 30_000, headers: YOUTUBE_HEADERS });
+  handleFeedStatus(res.status);
+  return parseYouTubeChannelPosts(res.body);
 }
 
 /** Pure, so the fixtures drive it without the network. */
@@ -102,8 +99,9 @@ export function parseYouTubeChannelPosts(html: string, now = Date.now()): FeedIt
     items.push({
       guid: id,
       link: `https://youtube.com/post/${id}`,
-      // No invented title: the post's own words are the body, and a copy here would print twice.
-      title: '',
+      // A tab post has no title of its own; its opening is the only readable line for a list. The
+      // caption de-dupes it against the summary, so the words are never printed twice.
+      title: firstLine(text),
       publishedAt: relativeTimeOf(post.publishedTimeText, now),
       summary: text === '' ? null : text.slice(0, SUMMARY_LIMIT),
       media: images.map((url) => ({ url, type: 'photo' as const })),
@@ -211,6 +209,12 @@ function attachmentParts(attachment: RawAttachment | null | undefined): string[]
     return [`🎬 ${title === '' ? 'YouTube video' : title}\nhttps://youtu.be/${video.videoId}`];
   }
   return [];
+}
+
+/** One list line from a post's own opening; the full text stays in the summary. */
+function firstLine(text: string): string {
+  const line = (text.split('\n')[0] ?? '').trim();
+  return line.length <= 120 ? line : `${line.slice(0, 119)}…`;
 }
 
 const UNITS: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000, month: 2_592_000_000, year: 31_536_000_000 };

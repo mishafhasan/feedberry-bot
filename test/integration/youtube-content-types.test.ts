@@ -108,13 +108,8 @@ test('youtube: a Shorts link downloads through cobalt instead of failing as an u
     seen.push(url);
     // Only the post permalink is a page adapter; asking for it here is the bug this test pins.
     if (url.includes('/post/')) throw new Error(`a Short must never be read as a community post: ${url}`);
-    // A real watch/Shorts page names its channel in the player state.
-    return {
-      status: 200,
-      url,
-      contentType: 'text/html; charset=utf-8',
-      body: '<html><head><meta property="og:title" content="A clip"></head><body><script>{"channelId":"UCTEST000000000000000000","canonicalBaseUrl":"/@TestChannel/shorts"}</script></body></html>',
-    };
+    if (url.startsWith('https://www.youtube.com/oembed')) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ author_url: 'https://www.youtube.com/@TestChannel' }) };
+    return { status: 200, url, contentType: 'text/html; charset=utf-8', body: '<html><head><meta property="og:title" content="A clip"></head><body></body></html>' };
   };
   const media = engine({ resolve: [] });
 
@@ -136,7 +131,7 @@ test('youtube: a Shorts link downloads through cobalt instead of failing as an u
     const done = api.last('sendMessage');
     assert.match(String(done?.body.text), /Delivered/);
     assert.deepEqual(buttons(done), ['dl:more', 'add:post', 'nav:home'], 'the channel is offered as a source');
-    assert.equal(done?.body.reply_markup?.inline_keyboard?.flat()[1]?.text, '➕ @TestChannel', 'the handle loses the tab it was read from');
+    assert.equal(done?.body.reply_markup?.inline_keyboard?.flat()[1]?.text, '➕ @TestChannel', 'the oEmbed card names the handle');
   } finally {
     db.close();
     await api.close();
@@ -166,15 +161,18 @@ test('youtube: adding a channel asks what to send, and only the chosen kinds are
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));
     await bot.handleUpdate(textUpdate(3, USER_ID, 'https://www.youtube.com/@TestChannel'));
 
-    const picker = api.last('sendMessage');
-    assert.match(String(picker?.body.text), /What should @TestChannel send here\?/, 'the picker comes before any fetch');
+    // The picker is a rich message and replaces the Add Source screen: no extra message is sent.
+    const picker = lastHtml(api);
+    assert.match(picker, /What should @TestChannel send here\?/, 'the picker comes before any fetch');
     assert.deepEqual(seen, [], 'nothing is fetched until the user chooses');
-    assert.ok(buttons(picker).includes('ct:t:video') && buttons(picker).includes('ct:t:short') && buttons(picker).includes('ct:t:post'));
-    assert.ok(buttons(picker).includes('ct:done'));
+    for (const kind of ['video', 'short', 'post']) assert.match(picker, new RegExp(`data="ct:t:${kind}"`), `${kind} is a chip on the screen`);
+    assert.deepEqual(buttons(api.last('sendRichMessage')), ['ct:done', 'ct:back'], 'Done sits at the bottom, above Back');
 
     // Everything starts on: one tap turns Posts off, Done continues into stage 1.
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'ct:t:post'));
-    assert.match(String(api.last('editMessageText')?.body.text), /▫️ Posts/, 'the toggle repaints the same message in place');
+    const toggled = lastHtml(api);
+    assert.doesNotMatch(toggled, /style="primary" data="ct:t:post"/, 'the toggle repaints in place, without the accent');
+    assert.match(toggled, /Sends: Videos, Shorts/, 'the summary is the one place the state is spelled out');
     await bot.handleUpdate(callbackUpdate(5, USER_ID, 'ct:done'));
 
     const preview = api.calls.filter((call) => call.method === 'sendMessage').at(-1);
@@ -195,17 +193,15 @@ test('youtube: adding a channel asks what to send, and only the chosen kinds are
   }
 });
 
-test('youtube: a pasted Short offers its channel first, and the picker has an All content preset', async () => {
+test('youtube: a pasted Short offers its channel from the oEmbed card, before any heavy page fetch', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-yt-chooser-'));
   const db = openDb(join(dir, 'bot.db'));
   const short = 'https://youtube.com/shorts/ccIE0DwsH4I';
   const http: Http = async (url) => {
-    // The watch/Shorts page is the only place such a link states its channel.
-    if (url === short) {
-      return { status: 200, url, contentType: 'text/html; charset=utf-8', body: '<html><body><script>{"channelId":"UCTEST000000000000000000","canonicalBaseUrl":"/@TestChannel/shorts"}</script></body></html>' };
-    }
-    throw new Error(`unexpected fetch ${url}`);
+    if (url.startsWith('https://www.youtube.com/oembed')) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ author_url: 'https://www.youtube.com/@TestChannel' }) };
+    // A real watch page outlived the page budget (11 s here), so reaching it at all is the bug.
+    throw new Error(`the chooser must not fetch the video page: ${url}`);
   };
 
   try {
@@ -221,14 +217,14 @@ test('youtube: a pasted Short offers its channel first, and the picker has an Al
     assert.deepEqual(buttons(chooser), ['dl:post', 'add:post', 'nav:home'], 'monitoring the channel is offered next to the download');
 
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'add:post'));
-    const picker = api.last('editMessageText');
-    assert.match(String(picker?.body.text), /What should @TestChannel send here\?/, 'the picker names the channel, not its UC id');
-    assert.ok(buttons(picker).includes('ct:all'), 'the explicit All content preset is offered');
+    const picker = lastHtml(api);
+    assert.match(picker, /What should @TestChannel send here\?/, 'the picker names the channel, not its UC id');
+    assert.match(picker, /data="ct:all"/, 'the explicit All content preset is offered');
 
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'ct:t:post'));
-    assert.match(String(api.last('editMessageText')?.body.text), /▫️ Posts/);
+    assert.doesNotMatch(lastHtml(api), /style="primary" data="ct:t:post"/, 'Posts is off in the chips');
     await bot.handleUpdate(callbackUpdate(5, USER_ID, 'ct:all'));
-    assert.match(String(api.last('editMessageText')?.body.text), /✅ Posts/, 'All content puts every kind back');
+    assert.match(lastHtml(api), /style="primary" data="ct:t:post"/, 'All content puts every kind back');
   } finally {
     db.close();
     await api.close();
@@ -258,14 +254,60 @@ test('youtube: a posts-only chat receives the community post and none of the upl
     await bot.init();
     const result = await runFetchSource({ db, http, cfg, media, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
 
-    assert.equal(result.fresh, 3, 'every item is recorded as seen, including the ones this chat did not pick');
-    assert.equal(result.delivered, 1, 'only the community post is sent');
-    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM posts').get() as { n: number }).n, 3);
+    assert.equal(result.fresh, 1, 'only the feed this chat asked for is fetched, so only its item is fresh');
+    assert.equal(result.delivered, 1, 'the community post is sent');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM posts').get() as { n: number }).n, 1, 'no uploads were recorded for a Posts-only chat');
 
     const photo = api.calls.find((call) => call.method === 'sendPhoto');
     assert.ok(photo, 'the post ships its photo, not a bare link');
     assert.match(String(photo?.body.caption), /Community post words/);
+    assert.equal(String(photo?.body.caption).split('Community post words').length - 1, 1, 'the words are printed once, not as a title and a body');
     assert.match(String(photo?.body.caption), /youtube\.com\/post\/UgkxCOMMUNITY_POST_1/, 'the permalink is one tap away');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('youtube: a Posts-only channel adds even when its uploads feed is gone', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-yt-postsonly-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const seen: string[] = [];
+  const channel = 'https://youtube.com/@DeadFeed';
+  const http: Http = async (url) => {
+    seen.push(url);
+    if (url === `${channel}/posts`) return { status: 200, url, contentType: 'text/html; charset=utf-8', body: POSTS_TAB };
+    // This channel's uploads feed answers 404 for everyone; a Posts-only chat must not care.
+    throw new Error(`a Posts-only add must not fetch the uploads feed: ${url}`);
+  };
+
+  try {
+    allowUser(db, USER_ID);
+    const bot = createBot({ cfg: config(), db, apiRoot: api.apiRoot, http, media: engine({ resolve: [] }) });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(3, USER_ID, channel));
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'ct:t:video'));
+    await bot.handleUpdate(callbackUpdate(5, USER_ID, 'ct:t:short'));
+    assert.match(lastHtml(api), /Sends: Posts/, 'only Posts is left on');
+    await bot.handleUpdate(callbackUpdate(6, USER_ID, 'ct:done'));
+
+    const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
+    assert.ok(!texts.some((text) => /Couldn't find a feed/.test(text)), 'the Posts-only add is not refused');
+    const preview = api.calls.filter((call) => call.method === 'sendMessage').at(-1);
+    assert.match(String(preview?.body.text), /Community post words/, 'the post from the tab is the preview');
+    assert.deepEqual(seen, [`${channel}/posts`], 'only the tab was fetched');
+
+    const chatId = personalChat(db, ensureUser(db, USER_ID).id).id;
+    await bot.handleUpdate(callbackUpdate(7, USER_ID, `add:dest:${chatId}`));
+    await bot.handleUpdate(callbackUpdate(8, USER_ID, 'add:save_silent'));
+
+    const row = db.prepare('SELECT content_types FROM subscriptions ORDER BY id DESC LIMIT 1').get() as { content_types: string | null };
+    assert.equal(row.content_types, 'post', 'the channel is followed for its posts alone');
   } finally {
     db.close();
     await api.close();
@@ -351,7 +393,7 @@ test('youtube: the My Sources card changes the kinds without touching another ch
     assert.match(list, /receiving: Videos, Shorts/);
 
     await bot.handleUpdate(callbackUpdate(3, USER_ID, `ct:open:${subscription?.id}`));
-    assert.match(String(api.last('sendMessage')?.body.text), /What should Test Channel send here\?/, 'the card opens the picker for its own channel');
+    assert.match(lastHtml(api), /What should Test Channel send here\?/, 'the card opens the picker for its own channel');
 
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'ct:t:post'));
     await bot.handleUpdate(callbackUpdate(5, USER_ID, 'ct:done'));

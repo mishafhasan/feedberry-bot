@@ -4,7 +4,7 @@ import { listPendingForSource, markPendingDelivery } from '../db/repos/deliverie
 import { getPost, insertPosts, type PostRow } from '../db/repos/posts.ts';
 import { getSource, setSourceFeedUrl, type SourceRow } from '../db/repos/sources.ts';
 import { demoteChat } from '../db/repos/chats.ts';
-import { deliveryTargets, wantsPosts } from '../db/repos/subscriptions.ts';
+import { deliveryTargets, sourceContentKinds } from '../db/repos/subscriptions.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
@@ -98,7 +98,7 @@ export async function runFetchSource(deps: RunDeps, sourceId: number, now = Date
 
   let fresh = 0;
   try {
-    const feed = await fetchSourceFeed(deps.http, refOfSource(source), source.platform === 'youtube' && wantsPosts(deps.db, sourceId));
+    const feed = await fetchSourceFeed(deps.http, refOfSource(source), sourceContentKinds(deps.db, sourceId));
     // A discovered feed URL is stored once, so the next check goes straight to the feed (§5.3).
     if (source.feed_url === null && feed.feedUrl) setSourceFeedUrl(deps.db, sourceId, feed.feedUrl);
     const newItems = unseenItems(deps.db, sourceId, feed.items);

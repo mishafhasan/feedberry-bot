@@ -24,8 +24,6 @@ export interface PageMeta {
   publishedAt: number | null;
   /** The post's own video file, when the page links one directly (Snapchat spotlight). */
   video: string | null;
-  /** The channel a video page belongs to, so a download can offer that channel as a source. */
-  channel: { url: string; handle: string | null } | null;
 }
 
 /** Fetches the post page once for everything the layout needs; any failure means "nothing known". */
@@ -38,14 +36,13 @@ export async function pageMeta(http: Http, url: string): Promise<PageMeta> {
       name: profileNameOf(res.body),
       publishedAt: publishedAtOf(res.body),
       video: metaVideoOf(res.body),
-      channel: channelOf(res.body),
     };
   } catch {
     return NOTHING;
   }
 }
 
-const NOTHING: PageMeta = { text: null, name: null, publishedAt: null, video: null, channel: null };
+const NOTHING: PageMeta = { text: null, name: null, publishedAt: null, video: null };
 
 /** The post's own words when neither the feed nor the media engine carries them. */
 export async function pageText(http: Http, url: string): Promise<string | null> {
@@ -68,20 +65,6 @@ export function profileNameOf(html: string): string | null {
   const handle = /^([^|]*?) \(@?[\w.]+(?:\s*on\s[\w ]+)?\)/.exec(title) ?? /([^|]+?) \(@[\w.]+(?:\)|\s)/.exec(title);
   if (handle?.[1]) return handle[1].trim() || null;
   return /^(.*?) on (?:X|Instagram|Threads|Bluesky|Facebook|TikTok)\b/.exec(title)?.[1]?.trim() || null;
-}
-
-/**
- * A video page names the channel that posted it: YouTube's player state carries the `UC…` id and the
- * tabbed URL carries the handle. Every other platform states no channel here.
- * The `@handle` spelling is the one every add path canonicalises to, so one channel stays one source.
- */
-export function channelOf(html: string): { url: string; handle: string | null } | null {
-  const id = /"channelId":"(UC[\w-]{22})"/.exec(html)?.[1];
-  if (id === undefined) return null;
-  const base = /"canonicalBaseUrl":"(\/@[^"]+)"/.exec(html)?.[1];
-  // A Shorts page appends its own tab to the handle (`/@name/shorts`).
-  const handle = base?.replace(/^\/@/, '').replace(/\/(?:shorts|videos|posts|streams|featured)$/, '') ?? '';
-  return { url: handle === '' ? `https://youtube.com/channel/${id}` : `https://youtube.com/@${handle}`, handle: handle === '' ? null : handle };
 }
 
 /** The page's own publish date (meta, JSON-LD, or the epoch a player state carries). */

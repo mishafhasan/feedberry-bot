@@ -1,4 +1,5 @@
 import { Coded, E } from '../platform/errors.ts';
+import type { ContentKind } from '../platform/content-types.ts';
 import { fetchBlueskyFeed } from '../platform/feed/bluesky.ts';
 import { fetchNativeFeed, type ParsedFeed } from '../platform/feed/native.ts';
 import { fetchRsshubFeed } from '../platform/feed/rsshub.ts';
@@ -21,12 +22,24 @@ export function fetchFeed(http: Http, ref: SourceRef): Promise<ParsedFeed> {
 }
 
 /**
- * Stage 2 for one source. A YouTube channel's uploads feed carries videos and Shorts but never its
- * Posts tab, so that tab is read as a second feed — only when a subscriber asked for it.
+ * Stage 2 for one source, fetching only the feeds the selection needs. A YouTube channel's uploads
+ * feed carries videos and Shorts but never its Posts tab, which is a second feed — and a channel
+ * whose uploads feed is empty or gone must still be addable for its posts alone.
  */
-export async function fetchSourceFeed(http: Http, ref: SourceRef, includePosts: boolean): Promise<ParsedFeed> {
-  const feed = await fetchFeed(http, ref);
-  if (!includePosts || ref.platform !== 'youtube') return feed;
-  const posts = await fetchYouTubeChannelPosts(http, ref.canonicalUrl);
-  return posts.length === 0 ? feed : { ...feed, items: [...feed.items, ...posts] };
+export async function fetchSourceFeed(http: Http, ref: SourceRef, selected: ContentKind[] | null): Promise<ParsedFeed> {
+  const youtube = ref.platform === 'youtube';
+  // A null selection is a row from before the picker: it watches everything.
+  const wantsUploads = !youtube || selected === null || selected.includes('video') || selected.includes('short');
+  const wantsPosts = youtube && (selected === null || selected.includes('post'));
+
+  const uploads: ParsedFeed = wantsUploads ? await fetchFeed(http, ref) : { title: null, avatarUrl: null, items: [] };
+  if (!wantsPosts) return uploads;
+
+  try {
+    return { ...uploads, items: [...uploads.items, ...(await fetchYouTubeChannelPosts(http, ref.canonicalUrl))] };
+  } catch (err) {
+    // The tab is a bonus beside uploads; when it is all that was asked for, it is the whole answer.
+    if (wantsUploads) return uploads;
+    throw err;
+  }
 }

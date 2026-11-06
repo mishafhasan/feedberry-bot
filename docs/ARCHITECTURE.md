@@ -656,6 +656,11 @@ Platform reality check from the supplied test links:
   (`feeds/videos.xml`) carries videos *and* Shorts and labels them (`/watch?v=` vs `/shorts/`), but never
   the Posts tab. A chat that picks Posts makes that channel's tab one extra page GET per check; its
   first page is ~11 posts, dated only relatively, so `shortcut:` its window is what the poller sees.
+  A Posts-only chat fetches the tab alone: some channels' uploads feed answers 404 or carries no entry,
+  and that must not stop a posts subscription from being added.
+- The **channel behind a video or a Short** comes from YouTube's oEmbed card (`author_url`, ~200 ms).
+  The watch page is 1.3 MB and outlived the 10 s page budget, so it is never the owner lookup; only a
+  community post, which has no card, is read from its own page.
 - A YouTube **handle resolves to the keyless feed** at add time (the channel page carries its own
   `rel=alternate application/rss+xml`), so no RSSHub route and no API key sit in the path. An older
   source row keeps whatever feed URL it stored.

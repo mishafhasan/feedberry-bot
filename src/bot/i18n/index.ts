@@ -61,13 +61,11 @@ const EN = {
   'age.never': 'never',
 
   'types.title': '📺 What should {handle} send here?',
-  'types.hint': 'Tap to toggle, then Done. Only what you pick is fetched and sent.',
+  'types.hint': 'Tap what should arrive in this chat, then Done.',
   'types.video': 'Videos',
-  'types.video.note': 'regular uploads',
   'types.short': 'Shorts',
-  'types.short.note': 'vertical clips',
   'types.post': 'Posts',
-  'types.post.note': 'community posts',
+  'types.sends': 'Sends: {kinds}',
   'types.done': '✅ Done',
   'types.all': 'All content',
 

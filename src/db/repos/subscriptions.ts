@@ -174,10 +174,15 @@ export function setSubscriptionContentTypes(db: Db, userId: number, subscription
   return Number(result.changes) > 0;
 }
 
-/** True when any chat following this source asked for community posts, which no feed carries. */
-export function wantsPosts(db: Db, sourceId: number): boolean {
+/** The kinds the chats on this source asked for together; null when one row predates the picker. */
+export function sourceContentKinds(db: Db, sourceId: number): ContentKind[] | null {
   const rows = db.prepare('SELECT content_types FROM subscriptions WHERE source_id = ?').all(sourceId) as Array<{ content_types: string | null }>;
-  return rows.some((row) => parseContentTypes(row.content_types)?.includes('post') ?? false);
+  const chosen = rows.map((row) => parseContentTypes(row.content_types));
+  if (chosen.some((kinds) => kinds === null)) return null;
+
+  const union = new Set<ContentKind>();
+  for (const kinds of chosen) for (const kind of kinds ?? []) union.add(kind);
+  return [...union];
 }
 
 export interface DeliveryTargetRow {

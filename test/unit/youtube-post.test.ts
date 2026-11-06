@@ -103,7 +103,7 @@ test('youtube: a channel Posts tab yields every post, with its photo and its rou
 
   assert.deepEqual(items.map((item) => item.guid), ['UgkxTAB_ONE', 'UgkxTAB_TWO'], 'an empty renderer is skipped, order is kept');
   assert.equal(items[0]?.link, 'https://youtube.com/post/UgkxTAB_ONE', 'the permalink stage 2 fetches');
-  assert.equal(items[0]?.title, '', 'no invented title: the words are the body');
+  assert.equal(items[0]?.title, 'First community post', 'the opening is the one list line; the caption de-dupes it against the summary');
   assert.equal(items[0]?.summary, 'First community post');
   assert.deepEqual(items[0]?.media, [{ url: 'https://yt3.ggpht.com/orig=s1600', type: 'photo' }], 'the widest thumbnail is the original');
   assert.equal(items[0]?.publishedAt, now - 3 * 3_600_000, 'a relative "3 hours ago" becomes an ordering hint');

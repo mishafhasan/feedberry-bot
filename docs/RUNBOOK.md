@@ -99,6 +99,7 @@ The agent never runs these; the operator does, once per release, with real links
 | YouTube link in Download Mode (`watch?v=`, `youtu.be`, `/shorts/`) | the media uploads; never "That link isn't a supported source" — that answer means the post adapter was given a video |
 | YouTube channel add | S18 asks Videos / Shorts / Posts before any fetch; the S4 preview shows only the picked kinds, and the card in My Sources prints `receiving: …` |
 | YouTube channel with Posts picked | one extra page GET per check; a delivered community post arrives with its words and photos, and its own `/post/…` link |
+| YouTube channel whose uploads feed is 404, Posts picked only | the add still succeeds from the Posts tab alone; nothing about the uploads feed is requested |
 | YouTube community post `/post/…` | the post's words and album, caption headed by the channel title, plus an `➕ @handle` button offering the channel feed |
 | YouTube post that was deleted | `E_NO_FEED`, not `E_NO_MEDIA` — there is no cobalt fallback for a post |
 | Threads post link | the whole thread (root + sub-posts) in one message; a shell page falls back to cobalt |
