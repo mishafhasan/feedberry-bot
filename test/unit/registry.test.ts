@@ -94,6 +94,16 @@ test('M12 registry: page-scoped Facebook videos, photos and watch links are post
 
   assert.equal(detectSource('https://www.facebook.com/shammiltd', opts).strategy, 'rsshub', 'a page is still a profile');
   assert.equal(detectSource('https://www.facebook.com/shammiltd', opts).feedUrl, 'http://rsshub.test/facebook/page/shammiltd', 'RSSHub serves a page under /facebook/page');
+
+  // A post permalink names the post; the bare /posts tab is still the page.
+  const permalink = detectSource('https://www.facebook.com/TrollMafia01/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk69mQJUwt13s8dg1gLfJTQ9l', opts);
+  assert.equal(permalink.strategy, 'single_post');
+  assert.equal(permalink.externalId, 'pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk69mQJUwt13s8dg1gLfJTQ9l');
+  assert.equal(permalink.feedUrl, null);
+  assert.equal(detectSource('https://www.facebook.com/TrollMafia01/posts/', opts).strategy, 'rsshub', 'the posts tab is a page');
+  assert.equal(detectSource('https://www.facebook.com/TrollMafia01/reel/123456', opts).strategy, 'single_post', 'a page-scoped reel is a post');
+  assert.equal(detectSource('https://www.facebook.com/share/r/16AbCdEf/', opts).strategy, 'single_post');
+  assert.equal(detectSource('https://fb.watch/xY9zAbC12/', opts).strategy, 'single_post', 'the short host is a post too');
 });
 
 test('M12 registry: Snapchat spotlight share links and Tumblr post links are posts', () => {
@@ -148,6 +158,12 @@ test('M17 classify: a profile is a source, a post is a post, per platform', () =
 
 test('M17 classify: the account behind a Facebook or Tumblr post is the one the URL names', () => {
   assert.deepEqual(classifyLink('https://www.facebook.com/shammiltd/videos/funny-clips/1159110793020936/', opts), { kind: 'post', profileUrl: 'https://facebook.com/shammiltd' });
+  assert.deepEqual(classifyLink('https://www.facebook.com/TrollMafia01/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk69mQJUwt13s8dg1gLfJTQ9l', opts), {
+    kind: 'post',
+    profileUrl: 'https://facebook.com/TrollMafia01',
+  }, 'a post permalink names its page');
+  assert.deepEqual(classifyLink('https://www.facebook.com/share/r/16AbCdEf/', opts), { kind: 'post', profileUrl: null }, 'no page named share');
+  assert.deepEqual(classifyLink('https://fb.watch/xY9zAbC12/', opts), { kind: 'post', profileUrl: null }, 'the short host names no page');
   // /photo?fbid= names no page, but the album it was opened from does: set=pb.<pageId>.
   assert.deepEqual(classifyLink('https://web.facebook.com/photo/?fbid=1270547115300126&set=pb.100070345475708.-2207520000', opts), {
     kind: 'post',

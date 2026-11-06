@@ -175,6 +175,15 @@ test('M17: a Tumblr or Facebook post link offers the account behind it, and addi
     await bot.handleUpdate(callbackUpdate(6, USER_ID, 'add:post'));
     assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the page feed is previewed');
     assert.ok(fetched.includes('http://rsshub.test/facebook/page/100070345475708'), 'on the RSSHub page route that answers');
+
+    // A /posts/<pfbid> permalink is the post, not its page: the chooser offers both actions.
+    await bot.handleUpdate(callbackUpdate(7, USER_ID, 'nav:home'));
+    await bot.handleUpdate(textUpdate(8, USER_ID, 'https://www.facebook.com/TrollMafia01/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk69mQJUwt13s8dg1gLfJTQ9l'));
+    const permalink = api.last('sendMessage');
+    assert.ok(buttons(permalink).includes('dl:post'), 'the post can be downloaded');
+    assert.ok(buttons(permalink).includes('add:post'), 'the page behind it is offered');
+    await bot.handleUpdate(callbackUpdate(9, USER_ID, 'add:post'));
+    assert.ok(fetched.includes('http://rsshub.test/facebook/page/TrollMafia01'), 'the page feed the link names');
   } finally {
     db.close();
     await api.close();

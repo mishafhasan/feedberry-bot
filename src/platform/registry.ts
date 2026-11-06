@@ -112,6 +112,13 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
         return single(u, platform, v, `https://facebook.com/watch?v=${v}`);
       }
       if (first === 'videos' || first === 'reel' || first === 'reels') return single(u, platform, second ?? '');
+      // A post permalink: /<page>/posts/<id>. The bare /posts tab is still the page.
+      if (second === 'posts' && third) return single(u, platform, third);
+      // The shape Facebook's own share sheet emits; the bare /reel/<id> case is above.
+      if (second === 'reel' && third) return single(u, platform, third);
+      // /share/p|r|v/<code> and fb.watch/<code> both match cobalt's short-link patterns.
+      if (first === 'share' && second && third) return single(u, platform, third);
+      if (normalizeHost(u.hostname) === 'fb.watch' && first) return single(u, platform, first);
       // A page-scoped video: /<user>/videos/<slug>/<id> or /<user>/videos/<id>.
       if (second === 'videos') {
         const id = fourth || third || '';
@@ -199,6 +206,8 @@ export function profileOfPost(link: string): string | null {
       // A bare /p/<code> link does not name its owner; instagram.com/<user>/p/<code> does.
       return seg[0] === 'p' || seg[0] === 'reel' || seg[0] === 'tv' || !seg[0] ? null : `https://instagram.com/${owner}`;
     case 'facebook': {
+      // fb.watch/<code> names no page at all.
+      if (normalizeHost(u.hostname) === 'fb.watch') return null;
       // /photo?fbid=… and /watch?v=… name the post, not its page; `set=pb.<pageId>…` is what names it.
       const pageId = /^pb\.(\d+)\./.exec(u.searchParams.get('set') ?? '')?.[1];
       if (pageId !== undefined) return `https://facebook.com/${pageId}`;
@@ -225,7 +234,7 @@ export function profileOfPost(link: string): string | null {
 const HANDLE = /^[A-Za-z0-9._-]{1,30}$/;
 
 /** Facebook path segments that name a post rather than the page that posted it. */
-const FACEBOOK_POST_PATHS = new Set(['photo', 'photo.php', 'watch', 'videos', 'reel', 'reels', 'story.php']);
+const FACEBOOK_POST_PATHS = new Set(['photo', 'photo.php', 'watch', 'videos', 'reel', 'reels', 'share', 'story.php']);
 
 /** The profile URL for an author a download named, when that platform has profile feeds. */
 export function profileFromAuthor(platform: Platform, author: string): string | null {
