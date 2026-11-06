@@ -14,6 +14,10 @@ import { handleFeedStatus, parseFeed, type ParsedFeed } from './native.ts';
 export async function fetchRsshubFeed(http: Http, ref: SourceRef): Promise<ParsedFeed> {
   if (!ref.feedUrl) throw new Coded(E.NO_FEED, 'rsshub route missing');
   const res = await http(ref.feedUrl, { maxBytes: FEED_LIMIT, timeoutMs: 60_000 });
+  // RSSHub answers 503 with its own error page when the platform throttles the instance (Facebook's
+  // anonymous GraphQL says "Rate limit exceeded" per IP). That is a throttle, not an outage: it gets
+  // the rate-limit ladder (30 m, 2 h, 8 h) instead of the one-minute retry that caused it.
+  if (res.status === 503 && /rate[\s-]?limit/i.test(res.body)) throw new Coded(E.RATE_LIMIT, 'rsshub upstream rate limit');
   handleFeedStatus(res.status);
   return parseFeed(res.body, res.url);
 }

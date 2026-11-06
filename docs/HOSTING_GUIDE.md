@@ -385,6 +385,11 @@ up new code. Your `data/` folder is untouched by any of this.
     some RAM, nothing else.
 12. **Deleting the folder `./data` or `./rsshub-cache` "to clean up".** — `./data` is the whole
     database. Nothing else in the repo needs deleting.
+13. **A Facebook source says "temporarily unreachable" only on the cloud host.** — RSSHub asks
+    `facebook.com/api/graphql` anonymously, and Facebook rate-limits that per IP; a home line is not
+    throttled, a datacenter IP usually is. `docker compose logs rsshub` shows `Facebook GraphQL
+    failed: Rate limit exceeded`. Fix: log in to facebook.com in a browser, copy the whole `Cookie`
+    request header into `FACEBOOK_COOKIE=` in `.env`, then `sudo docker compose up -d rsshub`.
 
 ---
 

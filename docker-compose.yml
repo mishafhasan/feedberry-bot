@@ -10,6 +10,7 @@ services:
       # .env is this service's env_file, so a secret that belongs to the RSSHub sidecar (ADR-006)
       # must be cleared here or compose injects it into the bot as well.
       INSTAGRAM_COOKIE: ""
+      FACEBOOK_COOKIE: ""
     volumes:
       - ./data:/data
     # Media never survives the job that downloaded it (§5.5, stage 9), so keep it in RAM.
@@ -33,6 +34,10 @@ services:
       # as a guest without it, which a datacenter IP gets throttled for; only sessionid and
       # ds_user_id are needed ("sessionid=...; ds_user_id=...").
       INSTAGRAM_COOKIE: ${INSTAGRAM_COOKIE:-}
+      # The Facebook route asks facebook.com/api/graphql anonymously, and Facebook rate-limits that
+      # per IP: a cloud host gets "Facebook GraphQL failed: Rate limit exceeded" while a home line does
+      # not. A logged-in session lifts it; RSSHub then also sends the fb_dtsg it fetches with it.
+      FACEBOOK_COOKIE: ${FACEBOOK_COOKIE:-}
     volumes:
       - ./rsshub-cache:/app/.cache
     healthcheck:
