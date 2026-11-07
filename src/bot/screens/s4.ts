@@ -9,6 +9,8 @@ import type { Lang } from '../i18n/index.ts';
 export interface S4Data {
   platform: Platform;
   author: string;
+  /** The category path, when the source follows one category instead of the whole site. */
+  section?: string | null;
   avatarUrl: string | null;
   items: FeedItem[];
   personalChatId: number;
@@ -24,7 +26,7 @@ export interface S4View {
 }
 
 export function s4View(data: S4Data): S4View {
-  const text = s4Text({ platform: data.platform, author: data.author, items: data.items, tz: data.tz, lang: data.lang });
+  const text = s4Text({ platform: data.platform, author: data.author, items: data.items, section: data.section, tz: data.tz, lang: data.lang });
   return {
     // A caption is capped at 1024; this is a preview, so trimming beats a second message.
     text: data.avatarUrl && text.length > 1024 ? `${text.slice(0, 1023)}…` : text,

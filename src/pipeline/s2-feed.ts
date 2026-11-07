@@ -1,18 +1,22 @@
-import { Coded, E } from '../platform/errors.ts';
+import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { ContentKind } from '../platform/content-types.ts';
 import { fetchBlueskyFeed } from '../platform/feed/bluesky.ts';
 import { DiscoveredFeedError, fetchNativeFeed, type ParsedFeed } from '../platform/feed/native.ts';
 import { fetchRsshubFeed } from '../platform/feed/rsshub.ts';
+import { fetchSectionFeed } from '../platform/feed/section.ts';
 import { fetchYouTubeChannelPosts } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
-import { youtubeRsshubRoute, type SourceRef } from '../platform/registry.ts';
+import { isSectionUrl, sectionOf, youtubeRsshubRoute, type SourceRef } from '../platform/registry.ts';
 import { log } from '../obs/log.ts';
 
 /** Stage 2 (ARCHITECTURE §5.3): the strategy of the SourceRef picks the adapter. */
 export function fetchFeed(http: Http, ref: SourceRef): Promise<ParsedFeed> {
   switch (ref.strategy) {
-    case 'native_rss':
-      return fetchNativeFeed(http, ref);
+    case 'native_rss': {
+      // A stored category page reads one category's feed, not the whole site (ADR-018).
+      const section = sectionOf(ref.canonicalUrl);
+      return section === null ? fetchNativeFeed(http, ref) : fetchSectionFeed(http, ref, section);
+    }
     case 'rsshub':
       return fetchRsshubFeed(http, ref);
     case 'bluesky_api':
@@ -43,6 +47,32 @@ export async function fetchSourceFeed(http: Http, ref: SourceRef, selected: Cont
     if (wantsUploads) return uploads;
     throw err;
   }
+}
+
+/**
+ * The source a pasted website page stands for (§5.3): the page's own category when the site has a feed
+ * for it, otherwise the site the page belongs to — which is what subscribing to an article followed
+ * before category sources existed. `section` says which of the two answered.
+ */
+export async function fetchPageSource(http: Http, ref: SourceRef): Promise<{ ref: SourceRef; feed: ParsedFeed; section: boolean }> {
+  const section = sectionOf(ref.canonicalUrl);
+  if (section !== null) {
+    try {
+      return { ref, feed: await fetchSectionFeed(http, ref, section), section: true };
+    } catch (err) {
+      // Only "this page is not a category" is a reason to fall back; an outage is the user's to see.
+      if (!isCoded(err) || err.code !== E.NO_FEED) throw err;
+      // A marker or id path promised a category: refusing beats subscribing to the whole site.
+      if (isSectionUrl(section)) throw err;
+    }
+  }
+  const site = siteOf(ref);
+  return { ref: site, feed: await fetchNativeFeed(http, site), section: false };
+}
+
+function siteOf(ref: SourceRef): SourceRef {
+  const origin = new URL(ref.canonicalUrl).origin;
+  return { ...ref, canonicalUrl: origin, externalId: new URL(origin).hostname };
 }
 
 /**

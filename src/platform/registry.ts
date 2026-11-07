@@ -266,9 +266,70 @@ export type LinkMatch = { kind: 'source' } | { kind: 'post'; profileUrl: string 
  */
 export function classifyLink(link: string, opts: DetectOptions): LinkMatch {
   const ref = detectSource(link, opts);
-  if (ref.strategy !== 'single_post' && !isWebsitePage(ref)) return { kind: 'source' };
+  if (ref.strategy !== 'single_post' && (!isWebsitePage(ref) || isSectionSource(ref))) return { kind: 'source' };
   const profileUrl = profileOfPost(link);
   return { kind: 'post', profileUrl: profileUrl !== null && addable(profileUrl, opts) ? profileUrl : null };
+}
+
+/** A website page the URL alone calls a category listing: `/category/science`, `/top-stories/155`. */
+export function isSectionSource(ref: SourceRef): boolean {
+  if (ref.platform !== 'rss') return false;
+  const section = sectionOf(ref.canonicalUrl);
+  return section !== null && isSectionUrl(section);
+}
+
+/**
+ * The page path a category subscription would follow, with any trailing page number cut off, or null
+ * for a site root, a feed and every known platform. Loose on purpose: a one-segment page (`/science`)
+ * is a section only when its own feed says so, so the decision belongs to the fetch, not to the URL.
+ */
+export function sectionOf(link: string): string | null {
+  let u: URL;
+  try {
+    u = parse(link);
+  } catch {
+    return null;
+  }
+  if (platformForHost(normalizeHost(u.hostname)) !== undefined) return null;
+  const seg = u.pathname.split('/').filter(Boolean);
+  if (seg.length === 0 || FEED_PAGE.test(u.pathname)) return null;
+  return `/${seg.slice(0, sectionCut(seg)).map(decodeSegment).join('/')}`;
+}
+
+/** Path segments that name a listing rather than an article. */
+const SECTION_MARKERS = new Set(['category', 'categories', 'section', 'sections', 'topic', 'topics', 'tag', 'tags', 'collection', 'channel']);
+
+/** A path that names a feed, not a page anyone subscribes to by category. */
+const FEED_PAGE = /(^|\/)(feed|feeds|rss|atom)(\/|$)|\.(xml|rss|atom)$/i;
+
+/**
+ * The URL alone says "listing": a category marker, or a section id as the second segment. A single
+ * segment stays ambiguous with an article slug, so those are left to the feed to prove.
+ */
+export function isSectionUrl(section: string): boolean {
+  const seg = section.split('/').filter(Boolean);
+  const marker = seg.findIndex((s) => SECTION_MARKERS.has(s.toLowerCase()));
+  if (marker >= 0 && seg.length > marker + 1) return true;
+  return isSectionId(seg);
+}
+
+/** `/top-stories/155`: exactly two segments, the second one a number. `/news/2026/11/06/x` is an article. */
+const isSectionId = (seg: string[]): boolean => seg.length === 2 && /^\d+$/.test(seg[1] ?? '');
+
+/** How much of the path the listing owns: a marker and its slug, or the whole section id path. */
+function sectionCut(seg: string[]): number {
+  const marker = seg.findIndex((s) => SECTION_MARKERS.has(s.toLowerCase()));
+  if (marker >= 0 && seg.length > marker + 1) return marker + 2;
+  return isSectionId(seg) ? 2 : seg.length;
+}
+
+/** A malformed escape is a path nobody can subscribe to, not a crash. */
+function decodeSegment(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
 }
 
 function addable(profileUrl: string, opts: DetectOptions): boolean {

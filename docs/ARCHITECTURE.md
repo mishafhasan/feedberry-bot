@@ -297,6 +297,15 @@ type="application/rss+xml">`; (3) common paths; (4) give up with `E_NO_FEED` and
 source" — an article source checks the page for new links, not an RSS feed (same pipeline, `classify`
 always returns `article`).
 
+A category URL is a source of its own (ADR-018). `sectionOf` reads the section path off the URL, so
+`/category/science` and `/top-stories/155` are sources in every screen. A one-segment page (`/technology`)
+is ambiguous, so free text resolves it before choosing a flow: a page with a section feed goes straight to
+the preview, a page without one keeps the Download/Add chooser. Stage 2 resolves the section feed in order: the feed the page
+scopes to itself, `<section>/feed` or `/rss`, an alias the page links to itself (`bbc.com/technology` →
+`/news/technology/rss.xml`), a feed directory the page links (matched by the section id), and last the
+site-wide feed filtered by `<category>` tags or item URL. A page that resolves to nothing is the site it
+belongs to; a section with no feed at all is `E_NO_FEED`, never an empty subscription.
+
 ### 5.4 De-duplication and "seen"
 
 `guid` = feed `guid`/`id` if present, else `sha256(link)`. `posts` has `UNIQUE(source_id, guid)`.
