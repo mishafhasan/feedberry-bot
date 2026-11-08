@@ -313,8 +313,8 @@ export function isSectionUrl(section: string): boolean {
   return isSectionId(seg);
 }
 
-/** `/top-stories/155`: exactly two segments, the second one a number. `/news/2026/11/06/x` is an article. */
-const isSectionId = (seg: string[]): boolean => seg.length === 2 && /^\d+$/.test(seg[1] ?? '');
+/** `/top-stories/155`: two segments, an id of three digits or more, and not a year archive (`/2026/11`). */
+const isSectionId = (seg: string[]): boolean => seg.length === 2 && /^\d{3,}$/.test(seg[1] ?? '') && !/^(19|20)\d{2}$/.test(seg[0] ?? '');
 
 /** How much of the path the listing owns: a marker and its slug, or the whole section id path. */
 function sectionCut(seg: string[]): number {

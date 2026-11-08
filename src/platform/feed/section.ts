@@ -23,7 +23,7 @@ const MIN_KEY = 4;
 export async function fetchSectionFeed(http: Http, ref: SourceRef, section: string): Promise<ParsedFeed> {
   // A stored feed already answered for this source; only an unscoped one needs the filter again.
   if (ref.feedUrl !== null) {
-    const kept = usable(await fetchAndParse(http, ref.feedUrl), section);
+    const kept = usable(await fetchAndParse(http, ref.feedUrl), section, ref.canonicalUrl);
     if (kept === null) throw new Coded(E.NO_FEED, `nothing in ${section}`);
     return kept;
   }
@@ -31,7 +31,7 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
   const page = await http(ref.canonicalUrl, { maxBytes: HTML_LIMIT });
   handleFeedStatus(page.status);
   if (/xml/.test(page.contentType) || page.body.trimStart().startsWith('<?xml')) {
-    const kept = usable({ ...parseFeed(page.body, page.url), feedUrl: page.url }, section);
+    const kept = usable({ ...parseFeed(page.body, page.url), feedUrl: page.url }, section, page.url);
     if (kept === null) throw new Coded(E.NO_FEED, `nothing in ${section}`);
     return kept;
   }
@@ -50,7 +50,7 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
     const left = remaining();
     if (tried.has(url) || tried.size >= MAX_FEEDS || left <= 0) return null;
     tried.add(url);
-    return tryFeed(http, url, section, left);
+    return tryFeed(http, url, section, left, ref.canonicalUrl);
   };
 
   for (const url of candidates) {
@@ -69,9 +69,9 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
 }
 
 /** A guessed URL that 404s or answers a soft-404 page is expected; the next candidate is the point. */
-async function tryFeed(http: Http, url: string, section: string, timeoutMs: number): Promise<ParsedFeed | null> {
+async function tryFeed(http: Http, url: string, section: string, timeoutMs: number, pageUrl: string): Promise<ParsedFeed | null> {
   try {
-    return usable(await fetchAndParse(http, url, timeoutMs), section);
+    return usable(await fetchAndParse(http, url, timeoutMs), section, pageUrl);
   } catch {
     return null;
   }
@@ -80,11 +80,23 @@ async function tryFeed(http: Http, url: string, section: string, timeoutMs: numb
 /**
  * A feed scoped to the section is already the section's own. A site-wide feed keeps only the items
  * that carry the section in their link or their `<category>` tags; none is `null`, never an empty feed.
+ * The pasted page itself never counts: an article is an item of its own site's feed.
  */
-function usable(feed: ParsedFeed, section: string): ParsedFeed | null {
+function usable(feed: ParsedFeed, section: string, pageUrl: string): ParsedFeed | null {
   if (feed.feedUrl !== null && feed.feedUrl !== undefined && isScoped(feed.feedUrl, section)) return feed;
-  const items = feed.items.filter((item) => inSection(item, section));
+  const items = feed.items.filter((item) => !samePage(item.link, pageUrl) && inSection(item, section));
   return items.length === 0 ? null : { ...feed, items };
+}
+
+/** Two links to the same page, whatever tracking query or trailing slash the feed added. */
+function samePage(left: string, right: string): boolean {
+  try {
+    const a = new URL(left);
+    const b = new URL(right);
+    return a.host === b.host && stripSlash(a.pathname) === stripSlash(b.pathname);
+  } catch {
+    return left === right;
+  }
 }
 
 /** A feed URL carries the section's own segment: `/category/science/feed/`, `/news/technology/rss.xml`. */
@@ -112,7 +124,13 @@ function inSection(item: FeedItem, section: string): boolean {
     // An item without a usable link can still name its section in a tag.
   }
   if (segments.includes(key)) return true;
-  return (item.categories ?? []).some((tag) => slug(tag).split('-').includes(key));
+  return (item.categories ?? []).some((tag) => {
+    const value = slug(tag);
+    if (value === key) return true;
+    // A multi-word section (`gear-deals`) is named by a tag of the same words, in any order.
+    const words = value.split('-');
+    return key.includes('-') && key.split('-').every((word) => words.includes(word));
+  });
 }
 
 /**

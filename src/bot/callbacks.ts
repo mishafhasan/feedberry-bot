@@ -296,7 +296,7 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, text);
 
   // A website page may be a category; its own feed decides, and an article keeps the download choice.
-  if (isPageLink(text, deps)) return resolveOrAskTypes(ctx, deps, userId, text, true);
+  if (isPageLink(text, deps)) return resolveOrAskTypes(ctx, deps, userId, text, { askIfNotSection: true });
 
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
   const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await youtubeChannelOf(deps.http, text))?.url ?? null;
@@ -380,7 +380,7 @@ async function choosePost(ctx: Context, deps: BotDeps, userId: number, download:
   const page = isPageLink(chooser.link, deps);
   setSession(userId, { state: 'idle', chooser: undefined });
   // A website page is resolved as itself: its own feed decides whether it is a category or a site.
-  if (page) return download ? runDownload(ctx, deps, userId, chooser.link) : resolveOrAskTypes(ctx, deps, userId, chooser.link);
+  if (page) return download ? runDownload(ctx, deps, userId, chooser.link) : resolveOrAskTypes(ctx, deps, userId, chooser.link, { quotaPaid: true });
   if (profileUrl) await resolveOrAskTypes(ctx, deps, userId, profileUrl);
   else await runDownload(ctx, deps, userId, chooser.link);
 }
@@ -388,11 +388,19 @@ async function choosePost(ctx: Context, deps: BotDeps, userId: number, download:
 /** §5.4: the kinds the picker is holding, or null for a link that never opened it. */
 const chosenTypes = (userId: number): ContentKind[] | null => getSession(userId).typePicker?.selected ?? null;
 
+/** How a resolve was entered: what to do when a page turns out not to be a category, and who paid. */
+interface ResolveOptions {
+  /** A page's own feed decides the flow; an article keeps the download chooser. */
+  askIfNotSection?: boolean;
+  /** The caller already spent the add quota on this link (the chooser's Add follows a probe). */
+  quotaPaid?: boolean;
+}
+
 /**
  * A YouTube channel is asked what to watch before anything is fetched; every other source keeps the
  * one-step add. A link no flow can use falls through, so runResolve reports its own code.
  */
-async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string, askIfNotSection = false): Promise<void> {
+async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string, options: ResolveOptions = {}): Promise<void> {
   // Only the classification is guarded: a paint that fails must not become an add with default kinds.
   let ref: SourceRef | undefined;
   try {
@@ -401,7 +409,7 @@ async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, li
     // A bad link is runResolve's to report, with the keyboard that fits the code.
   }
   if (ref?.platform === 'youtube') return openTypePicker(ctx, deps, userId, ref, link);
-  await runResolve(ctx, deps, userId, link, askIfNotSection);
+  await runResolve(ctx, deps, userId, link, options);
 }
 
 /** `@handle`, or the channel id when the link named no handle. */
@@ -504,7 +512,7 @@ async function setLanguage(ctx: Context, deps: BotDeps, userId: number, code: st
   await paintRich(ctx, mainMenu(userId, deps));
 }
 
-async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string, askIfNotSection = false): Promise<void> {
+async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string, options: ResolveOptions = {}): Promise<void> {
   const user = ensureUser(deps.db, userId);
   ensurePrivateChat(deps.db, user.id, userId);
   const chatId = ctx.chat?.id;
@@ -512,8 +520,8 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
   let working: number | undefined;
 
   try {
-    // §12.4: one source-add per 10 s.
-    if (!allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
+    // §12.4: one source-add per 10 s. A chooser's Add already paid for its probe.
+    if (!options.quotaPaid && !allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
     // A website page is resolved last: its category URL is only known after the feed answers below.
     let ref = resolveProfile(link, detectOpts(deps));
 
@@ -532,7 +540,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     // A website page may be a category listing: its own feed decides, and a page with none is the site.
     let feed: ParsedFeed;
     if (isWebsitePage(ref)) {
-      const page = await pageSourceFor(deps, ref, askIfNotSection);
+      const page = await pageSourceFor(deps, ref, options.askIfNotSection === true);
       if (page === null) {
         // A page with no feed is an article: the download choice needs no feed at all.
         await askPostOrSource(ctx, deps, userId, link, profileOfPost(link));
@@ -824,6 +832,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
     const view = s4View({
       platform: session.pending.platform,
       author: session.pending.author,
+      section: sectionOf(session.pending.canonicalUrl),
       avatarUrl: session.pending.avatarUrl,
       // Back shows the same preview the picker promised: only the kinds this chat still watches.
       items: newest(filterByContentTypes(session.pending.platform, session.pending.items, chosenTypes(userId)), deps.cfg.limits.backfillCount),

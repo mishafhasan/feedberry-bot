@@ -58,7 +58,9 @@ export async function fetchPageSource(http: Http, ref: SourceRef): Promise<{ ref
   const section = sectionOf(ref.canonicalUrl);
   if (section !== null) {
     try {
-      return { ref, feed: await fetchSectionFeed(http, ref, section), section: true };
+      // The listing is the source, not whichever page of it the user happened to paste.
+      const listing = { ...ref, canonicalUrl: `${new URL(ref.canonicalUrl).origin}${section}` };
+      return { ref: listing, feed: await fetchSectionFeed(http, listing, section), section: true };
     } catch (err) {
       // Only "this page is not a category" is a reason to fall back; an outage is the user's to see.
       if (!isCoded(err) || err.code !== E.NO_FEED) throw err;

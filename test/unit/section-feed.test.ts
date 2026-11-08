@@ -115,6 +115,40 @@ test('section feed: a site-wide feed keeps only the items that carry the categor
   assert.equal(feed.feedUrl, siteFeed, 'the feed is stored; the filter runs again on the next check');
 });
 
+test('section feed: an article in its own site feed never proves itself a category', async () => {
+  // The pasted page is an item of the site feed; counting it would freeze a one-item subscription.
+  const article = 'https://blog.test/posts/a-quiet-return';
+  const siteFeed = 'https://blog.test/rss';
+  const http = stubHttp(
+    {
+      [article]: { status: 200, body: html(alternate(siteFeed)) },
+      [siteFeed]: { status: 200, body: rss(item('https://blog.test/posts/a-quiet-return?utm_source=rss')) },
+    },
+    [],
+  );
+
+  await assert.rejects(
+    () => fetchSectionFeed(http, { ...section, canonicalUrl: article, externalId: 'blog.test' }, '/posts/a-quiet-return'),
+    (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
+    'the page cannot be its own category',
+  );
+});
+
+test('section feed: a multi-word section is named by a tag of the same words', async () => {
+  const page = 'https://site.test/category/gear-deals';
+  const siteFeed = 'https://site.test/feed/rss';
+  const body = rss(
+    `${item('https://site.test/story/1', '<category>Gear Deals</category>')}${item('https://site.test/story/2', '<category>Gear</category>')}`,
+  );
+  const feed = await fetchSectionFeed(
+    stubHttp({ [page]: { status: 200, body: html(alternate(siteFeed)) }, [siteFeed]: { status: 200, body } }, []),
+    { ...section, canonicalUrl: page, externalId: 'site.test' },
+    '/category/gear-deals',
+  );
+
+  assert.deepEqual(feed.items.map((entry) => entry.guid), ['https://site.test/story/1'], 'the tag names the section; a shorter tag does not');
+});
+
 test('section feed: a scoped feed is never emptied by the tag filter', async () => {
   const stored = { ...section, feedUrl: FEED };
   const body = rss(item('https://site.test/story/untagged'));
