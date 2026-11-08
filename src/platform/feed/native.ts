@@ -62,17 +62,17 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef, budgetMs = 20_
   handleFeedStatus(page.status);
   if (/xml/.test(page.contentType) || page.body.trimStart().startsWith('<?xml')) return parseFeed(page.body, page.url);
 
-  const alternate = discoverAlternate(page.body, page.url);
-  if (alternate) {
-    let feed: ParsedFeed;
+  for (const candidate of discoverAlternateLinks(page.body, page.url)) {
     try {
-      feed = await fetchAndParse(http, alternate);
+      const feed = await fetchAndParse(http, candidate.url);
+      // A channel page states its avatar; YouTube's own feed carries none, so the preview would be text.
+      return feed.avatarUrl === null ? { ...feed, avatarUrl: pageImage(page.body) } : feed;
     } catch (err) {
-      if (isCoded(err)) throw new DiscoveredFeedError(err.code, alternate, err.message);
-      throw err;
+      if (!isCoded(err)) throw err;
+      // rss/atom/rdf is a promise the page made. A plain `application/xml` alternate may be a sitemap,
+      // so it falls through to the next candidate and then to the guessed paths.
+      if (candidate.strong) throw new DiscoveredFeedError(err.code, candidate.url, err.message);
     }
-    // A channel page states its avatar; YouTube's own feed carries none, so the preview would be text.
-    return feed.avatarUrl === null ? { ...feed, avatarUrl: pageImage(page.body) } : feed;
   }
 
   // Five guesses at the 20 s default would hold one check for 100 s; the budget is the whole search.
@@ -102,20 +102,30 @@ function pageImage(html: string): string | null {
 }
 
 export function discoverAlternates(html: string, baseUrl: string): string[] {
-  const feeds: string[] = [];
+  return discoverAlternateLinks(html, baseUrl).map((link) => link.url);
+}
+
+/**
+ * Alternates in trust order: rss/atom/rdf first, a plain `application/xml` last — that one is as often a
+ * sitemap as a feed, so its failure must not end discovery. Stable within each rank.
+ */
+function discoverAlternateLinks(html: string, baseUrl: string): Array<{ url: string; strong: boolean }> {
+  const strong: Array<{ url: string; strong: boolean }> = [];
+  const weak: Array<{ url: string; strong: boolean }> = [];
   for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
     if (!/rel\s*=\s*["']?alternate/i.test(tag)) continue;
+    const typed = /type\s*=\s*["']?application\/(rss|atom|rdf)\+xml/i.test(tag);
     // RSS 1.0 advertises `application/rdf+xml`, older sites plain `application/xml` or `text/xml`.
-    if (!/type\s*=\s*["']?(application\/(rss|atom|rdf)\+xml|(application|text)\/xml)(?![-\w])/i.test(tag)) continue;
+    if (!typed && !/type\s*=\s*["']?(application|text)\/xml(?![-\w])/i.test(tag)) continue;
     const href = attr(tag, 'href');
     if (!href) continue;
     try {
-      feeds.push(new URL(decodeEntities(href), baseUrl).toString());
+      (typed ? strong : weak).push({ url: new URL(decodeEntities(href), baseUrl).toString(), strong: typed });
     } catch {
       // A broken href advertises nothing; the next one still counts.
     }
   }
-  return feeds;
+  return [...strong, ...weak];
 }
 
 export function discoverAlternate(html: string, baseUrl: string): string | null {
@@ -218,7 +228,7 @@ function kindOf(type: string | null): FeedMedia['type'] {
 /** RSS puts the URL in the body, Atom in `href`; an entry's own page is `rel=alternate` (RFC 4287 §4.2.7.1). */
 function linkOf(block: string, baseUrl: string): string {
   const tags = block.match(/<link\b[^>]*>/gi) ?? [];
-  const alternate = tags.find((tag) => /rel\s*=\s*["']?alternate/i.test(tag));
+  const alternate = tags.find((tag) => /rel\s*=\s*["']?alternate/i.test(tag) && attr(tag, 'href') !== null);
   const plain = tags.find((tag) => !/rel\s*=/i.test(tag));
   const href = text(firstTag(block, 'link')) || attr(alternate ?? plain ?? tags[0] ?? '', 'href');
   if (!href) return baseUrl;

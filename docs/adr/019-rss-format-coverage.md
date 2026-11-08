@@ -37,13 +37,15 @@ this decision.
 ## Decision
 
 1. **Discovery** accepts `application/(rss|atom|rdf)+xml` and `(application|text)/xml` alternates; JSON
-   Feed and `Link:` headers stay out.
+   Feed and `Link:` headers stay out. The typed alternates are ranked first, and only they are a promise:
+   a plain `application/xml` alternate is as often a sitemap as a feed, so when it fails discovery moves on
+   to the next alternate and then to the guessed paths.
 2. **The guessed-path fallback shares one budget**: `fetchNativeFeed(http, ref, budgetMs = 20_000)`
    stops between candidates and hands each the remaining time, so a dead site costs one request's worth
    of overrun, not five.
-3. **An advertised alternate stays authoritative.** Its failure is still rethrown as
-   `DiscoveredFeedError`, because YouTube's RSSHub fallback keys its route by the URL it carries; a
-   silent fallthrough would downgrade `…/youtube/channel/UC…` to `…/youtube/user/@handle`.
+3. **A typed alternate stays authoritative.** A failed `rss`/`atom`/`rdf` alternate is rethrown as
+   `DiscoveredFeedError`, because YouTube's RSSHub fallback keys its route by the URL it carries; a silent
+   fallthrough would downgrade `…/youtube/channel/UC…` to `…/youtube/user/@handle`.
 4. **`linkOf` chooses by `rel`** — `alternate`, else no `rel`, else the first tag — so RSS body links and
    Atom `href` links both survive.
 5. **Dates**: `pubDate` → `published` → `dc:date` → `updated`. RSS 1.0 items are dated; feeds that carry

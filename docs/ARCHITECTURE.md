@@ -309,8 +309,9 @@ belongs to; a section with no feed at all is `E_NO_FEED`, never an empty subscri
 Formats and budgets (ADR-019): discovery reads RSS 2.0, Atom 1.0 and RSS 1.0 (RDF) documents, and a feed's
 charset comes from its BOM, then its own `<?xml encoding=?>` declaration, then the transport — one
 `decodeBody` for every response. The guessed-path fallback (`/feed`, `/rss`, …) shares one 20 s budget, so a
-dead site cannot hold a worker job for five timeouts; an advertised `rel=alternate` stays authoritative and
-is never guessed past.
+dead site cannot hold a worker job for five timeouts. A typed `rss`/`atom`/`rdf` alternate stays
+authoritative and is never guessed past; a plain `application/xml` one may be a sitemap, so it falls through to
+the next alternate and then to the guessed paths.
 
 ### 5.4 De-duplication and "seen"
 

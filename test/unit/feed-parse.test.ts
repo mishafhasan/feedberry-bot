@@ -213,3 +213,35 @@ test('M20 discovery: RDF and plain XML alternates are feeds, JSON is not', () =>
     'https://blog.example.test/plain.xml',
   ]);
 });
+
+const oneItem = '<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title><item><title>A</title><link>https://site.test/a</link><guid>a</guid></item></channel></rss>';
+const blogRef = { platform: 'rss' as const, canonicalUrl: 'https://site.test/blog', externalId: 'site.test', feedUrl: null, strategy: 'native_rss' as const };
+
+test('M20 discovery: a plain XML sitemap never outranks an RSS alternate that is listed after it', async () => {
+  const page =
+    '<html><head><link rel="alternate" type="application/xml" href="/sitemap.xml"><link rel="alternate" type="application/rss+xml" href="/feed.xml"></head></html>';
+  const seen: string[] = [];
+  const http: Http = async (url) => {
+    seen.push(url);
+    if (url === blogRef.canonicalUrl) return { status: 200, url, contentType: 'text/html', body: page };
+    if (url === 'https://site.test/feed.xml') return { status: 200, url, contentType: 'application/rss+xml', body: oneItem };
+    throw new Coded(E.NO_FEED, `not a feed: ${url}`);
+  };
+
+  const feed = await fetchNativeFeed(http, blogRef);
+  assert.equal(feed.feedUrl, 'https://site.test/feed.xml', 'the feed the page actually named is used');
+  assert.ok(!seen.includes('https://site.test/sitemap.xml'), 'the sitemap was never even fetched');
+});
+
+test('M20 discovery: a page that only advertises a sitemap still gets its guessed paths', async () => {
+  const page = '<html><head><link rel="alternate" type="application/xml" href="/sitemap.xml"></head></html>';
+  const http: Http = async (url) => {
+    if (url === blogRef.canonicalUrl) return { status: 200, url, contentType: 'text/html', body: page };
+    if (url === 'https://site.test/sitemap.xml') return { status: 200, url, contentType: 'application/xml', body: '<urlset><url><loc>https://site.test/a</loc></url></urlset>' };
+    if (url === 'https://site.test/feed') return { status: 200, url, contentType: 'application/rss+xml', body: oneItem };
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  const feed = await fetchNativeFeed(http, blogRef);
+  assert.equal(feed.feedUrl, 'https://site.test/feed', 'a weak alternate is not a promise, so /feed is tried');
+});
