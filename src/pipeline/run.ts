@@ -24,6 +24,7 @@ import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { fetchSourceFeed } from './s2-feed.ts';
 import { classifyMedia } from './s3-classify.ts';
+import { effectiveKeywords, passesFilter } from './filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from './s5-media.ts';
@@ -170,10 +171,18 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
 
   for (const row of deliveryTargets(deps.db, sourceId)) {
     const target = targetOf(row.tg_chat_id, row.message_thread_id, row.type);
+    const keywords = effectiveKeywords(row.keywords, row.default_keywords);
     for (const delivery of listPendingForSource(deps.db, sourceId, row.chat_id)) {
       const stored = getPost(deps.db, delivery.post_id ?? 0);
       if (!stored) continue;
       const post = await withThreadText(deps.http, stored, platform, threads);
+
+      // ADR-020: the words are already parsed, so a post nobody asked for costs no download and
+      // no send. `skipped` is final, which is what keeps a filtered post out of the next pass.
+      if (!passesFilter(payloadOf(post.payload_json), keywords)) {
+        recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'skipped', parts: 0, messageIds: null, errorCode: null, now });
+        continue;
+      }
 
       // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);

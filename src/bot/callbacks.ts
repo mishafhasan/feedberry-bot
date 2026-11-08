@@ -23,6 +23,7 @@ import { resolveProfile } from '../pipeline/s1-resolve.ts';
 import { fetchPageSource, fetchSourceFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
+import { formatKeywords } from '../pipeline/filter.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
 import { withReadMore, type ReadMorePage } from '../pipeline/read-more.ts';
 import { postHeader } from '../render/caption.ts';
@@ -40,6 +41,7 @@ import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, t
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
 import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
 import { handleAdminCallback } from './admin.ts';
+import { askDefaultKeywords, askPendingKeywords, askSourceKeywords, clearDefaultKeywords, clearKeywords, openFilterFor } from './keywords.ts';
 import { s1View } from './screens/s1.ts';
 import { s10View } from './screens/s10.ts';
 import { s2View } from './screens/s2.ts';
@@ -79,6 +81,7 @@ export const cb = {
   downloadPost: 'dl:post',
   addPost: 'add:post',
   supported: 'menu:supported',
+  filterMenu: 'menu:filter',
   help: 'menu:help',
   language: 'menu:language',
   lang: 'lang:',
@@ -93,6 +96,12 @@ export const cb = {
   typesDone: 'ct:done',
   typesAll: 'ct:all',
   typesBack: 'ct:back',
+  keywords: 'add:kw',
+  kwEdit: 'kw:edit:',
+  kwClear: 'kw:clear:',
+  kwDefault: 'kw:def',
+  kwClearDefault: 'kw:cleardef',
+  kwPage: 'kw:page:',
 } as const;
 
 export interface BotDeps {
@@ -159,6 +168,13 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
 
   if (data === cb.downloadPost || data === cb.addPost) return choosePost(ctx, deps, userId, data === cb.downloadPost);
 
+  if (data === cb.keywords) return askPendingKeywords(ctx, deps, userId, ctx.callbackQuery?.message?.message_id);
+  if (data === cb.kwDefault) return askDefaultKeywords(ctx, deps, userId, getSession(userId).kwPage ?? 0);
+  if (data === cb.kwClearDefault) return clearDefaultKeywords(ctx, deps, userId, getSession(userId).kwPage ?? 0);
+  if (data.startsWith(cb.kwClear)) return clearKeywords(ctx, deps, userId, idOf(data, cb.kwClear), getSession(userId).kwPage ?? 0);
+  if (data.startsWith(cb.kwEdit)) return askSourceKeywords(ctx, deps, userId, idOf(data, cb.kwEdit), getSession(userId).kwPage ?? 0);
+  if (data.startsWith(cb.kwPage)) return openFilterFor(ctx, deps, userId, idOf(data, cb.kwPage));
+
   if (data.startsWith(cb.dest)) return pickDest(ctx, deps, userId, idOf(data, cb.dest));
   if (data.startsWith(cb.page)) return renderS7(ctx, deps, userId, idOf(data, cb.page), getSession(userId).s7?.platform ?? null, getSession(userId).s7?.headerId ?? null);
   if (data.startsWith(cb.filter)) return changeFilter(ctx, deps, userId, data.slice(cb.filter.length));
@@ -182,6 +198,8 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return openSources(ctx, deps, userId);
     case cb.supported:
       return paint(ctx, s12View(lang));
+    case cb.filterMenu:
+      return openFilterFor(ctx, deps, userId);
     case cb.help:
       return paint(ctx, s13View(lang));
     case cb.language:
@@ -231,6 +249,9 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
     }
     case 'sources':
       await renderS7(ctx, deps, userId, 0, null, null);
+      return true;
+    case 'filter':
+      await openFilterFor(ctx, deps, userId);
       return true;
     case 'supported': {
       const view = s12View(lang);
@@ -615,7 +636,7 @@ async function pickDest(ctx: Context, deps: BotDeps, userId: number, chatId: num
   if (!chat) return showError(ctx, deps, userId, new Coded(E.BOT_NOT_ADMIN, 'destination not verified'), { kind: 'source', link: pending.link });
 
   setSession(userId, { state: 'add_mode', destChatId: chatId });
-  const view = s5View(pending.bodyText, langOf(deps, userId));
+  const view = s5View(pending.bodyText, langOf(deps, userId), pending.keywords ?? [], ensureUser(deps.db, userId).default_keywords);
   await editSourceMessage(ctx, pending.photo, view);
 }
 
@@ -648,6 +669,7 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
       deliverLatest,
       backfillCount: deps.cfg.limits.backfillCount,
       contentTypes: chosenTypes(userId),
+      keywords: formatKeywords(pending.keywords ?? []),
     });
 
     log('info', 'source_added', { source: result.sourceId, pending: result.pending });
@@ -824,9 +846,10 @@ async function confirmDelete(ctx: Context, deps: BotDeps, userId: number, source
 
 async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
   const session = getSession(userId);
-  setSession(userId, { s7: undefined });
+  setSession(userId, { s7: undefined, keywordStep: undefined });
 
-  if (session.state === 'add_mode' && session.pending) {
+  // A prompt opened from S5 is one step inside the add: Back drops the prompt, not the draft.
+  if ((session.state === 'add_mode' || session.state === 'awaiting_keywords') && session.pending) {
     setSession(userId, { state: 'preview', destChatId: undefined });
     const owner = ensureUser(deps.db, userId);
     const view = s4View({
@@ -1133,6 +1156,8 @@ function toastFor(data: string, lang: Lang): string | undefined {
   if (data.startsWith(cb.schedOpen) || data.startsWith(cb.schedPage) || data === cb.schedAll) return undefined;
   // The picker repaints itself; every tap is silent.
   if (data.startsWith(cb.typesOpen) || data.startsWith(cb.typesToggle) || data === cb.typesDone || data === cb.typesAll || data === cb.typesBack) return undefined;
+  // The keyword screens repaint themselves too (ADR-020).
+  if (data === cb.keywords || data === cb.kwDefault || data === cb.kwClearDefault || data.startsWith(cb.kwClear) || data.startsWith(cb.kwEdit) || data.startsWith(cb.kwPage)) return undefined;
   if (data.startsWith(cb.delOk)) return toast.deleted;
   switch (data) {
     case cb.sources:
@@ -1147,6 +1172,7 @@ function toastFor(data: string, lang: Lang): string | undefined {
     case cb.downloadPost:
     case cb.addPost:
     case cb.supported:
+    case cb.filterMenu:
     case cb.help:
     case cb.language:
     case cb.schedule:

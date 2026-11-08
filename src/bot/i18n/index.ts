@@ -70,6 +70,18 @@ const EN = {
   'types.done': '✅ Done',
   'types.all': 'All content',
 
+  's5.keywords': '🔑 Keywords: {keywords}',
+  'kw.none': 'none — every post',
+  'kw.usesDefault': 'uses the default: {keywords}',
+  'kw.prompt': 'Send the keywords or tags for «{title}», separated by commas.\nExample: ai, telegram, openai\nA post arrives when any of them appears in its title, text or tags.\nSend /skip to remove the filter.',
+  'kw.promptDefault': 'Send the default keywords, separated by commas.\nThey apply to every source that has no list of its own.\nSend /skip to remove the filter.',
+  'filter.title': '🔑 Keyword filters',
+  'filter.default': 'Default keywords: {keywords}',
+  'filter.row': '• {title} — {keywords}',
+  'filter.empty': 'No sources yet — send a profile link to add one.',
+  'filter.hint': 'Tap ✏️ to set the keywords of one source, 🗑 to clear them.',
+  'filter.defaultBtn': 'Default keywords',
+
   'prompt.download': '⬇️ Send a post link and I will deliver the media here.',
   'prompt.downloadList': 'Supported sites: websites/blogs, Instagram, X/Twitter, Bluesky, TikTok, Snapchat, Tumblr, Pinterest, Facebook, YouTube, Threads.',
   'done.download': '✅ Delivered.',
@@ -112,6 +124,8 @@ const EN = {
   'btn.off': 'Off',
   'btn.on': 'On',
   'btn.all': 'All',
+  'btn.keywords': '🔑 Keywords',
+  'btn.filter': '🔑 Filter',
   'btn.openSources': '📁 My Sources',
   'notice.menuReady': 'Menu ready — the keyboard icon by the message box folds it away and brings it back.',
 

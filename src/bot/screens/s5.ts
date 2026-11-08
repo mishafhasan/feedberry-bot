@@ -8,7 +8,7 @@ export interface S5View {
   keyboard: InlineKeyboard;
 }
 
-/** S5 edits the S4 message: same preview, add question, two save buttons. */
-export function s5View(body: string, lang: Lang = 'en'): S5View {
-  return { text: s5Text(body, lang), keyboard: s5Keyboard(lang) };
+/** S5 edits the S4 message: same preview, the keyword line, add question, two save buttons. */
+export function s5View(body: string, lang: Lang = 'en', keywords: string[] = [], fallback: string | null = null): S5View {
+  return { text: s5Text(body, lang, keywords, fallback), keyboard: s5Keyboard(lang) };
 }

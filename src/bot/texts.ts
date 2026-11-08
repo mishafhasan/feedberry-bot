@@ -5,6 +5,7 @@
 import type { ErrorCode } from '../platform/errors.ts';
 import { parseContentTypes } from '../platform/content-types.ts';
 import type { Platform } from '../platform/registry.ts';
+import { formatKeywords, parseKeywords } from '../pipeline/filter.ts';
 import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
 import { esc } from '../render/plan.ts';
 import { t, type Lang } from './i18n/index.ts';
@@ -122,8 +123,16 @@ export function sectionLabel(section: string): string {
 }
 
 /** S5 — the same preview with the add question (§7.2 add:save / add:save_silent). */
-export function s5Text(body: string, lang: Lang = 'en'): string {
-  return `${body}\n\n${t(lang, 's5.question')}`;
+export function s5Text(body: string, lang: Lang = 'en', keywords: string[] = [], fallback: string | null = null): string {
+  return `${body}\n\n${t(lang, 's5.keywords', { keywords: keywordsLabel(formatKeywords(keywords), lang, fallback) })}\n\n${t(lang, 's5.question')}`;
+}
+
+/** A list, the default it would inherit, or "every post"; S5 and /filter print it the same way. */
+export function keywordsLabel(raw: string | null | undefined, lang: Lang = 'en', fallback: string | null = null): string {
+  const keywords = parseKeywords(raw);
+  if (keywords.length > 0) return esc(keywords.join(', '));
+  const inherited = parseKeywords(fallback);
+  return inherited.length === 0 ? t(lang, 'kw.none') : t(lang, 'kw.usesDefault', { keywords: esc(inherited.join(', ')) });
 }
 
 /** S6 — added. */

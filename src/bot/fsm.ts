@@ -17,6 +17,7 @@ export type FsmState =
   | 'confirming_delete'
   | 'choosing'
   | 'choosing_types'
+  | 'awaiting_keywords'
   | 'awaiting_admin_user_id'
   | 'awaiting_admin_notify'
   | 'awaiting_admin_notify_all'
@@ -38,6 +39,8 @@ export interface PendingSource {
   bodyText: string;
   /** S4 was sent as a photo, so S5/S6 must edit a caption rather than text. */
   photo: boolean;
+  /** ADR-020: the keyword draft, already parsed; written to the subscription by stage 4. */
+  keywords?: string[];
   at: number;
 }
 
@@ -65,6 +68,17 @@ export interface TypePicker {
   selected: ContentKind[];
 }
 
+/**
+ * ADR-020: the keyword prompt is waiting for text. `target` says which row the answer lands on, and
+ * `messageId` the screen that is repainted once it does (S5, or the /filter list).
+ */
+export interface KeywordStep {
+  target: 'add' | 'default' | number;
+  messageId: number;
+  /** The /filter page being read, so the repaint returns to it. */
+  page: number;
+}
+
 export interface Session {
   state: FsmState;
   /** awaiting_source_link in Download Mode (ADR-013); unused until M5. */
@@ -76,6 +90,10 @@ export interface Session {
   s7?: S7State;
   s16?: S16State;
   typePicker?: TypePicker;
+  /** Where the keyword prompt's answer lands, and the screen it repaints (ADR-020). */
+  keywordStep?: KeywordStep;
+  /** The /filter page being read, so a clear or an edit returns to the same one. */
+  kwPage?: number;
   /** A link waiting on the download/add choice; `profile` is set when a download or the page named the account. */
   chooser?: { link: string; profile?: string };
   /** Admin panel page, so Back from details returns to the list the admin was reading. */

@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -42,6 +42,15 @@ const MIGRATION_V4 = `
   ALTER TABLE subscriptions ADD COLUMN content_types TEXT;
 `;
 
+/**
+ * v4 → v5: a subscription hears only the posts its keywords name (ADR-020). Both columns are NULL
+ * for every existing row, so nobody's feed changes until the user sets a filter.
+ */
+const MIGRATION_V5 = `
+  ALTER TABLE users ADD COLUMN default_keywords TEXT;
+  ALTER TABLE subscriptions ADD COLUMN keywords TEXT;
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -57,14 +66,19 @@ function migrate(db: Db): void {
   const current = schemaVersion(db);
   if (current >= SCHEMA_VERSION) return;
 
-  if (current === 0) {
-    db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
-  } else {
-    if (current <= 1) db.exec(MIGRATION_V2);
-    if (current <= 2) db.exec(MIGRATION_V3);
-    if (current <= 3) db.exec(MIGRATION_V4);
-  }
-  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  // One transaction: a crash between two ALTERs would otherwise leave a half-migrated file that
+  // every later boot rejects with "duplicate column name".
+  tx(db, () => {
+    if (current === 0) {
+      db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
+    } else {
+      if (current <= 1) db.exec(MIGRATION_V2);
+      if (current <= 2) db.exec(MIGRATION_V3);
+      if (current <= 3) db.exec(MIGRATION_V4);
+      if (current <= 4) db.exec(MIGRATION_V5);
+    }
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  });
 }
 
 export function schemaVersion(db: Db): number {

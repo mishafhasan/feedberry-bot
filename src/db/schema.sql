@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
   tz          TEXT NOT NULL DEFAULT 'UTC',
   locale      TEXT,
   created_at  INTEGER NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'pending'   -- pending|allowed|blocked; only 'allowed' opens the bot
+  status      TEXT NOT NULL DEFAULT 'pending',  -- pending|allowed|blocked; only 'allowed' opens the bot
+  default_keywords TEXT                           -- ADR-020: comma list for every source without its own
 );
 
 CREATE TABLE IF NOT EXISTS chats (
@@ -55,6 +56,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at   INTEGER NOT NULL,
   -- video,short,post for a YouTube channel; NULL means every kind (rows from before the picker).
   content_types TEXT,
+  -- ADR-020: comma-separated keywords/tags; NULL falls back to users.default_keywords.
+  keywords TEXT,
   UNIQUE (source_id, chat_id)
 );
 

@@ -365,7 +365,8 @@ delivery stays in stage 7 so rate limiting cannot be bypassed.
 SQLite, WAL, `busy_timeout=5000`, one writer (the bot process). ADR-009.
 
 ```sql
-users(id PK, tg_user_id UNIQUE, tz TEXT DEFAULT 'UTC', locale TEXT, created_at)
+users(id PK, tg_user_id UNIQUE, tz TEXT DEFAULT 'UTC', locale TEXT, created_at,
+      default_keywords TEXT)              -- ADR-020: fallback list for rows with none of their own
 
 chats(id PK, owner_user_id FK, tg_chat_id INTEGER, type TEXT,     -- private|group|supergroup|channel
       title TEXT, message_thread_id INTEGER NULL,                  -- forum topic target
@@ -383,6 +384,7 @@ sources(id PK, platform TEXT, canonical_url TEXT UNIQUE, external_id TEXT,
 subscriptions(id PK, user_id FK, source_id FK, chat_id FK,
               deliver INTEGER DEFAULT 1, next_slot_at INTEGER,
               content_types TEXT,            -- video,short,post for a YouTube channel; NULL = all
+              keywords TEXT,                 -- comma list; NULL = the user's default (ADR-020)
               created_at INTEGER, UNIQUE(source_id, chat_id))
 
 posts(id PK, source_id FK, guid TEXT, url TEXT, published_at INTEGER,
@@ -460,6 +462,7 @@ preview, add_mode, done`. I added `error` and `confirming_delete` because S10/S1
 |---|---|---|---|---|---|
 | `menu:add` | S1 | `onAdd` | — | — | edit to S2, state `awaiting_source_link` |
 | `menu:sources` | S1 | `onSources` | `subscriptions`+`sources` paged | — | S7 page 1 |
+| `menu:filter` | S1 | `openFilterFor` | `users.default_keywords`, `subscriptions`+`sources` paged | — | /filter screen (ADR-020) |
 | `menu:download` | S1 | `onDownload` | — | — | prompt "send a post link", state `awaiting_source_link` + `mode=download` |
 | `src:page:<n>` | S7 | `onPage` | page rows | — | re-render S7 |
 | `src:filter:<platform>` | S7 | `onFilter` | filtered rows | — | re-render S7, filter chip active |
@@ -472,6 +475,12 @@ preview, add_mode, done`. I added `error` and `confirming_delete` because S10/S1
 | `ct:t:<kind>` | S18 | `toggleType` | FSM `typePicker` | — | repaint S18 with the kind flipped |
 | `ct:done` | S18 | `saveTypes` | FSM `typePicker` | `subscriptions.content_types` (edit flow), stage 4 (add flow) | S7 repaint, or S3 → S4 |
 | `ct:back` | S18 | `backFromTypes` | FSM `typePicker` | — | S7 for an edit, S2 for an add |
+| `add:kw` | S5 | `askPendingKeywords` | FSM `pending` | FSM `keywordStep` | prompt for a keyword list, repaints S5 |
+| `kw:edit:<subscriptionId>` | /filter | `askSourceKeywords` | `subscriptions.keywords` | FSM `keywordStep` | prompt naming that source |
+| `kw:clear:<subscriptionId>` | /filter | `clearKeywords` | — | `subscriptions.keywords=NULL` | repaint /filter |
+| `kw:def` | /filter | `askDefaultKeywords` | — | FSM `keywordStep` | prompt for the fallback list |
+| `kw:cleardef` | /filter | `clearDefaultKeywords` | — | `users.default_keywords=NULL` | repaint /filter |
+| `kw:page:<n>` | /filter | `openFilterFor` | `subscriptions`+`sources` paged | — | repaint /filter on page n |
 | `add:dest:<chatId>` | S4 | `onPickDest` | `chats` row, `chats.can_post` | — | edit to S5 |
 | `add:save` | S5 | `onAddSave` | pending source | insert `sources`/`subscriptions`, backfill job | S6 "Data source «X» is added…" |
 | `add:save_silent` | S5 | `onAddSaveSilent` | pending source | same, `deliver_latest=0` | S6 |
@@ -491,7 +500,7 @@ same message, so the chat does not fill with drafts. `src:check` keeps the list 
 | S2 add source | `awaiting_source_link` | static platform list | `fsm.pending` (in session, not DB) |
 | S3 checking | `checking` | — | — |
 | S4 preview | `preview` | `cobalt.resolve()` preview + last 5 feed items, `chats` where `can_post=1` | session `pending_source` |
-| S5 add how | `add_mode` | session | — |
+| S5 add how | `add_mode` | session, and the `🔑 Keywords` list it will store | — |
 | S6 added | `done` | — | `sources`, `subscriptions`, `posts` (backfill), `jobs` |
 | S7 my sources | `idle` (list) | `subscriptions join sources`, health fields | — |
 | S8 toast disabled | S7 | — | `sources.enabled=0` |
