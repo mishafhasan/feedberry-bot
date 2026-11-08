@@ -46,7 +46,10 @@ const siteFeed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</
 const page = (links: string): string => `<html><head>${links}</head><body></body></html>`;
 const alternate = (href: string): string => `<link rel="alternate" type="application/rss+xml" href="${href}">`;
 
+const seen: string[] = [];
+
 const http: Http = async (url) => {
+  seen.push(url);
   if (url === WIRED) return { status: 200, url, contentType: 'text/html', body: page(alternate('/category/science/feed/')) };
   if (url === WIRED_FEED) return { status: 200, url, contentType: 'application/rss+xml', body: wiredFeed };
   if (url === BBC) return { status: 200, url, contentType: 'text/html', body: page(`<a href="${BBC_ALIAS}">Technology</a>`) };
@@ -101,7 +104,13 @@ test('M19: a category link is previewed as a category and stored with its own fe
     // A page with no category feed is an article: the download choice stays, but is offered from the
     // resolution instead of from the URL shape.
     resetSession(USER_ID); // the preview above owns the session; a fresh message starts a new flow
+    const before = seen.filter((url) => url === SITE_FEED).length;
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, ARTICLE));
+    assert.equal(
+      seen.filter((url) => url === SITE_FEED).length - before,
+      2,
+      'the feed is fetched as the alternate and again as the site fallback, never as a directory too',
+    );
     const chooser = api.last('sendMessage');
     assert.match(String(chooser?.body.text ?? ''), /post link/);
     const buttons = ((chooser?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> } | undefined)?.inline_keyboard ?? []).flat().map((button) => button.callback_data);

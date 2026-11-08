@@ -247,6 +247,8 @@ test('M19 sections: only a marker or a section id is a listing on the URL alone'
   assert.equal(isSectionUrl('/topics/ai'), true);
   assert.equal(isSectionUrl('/top-stories/155'), true);
   assert.equal(isSectionUrl('/news/1234'), true, 'two segments, a numeric id');
+  assert.equal(isSectionUrl('/2026/11'), false, 'a month archive is not a section id');
+  assert.equal(isSectionUrl('/news/55'), false, 'a two-digit tail is an article id, not a section');
   assert.equal(isSectionUrl('/news/2026/11/06/a-post'), false, 'a dated article only looks like an id');
   assert.equal(isSectionUrl('/technology'), false, 'an article slug looks the same');
   assert.equal(isSectionUrl('/2026/11/06/a-post'), false, 'a dated article is not a section id');

@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { Coded, E } from './errors.ts';
-import type { Http, HttpOptions, HttpResponse } from './http.ts';
+import { decodeBody, type Http, type HttpOptions, type HttpResponse } from './http.ts';
 
 /** ARCHITECTURE §12.2: scheme/port/length, one DNS resolve, connect by IP, 2 redirects, timeouts. */
 const MAX_URL_LENGTH = 2048;
@@ -133,7 +133,7 @@ function rawRequest(u: URL, address: string, { maxBytes, timeoutMs = 20_000, hea
             status: res.statusCode ?? 0,
             location: (res.headers.location as string | undefined) ?? null,
             contentType: String(res.headers['content-type'] ?? ''),
-            body: Buffer.concat(chunks).toString('utf8'),
+            body: decodeBody(Buffer.concat(chunks), String(res.headers['content-type'] ?? '')),
           });
         });
       },
