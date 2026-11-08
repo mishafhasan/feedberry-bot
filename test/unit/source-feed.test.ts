@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E, isCoded } from '../../src/platform/errors.ts';
+import { fetchNativeFeed } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
 import type { SourceRef } from '../../src/platform/registry.ts';
 import { fetchSourceFeed } from '../../src/pipeline/s2-feed.ts';
@@ -124,4 +125,21 @@ test('source feed: another platform ignores the selection and the fallback', asy
   await fetchSourceFeed(source({ 'https://blog.example.test/rss': { status: 200, body: UPLOADS } }, seen), blog, ['post'], RSSHUB);
 
   assert.deepEqual(seen, ['https://blog.example.test/rss'], 'no tab and no RSSHub route for a non-YouTube source');
+});
+
+test('source feed: the guessed paths share one budget, so a hanging site cannot hold a check', async () => {
+  const seen: string[] = [];
+  const slow: Http = async (url, options) => {
+    if (url === 'https://slow.example.test/blog') return { status: 200, url, contentType: 'text/html', body: '<html><head></head></html>' };
+    seen.push(url);
+    // Each guess takes as long as it was allowed, so only the budget can end the search.
+    await new Promise((resolve) => setTimeout(resolve, Math.min(options.timeoutMs ?? 50, 120)));
+    throw new Coded(E.NO_FEED, 'timeout');
+  };
+
+  await assert.rejects(
+    () => fetchNativeFeed(slow, { platform: 'rss', canonicalUrl: 'https://slow.example.test/blog', externalId: 'slow.example.test', feedUrl: null, strategy: 'native_rss' }, 200),
+    (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
+  );
+  assert.ok(seen.length >= 1 && seen.length <= 2, `the budget stopped the search after ${seen.length} of five guesses`);
 });

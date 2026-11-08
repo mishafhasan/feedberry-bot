@@ -55,7 +55,7 @@ export class DiscoveredFeedError extends Coded {
 }
 
 /** Stage 2 for `native_rss`: use the feed, or discover `rel=alternate` / common paths. */
-export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<ParsedFeed> {
+export async function fetchNativeFeed(http: Http, ref: SourceRef, budgetMs = 20_000): Promise<ParsedFeed> {
   if (ref.feedUrl) return fetchAndParse(http, ref.feedUrl);
 
   const page = await http(ref.canonicalUrl, { maxBytes: HTML_LIMIT });
@@ -75,10 +75,14 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef): Promise<Parse
     return feed.avatarUrl === null ? { ...feed, avatarUrl: pageImage(page.body) } : feed;
   }
 
+  // Five guesses at the 20 s default would hold one check for 100 s; the budget is the whole search.
+  const deadline = Date.now() + budgetMs;
   for (const path of ['/feed', '/rss', '/feed.xml', '/rss.xml', '/atom.xml']) {
+    const left = deadline - Date.now();
+    if (left <= 0) break;
     try {
       const candidate = new URL(path, page.url).toString();
-      const feed = await fetchAndParse(http, candidate);
+      const feed = await fetchAndParse(http, candidate, left);
       if (feed.items.length > 0) return feed;
     } catch {
       // A 404 on a guessed path is expected; try the next one.
@@ -101,7 +105,8 @@ export function discoverAlternates(html: string, baseUrl: string): string[] {
   const feeds: string[] = [];
   for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
     if (!/rel\s*=\s*["']?alternate/i.test(tag)) continue;
-    if (!/type\s*=\s*["']?application\/(rss|atom)\+xml/i.test(tag)) continue;
+    // RSS 1.0 advertises `application/rdf+xml`, older sites plain `application/xml` or `text/xml`.
+    if (!/type\s*=\s*["']?(application\/(rss|atom|rdf)\+xml|(application|text)\/xml)(?![-\w])/i.test(tag)) continue;
     const href = attr(tag, 'href');
     if (!href) continue;
     try {
@@ -143,14 +148,18 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
       link,
       // No invented title: the renderer owns the fallbacks, and a copy of the body would repeat it.
       title: stripTags(firstTag(block, 'title')),
-      publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'updated')),
+      publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'dc:date') ?? firstTag(block, 'updated')),
       summary: summary ? summary.slice(0, SUMMARY_LIMIT) : null,
       media: mediaOf(block, baseUrl),
       categories: categoriesOf(block),
     });
   }
 
-  if (items.length === 0) throw new Coded(E.NO_FEED, 'feed has no items');
+  if (items.length === 0) {
+    // "No items" reads like an empty feed; the message has to tell an empty channel from a broken page.
+    const feedish = /<rss\b|<feed\b|<rdf:RDF/i.test(xml);
+    throw new Coded(E.NO_FEED, feedish ? 'feed has no readable items' : `not a feed: ${text(xml.slice(0, 80))}`);
+  }
 
   return {
     title: stripTags(firstTag(head, 'title')) || null,
@@ -206,10 +215,12 @@ function kindOf(type: string | null): FeedMedia['type'] {
   return 'unknown';
 }
 
+/** RSS puts the URL in the body, Atom in `href`; an entry's own page is `rel=alternate` (RFC 4287 §4.2.7.1). */
 function linkOf(block: string, baseUrl: string): string {
-  const textLink = text(firstTag(block, 'link'));
-  const linkTag = block.match(/<link\b[^>]*>/i)?.[0];
-  const href = textLink || (linkTag ? attr(linkTag, 'href') : null);
+  const tags = block.match(/<link\b[^>]*>/gi) ?? [];
+  const alternate = tags.find((tag) => /rel\s*=\s*["']?alternate/i.test(tag));
+  const plain = tags.find((tag) => !/rel\s*=/i.test(tag));
+  const href = text(firstTag(block, 'link')) || attr(alternate ?? plain ?? tags[0] ?? '', 'href');
   if (!href) return baseUrl;
   try {
     return new URL(decodeEntities(href), baseUrl).toString();

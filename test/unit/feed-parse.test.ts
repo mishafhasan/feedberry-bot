@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { parseFeed, discoverAlternate, fetchNativeFeed } from '../../src/platform/feed/native.ts';
+import { parseFeed, discoverAlternate, discoverAlternates, fetchNativeFeed } from '../../src/platform/feed/native.ts';
 import { fetchRsshubFeed } from '../../src/platform/feed/rsshub.ts';
 import type { Http } from '../../src/platform/http.ts';
 
 const fixture = readFileSync(new URL('../fixtures/ig-profile.rss', import.meta.url), 'utf8');
+const file = (name: string): string => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8');
 
 test('M2 feed parser: RSS 2.0 with CDATA, entities and enclosures', () => {
   const feed = parseFeed(fixture, 'https://www.instagram.com/cristiano/');
@@ -139,4 +140,76 @@ test('M2 feed parser: a caption keeps the paragraphs it was written in', () => {
   const summary = parseFeed(rss, 'https://www.instagram.com/evolving.ai/').items[0]?.summary ?? '';
 
   assert.equal(summary, ['Altman on RAM.', 'Then the podcast.', 'And the backlash.'].join('\u000A\u000A'));
+});
+
+test('M20 parser: RSS 1.0 has no pubDate, so dc:date is the date', () => {
+  const feed = parseFeed(file('rdf-dc.xml'), 'https://rdf.example.test/');
+
+  assert.equal(feed.title, 'RDF Example');
+  assert.equal(feed.items.length, 2, 'RDF items are read like RSS items');
+  assert.equal(feed.items[0]?.publishedAt, Date.parse('2026-11-08T06:29:22+00:00'));
+  assert.equal(feed.items[0]?.guid, 'https://rdf.example.test/a', 'no guid element, so the link identifies the post');
+  assert.equal(feed.items[1]?.title, 'Second & last', 'entities decoded');
+});
+
+test('M20 parser: an Atom entry keeps its own page when rel=self comes first', () => {
+  const feed = parseFeed(file('atom-multi-link.xml'), 'https://atom.example.test/feed.atom');
+
+  assert.equal(feed.items[0]?.link, 'https://atom.example.test/entry/1', 'rel=alternate is the post, rel=self is the file');
+  assert.equal(feed.items[0]?.guid, 'tag:atom.example.test,2026:1');
+});
+
+test('M20 parser: a captured Atom feed keeps title, link, date, body and categories', () => {
+  const feed = parseFeed(file('atom-github.xml'), 'https://github.blog/feed/atom/');
+  const item = feed.items[0];
+
+  assert.equal(feed.title, 'The GitHub Blog');
+  assert.ok(item, 'the entry is read');
+  assert.match(item.link, /^https:\/\/github\.blog\//);
+  assert.ok((item.categories ?? []).length > 0, 'term categories survive');
+  assert.ok((item.summary ?? '').length > 0, 'the body survives');
+  assert.notEqual(item.publishedAt, null, 'published is read');
+});
+
+test('M20 parser: a captured RSS 2.0 feed keeps its guid, thumbnail and date', () => {
+  const feed = parseFeed(file('rss-wired.xml'), 'https://www.wired.com/feed/rss');
+  const item = feed.items[0];
+
+  assert.equal(feed.items.length, 50);
+  assert.ok(item);
+  assert.equal(item.guid, '6aecb024d52bfcd5eead0d31', 'the CMS id is the identity');
+  assert.ok(item.media.some((entry) => entry.type === 'photo' && entry.url.startsWith('https://media.wired.com/')), 'media:thumbnail is a photo');
+  assert.notEqual(item.publishedAt, null);
+});
+
+test('M20 parser: every media spelling reaches FeedItem, relative URLs resolved', () => {
+  const feed = parseFeed(file('rss-mixed-media.xml'), 'https://media.example.test/feed');
+
+  assert.deepEqual(feed.items[0]?.media, [
+    { url: 'https://cdn.example.test/a.mp3', type: 'audio' },
+    { url: 'https://media.example.test/img/b.jpg', type: 'photo' },
+    { url: 'https://cdn.example.test/thumb.jpg', type: 'photo' },
+  ]);
+  assert.deepEqual(feed.items[1]?.media, [{ url: 'https://cdn.example.test/b.mp4', type: 'video' }]);
+});
+
+test('M20 parser: a page that is not a feed says so instead of "no items"', () => {
+  assert.throws(
+    () => parseFeed(file('malformed.xml'), 'https://site.example.test/feed'),
+    (err: unknown) => err instanceof Coded && err.code === E.NO_FEED && /^not a feed: /.test(err.message),
+    'an HTML error page is named as such',
+  );
+  assert.throws(
+    () => parseFeed('<rss version="2.0"><channel><item>', 'https://site.example.test/feed'),
+    (err: unknown) => err instanceof Coded && err.code === E.NO_FEED && err.message === 'feed has no readable items',
+    'a truncated feed is a feed with nothing readable',
+  );
+});
+
+test('M20 discovery: RDF and plain XML alternates are feeds, JSON is not', () => {
+  assert.deepEqual(discoverAlternates(file('discovery.html'), 'https://blog.example.test/'), [
+    'https://blog.example.test/feed.xml',
+    'https://blog.example.test/index.rdf',
+    'https://blog.example.test/plain.xml',
+  ]);
 });

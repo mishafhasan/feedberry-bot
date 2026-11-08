@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The three media spellings a feed can use, plus relative and protocol-relative URLs. -->
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Media Example</title>
+    <link>https://media.example.test/</link>
+    <description>Media in every shape</description>
+    <item>
+      <title>Mixed</title>
+      <link>https://media.example.test/a</link>
+      <guid>m1</guid>
+      <description>Three attachments</description>
+      <enclosure url="https://cdn.example.test/a.mp3" type="audio/mpeg" length="1" />
+      <media:content url="/img/b.jpg" type="image/jpeg" />
+      <media:thumbnail url="//cdn.example.test/thumb.jpg" />
+    </item>
+    <item>
+      <title>Enclosure only</title>
+      <link>https://media.example.test/b</link>
+      <guid>m2</guid>
+      <description>One video</description>
+      <enclosure url="https://cdn.example.test/b.mp4" type="video/mp4" />
+    </item>
+  </channel>
+</rss>

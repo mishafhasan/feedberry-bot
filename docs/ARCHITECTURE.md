@@ -306,6 +306,12 @@ scopes to itself, `<section>/feed` or `/rss`, an alias the page links to itself 
 site-wide feed filtered by `<category>` tags or item URL. A page that resolves to nothing is the site it
 belongs to; a section with no feed at all is `E_NO_FEED`, never an empty subscription.
 
+Formats and budgets (ADR-019): discovery reads RSS 2.0, Atom 1.0 and RSS 1.0 (RDF) documents, and a feed's
+charset comes from its BOM, then its own `<?xml encoding=?>` declaration, then the transport — one
+`decodeBody` for every response. The guessed-path fallback (`/feed`, `/rss`, …) shares one 20 s budget, so a
+dead site cannot hold a worker job for five timeouts; an advertised `rel=alternate` stays authoritative and
+is never guessed past.
+
 ### 5.4 De-duplication and "seen"
 
 `guid` = feed `guid`/`id` if present, else `sha256(link)`. `posts` has `UNIQUE(source_id, guid)`.

@@ -60,7 +60,7 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
 
   // A page that lists the site's feeds names the section's own feed, usually by its id. The site-wide
   // feed is the last resort, because it needs the item filter on every later check.
-  for (const url of [...(await directoryFeeds(http, page.body, page.url, section, remaining)), ...alternates]) {
+  for (const url of [...(await directoryFeeds(http, page.body, page.url, section, remaining, alternates)), ...alternates]) {
     const feed = await attempt(url);
     if (feed !== null) return feed;
   }
@@ -164,12 +164,14 @@ function aliasBases(html: string, pageUrl: string, section: string): string[] {
 }
 
 /** A page that lists the site's feeds (Daily Mirror's `/rss`) points at every section feed by id. */
-async function directoryFeeds(http: Http, html: string, pageUrl: string, section: string, remaining: () => number): Promise<string[]> {
+async function directoryFeeds(http: Http, html: string, pageUrl: string, section: string, remaining: () => number, alternates: string[]): Promise<string[]> {
   const keys = sectionKeys(section).filter((key) => /^\d+$/.test(key) || key.length >= MIN_KEY);
   if (keys.length === 0) return [];
 
   const found: string[] = [];
   for (const directory of links(html, /rss|feeds?|syndicat/i, pageUrl, 2)) {
+    // The page's own `rel=alternate` is a feed, not a directory; `attempt()` fetches it once.
+    if (alternates.includes(directory)) continue;
     const left = remaining();
     if (left <= 0) break;
     let index;
