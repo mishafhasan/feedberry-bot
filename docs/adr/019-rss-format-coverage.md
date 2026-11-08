@@ -60,6 +60,10 @@ this decision.
 8. **No feed cache and no conditional GET.** Checks run every slot (hours); `HttpResponse` carries no
    `ETag`/`Last-Modified`, and adding them touches the transport, the schema and invalidation for a read
    that happens a few times a day. Revisit if a source interval drops below ~15 minutes.
+9. **A page's own advertised feed is not fetched as a feed directory.** `directoryFeeds` skips URLs that are
+   already alternates: the directory pass used to fetch the feed, discard it on the content-type check, and
+   let `attempt()` fetch it again. Trade-off: a site that mislabels an HTML index as `rss+xml` loses that
+   one directory pass; no such site was found, and keeping it would cost a request on every add.
 
 ## Consequences
 
@@ -68,8 +72,9 @@ this decision.
 - The parser stays a regex reader. **Upgrade trigger:** a real site whose feed it cannot read — then a
   real parser goes behind the same `parseFeed` signature, with the current fixtures as the regression
   suite.
-- Six new fixtures: two captured (Wired RSS, GitHub Atom), one spec-shaped RDF document, one discovery
-  page, one HTML error page, one raw `windows-1251` byte file. Captured files carry their URL and
-  capture date in an XML comment after the root element.
+- Eight new fixtures: two captured (Wired RSS with all 50 items, GitHub Atom with one entry), one
+  spec-shaped RSS 1.0 document, one Atom multi-link document, one discovery page, one HTML error page, one
+  media-shape feed, and one raw `windows-1251` byte file. Captured files carry their URL and capture date in
+  an XML comment after the root element.
 - `E_NO_FEED` is still retried by the queue (five attempts); a permanently broken document goes quiet
   after the ladder, which is the existing contract.
