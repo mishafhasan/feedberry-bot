@@ -77,7 +77,7 @@ test('keywords typed on S5 are stored and filter the backfill before any downloa
 
     const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `add:dest:${personal.id}`));
-    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /🔑 Keywords: none — every post/, 'S5 says what will happen by default');
+    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /🔑 Keywords: no filter — every post/, 'S5 says what will happen by default');
 
     // The keyword question rides on S5: the answer comes back as text and repaints that message.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'add:kw'));
@@ -130,11 +130,11 @@ test('a prompt never eats a menu tap, a link, or another row\'s tap', async () =
     const bot = createBot({ cfg: config, db, apiRoot: api.apiRoot, http });
     await bot.init();
 
-    // The S1 button and the reply-keyboard label land on the same screen as the command.
+    // The S1 button and the reply-keyboard label land on the same rich screen as the command.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:filter'));
-    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Keyword filters/);
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html ?? ''), /Keyword filters/);
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, '🔑 Filter'));
-    assert.match(String(api.last('sendMessage')?.body.text ?? ''), /Keyword filters/);
+    assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html ?? ''), /Keyword filters/);
 
     await bot.handleUpdate(commandUpdate(updateId++, USER_ID, 'filter'));
 
@@ -264,15 +264,17 @@ test('/filter sets the user default, which covers a subscription with no list of
     await bot.init();
 
     await bot.handleUpdate(commandUpdate(updateId++, USER_ID, 'filter'));
-    const screen = String(api.last('sendMessage')?.body.text ?? '');
-    assert.match(screen, /Default keywords: none — every post/);
-    assert.match(screen, /Keyword Blog — none — every post/, 'the row says it follows the default');
+    const screen = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.match(screen, /<b>Default<\/b>/, 'the fallback is the first card');
+    assert.match(screen, /🏷 no filter — every post/, 'nothing is filtered yet');
+    assert.match(screen, /Keyword Blog<\/a><\/b> \| RSS/, 'each source is a card with its platform');
+    assert.doesNotMatch(screen, /data="kw:clear:/, 'a row with no list gets no dead 🗑');
 
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'kw:def'));
     assert.match(String(api.last('sendMessage')?.body.text ?? ''), /default keywords/i);
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'roundup'));
     assert.equal((db.prepare('SELECT default_keywords AS k FROM users WHERE tg_user_id = ?').get(USER_ID) as { k: string }).k, 'roundup');
-    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Default keywords: roundup/, 'the list is repainted in place');
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html ?? ''), /🏷 roundup/, 'the list is repainted in place');
 
     const { engine, urls } = recordingEngine();
     const result = await deliverPending({ db, http, cfg: config, media: engine, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
@@ -283,7 +285,7 @@ test('/filter sets the user default, which covers a subscription with no list of
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'kw:def'));
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, '/skip'));
     assert.equal((db.prepare('SELECT default_keywords AS k FROM users WHERE tg_user_id = ?').get(USER_ID) as { k: string | null }).k, null);
-    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Default keywords: none — every post/);
+    assert.match(String(api.last('editMessageText')?.body.rich_message?.html ?? ''), /🏷 no filter — every post/);
   } finally {
     db.close();
     await api.close();

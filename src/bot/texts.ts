@@ -230,12 +230,12 @@ export function s7FilterRows(platforms: string[], active: string | null, lang: L
   return rows;
 }
 
-/** ‹ › only when there is another page. */
-export function s7PagerRow(page: number, pages: number): string | null {
+/** ‹ › only when there is another page. `data` is the callback prefix, so any list can page itself. */
+export function s7PagerRow(page: number, pages: number, prefix = 'src:page:'): string | null {
   if (pages <= 1) return null;
   const buttons: string[] = [];
-  if (page > 0) buttons.push(`<tg-button type="callback_data" data="src:page:${page - 1}">‹</tg-button>`);
-  if (page < pages - 1) buttons.push(`<tg-button type="callback_data" data="src:page:${page + 1}">›</tg-button>`);
+  if (page > 0) buttons.push(`<tg-button type="callback_data" data="${prefix}${page - 1}">‹</tg-button>`);
+  if (page < pages - 1) buttons.push(`<tg-button type="callback_data" data="${prefix}${page + 1}">›</tg-button>`);
   return `<tg-button-row align="center">${buttons.join('')}</tg-button-row>`;
 }
 

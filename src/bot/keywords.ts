@@ -126,17 +126,17 @@ async function renderFilter(ctx: Context, deps: BotDeps, userId: number, page: n
   const view = s19View({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, defaults: user.default_keywords, lang: langFor(user.locale) });
   // Any repaint of the list is also a cancel: a prompt left armed would eat the next ordinary message.
   setSession(userId, { state: 'idle', keywordStep: undefined, kwPage: pageIndex });
-  const markup = { parse_mode: 'HTML' as const, reply_markup: view.keyboard };
+  const markup = { reply_markup: view.keyboard };
   if (messageId === undefined) {
-    await ctx.reply(view.text, markup);
+    await ctx.api.sendRichMessage(chatId, { html: view.html }, markup);
     return;
   }
   try {
-    await ctx.api.editMessageText(chatId, messageId, view.text, markup);
+    await ctx.api.editMessageText(chatId, messageId, { html: view.html }, markup);
   } catch (err) {
     if (notModified(err)) return;
-    // A message too old to edit (a command a week ago) is replaced rather than reported as a failure.
-    await ctx.reply(view.text, markup);
+    // Too old to edit, or a plain message from before the rich screen: a new one is the honest fix.
+    await ctx.api.sendRichMessage(chatId, { html: view.html }, markup);
   }
 }
 
