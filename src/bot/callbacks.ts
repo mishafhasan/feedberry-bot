@@ -14,13 +14,13 @@ import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import { fetchYouTubePost, youtubePostId } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { CONTENT_KINDS, filterByContentTypes, parseContentTypes, type ContentKind } from '../platform/content-types.ts';
-import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
+import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, sectionOf, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageMeta } from '../platform/page-text.ts';
 import { youtubeChannelOf } from '../platform/youtube-channel.ts';
 import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/s1-resolve.ts';
-import { fetchSourceFeed } from '../pipeline/s2-feed.ts';
+import { fetchPageSource, fetchSourceFeed } from '../pipeline/s2-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
 import { renderDownload } from '../pipeline/s6-render.ts';
@@ -54,7 +54,7 @@ import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
 import { s18View } from './screens/s18.ts';
 import { ADM } from './screens/s17.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
-import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody } from './texts.ts';
+import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody, sourceTitle } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -259,8 +259,10 @@ export async function handleSourceLink(ctx: Context, deps: BotDeps): Promise<voi
 
   const download = getSession(userId).mode === 'download';
   const kind = kindOf(link, deps);
-  if (download && kind === 'post') return runDownload(ctx, deps, userId, link);
-  if (!download && kind === 'source') return resolveOrAskTypes(ctx, deps, userId, link);
+  // A website page is one article (download) or one category (subscribe); both flows take it.
+  const page = isPageLink(link, deps);
+  if (download && (kind === 'post' || page)) return runDownload(ctx, deps, userId, link);
+  if (!download && (kind === 'source' || page)) return resolveOrAskTypes(ctx, deps, userId, link);
 
   // The wrong kind of link for this screen: say which one it wants, since Retry would fail again.
   const lang = langOf(deps, userId);
@@ -293,9 +295,17 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
 
   if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, text);
 
+  // A website page may be a category; its own feed decides, and an article keeps the download choice.
+  if (isPageLink(text, deps)) return resolveOrAskTypes(ctx, deps, userId, text, true);
+
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
   const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await youtubeChannelOf(deps.http, text))?.url ?? null;
-  setSession(userId, { state: 'choosing', chooser: { link: text, profile: profileUrl ?? undefined } });
+  await askPostOrSource(ctx, deps, userId, text, profileUrl);
+}
+
+/** The download-or-subscribe choice for a link that is not a source. */
+async function askPostOrSource(ctx: Context, deps: BotDeps, userId: number, link: string, profileUrl: string | null): Promise<void> {
+  setSession(userId, { state: 'choosing', chooser: { link, profile: profileUrl ?? undefined } });
   const lang = langOf(deps, userId);
   await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
 }
@@ -305,6 +315,29 @@ function kindOf(link: string, deps: BotDeps): LinkMatch['kind'] | null {
   try {
     return classifyLink(link, detectOpts(deps)).kind;
   } catch {
+    return null;
+  }
+}
+
+/** A plain website page: neither a known platform nor a URL that is already a feed. */
+function isPageLink(link: string, deps: BotDeps): boolean {
+  try {
+    return isWebsitePage(detectSource(link, detectOpts(deps)));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The page's own answer for anything that pasted a website page. `null` means "offer the download":
+ * with `askIfNotSection`, a page that is not a category — or has no feed at all — is an article.
+ */
+async function pageSourceFor(deps: BotDeps, ref: SourceRef, askIfNotSection: boolean): Promise<{ ref: SourceRef; feed: ParsedFeed; section: boolean } | null> {
+  try {
+    const page = await fetchPageSource(deps.http, ref);
+    return askIfNotSection && !page.section ? null : page;
+  } catch (err) {
+    if (!isCoded(err) || err.code !== E.NO_FEED || !askIfNotSection) throw err;
     return null;
   }
 }
@@ -344,7 +377,10 @@ async function choosePost(ctx: Context, deps: BotDeps, userId: number, download:
   if (!chooser) return restarted(ctx, deps, userId);
   // After a download the chooser already carries the profile, which is not always derivable from a URL.
   const profileUrl = download ? null : (chooser.profile ?? profileOfPost(chooser.link));
+  const page = isPageLink(chooser.link, deps);
   setSession(userId, { state: 'idle', chooser: undefined });
+  // A website page is resolved as itself: its own feed decides whether it is a category or a site.
+  if (page) return download ? runDownload(ctx, deps, userId, chooser.link) : resolveOrAskTypes(ctx, deps, userId, chooser.link);
   if (profileUrl) await resolveOrAskTypes(ctx, deps, userId, profileUrl);
   else await runDownload(ctx, deps, userId, chooser.link);
 }
@@ -356,7 +392,7 @@ const chosenTypes = (userId: number): ContentKind[] | null => getSession(userId)
  * A YouTube channel is asked what to watch before anything is fetched; every other source keeps the
  * one-step add. A link no flow can use falls through, so runResolve reports its own code.
  */
-async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
+async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string, askIfNotSection = false): Promise<void> {
   // Only the classification is guarded: a paint that fails must not become an add with default kinds.
   let ref: SourceRef | undefined;
   try {
@@ -365,7 +401,7 @@ async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, li
     // A bad link is runResolve's to report, with the keyboard that fits the code.
   }
   if (ref?.platform === 'youtube') return openTypePicker(ctx, deps, userId, ref, link);
-  await runResolve(ctx, deps, userId, link);
+  await runResolve(ctx, deps, userId, link, askIfNotSection);
 }
 
 /** `@handle`, or the channel id when the link named no handle. */
@@ -468,7 +504,7 @@ async function setLanguage(ctx: Context, deps: BotDeps, userId: number, code: st
   await paintRich(ctx, mainMenu(userId, deps));
 }
 
-async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
+async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: string, askIfNotSection = false): Promise<void> {
   const user = ensureUser(deps.db, userId);
   ensurePrivateChat(deps.db, user.id, userId);
   const chatId = ctx.chat?.id;
@@ -478,7 +514,8 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
   try {
     // §12.4: one source-add per 10 s.
     if (!allowAdd(userId, deps.cfg.limits.addIntervalMs)) throw new Coded(E.SLOW_DOWN, 'add interval');
-    const ref = resolveProfile(link, detectOpts(deps));
+    // A website page is resolved last: its category URL is only known after the feed answers below.
+    let ref = resolveProfile(link, detectOpts(deps));
 
     // Checked before any fetch: a source the user already follows needs no preview, only a pointer.
     const known = findSourceByUrl(deps.db, ref.canonicalUrl);
@@ -492,7 +529,22 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     setSession(userId, { state: 'checking', error: undefined });
     working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
-    const feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId), deps.cfg.rsshubBase);
+    // A website page may be a category listing: its own feed decides, and a page with none is the site.
+    let feed: ParsedFeed;
+    if (isWebsitePage(ref)) {
+      const page = await pageSourceFor(deps, ref, askIfNotSection);
+      if (page === null) {
+        // A page with no feed is an article: the download choice needs no feed at all.
+        await askPostOrSource(ctx, deps, userId, link, profileOfPost(link));
+        return;
+      }
+      ref = page.ref;
+      feed = page.feed;
+    } else {
+      feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId), deps.cfg.rsshubBase);
+    }
+    const section = sectionOf(ref.canonicalUrl);
+    const author = sourceTitle(feed.title ?? ref.externalId, section);
     // §5.4: every item is recorded as seen; the preview and the backfill use the newest few.
     const preview = newest(filterByContentTypes(ref.platform, feed.items, chosenTypes(userId)), deps.cfg.limits.backfillCount);
     const pending: PendingSource = {
@@ -500,14 +552,14 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
       ...ref,
       // A feed discovered from the page is what stage 2 and every later check will use.
       feedUrl: feed.feedUrl ?? ref.feedUrl,
-      author: feed.title ?? ref.externalId,
+      author,
       avatarUrl: feed.avatarUrl,
       items: feed.items,
-      bodyText: sourceBody({ platform: ref.platform, author: feed.title ?? ref.externalId, items: preview }),
+      bodyText: sourceBody({ platform: ref.platform, author, items: preview, section, lang }),
       photo: false,
       at: Date.now(),
     };
-    pending.photo = await sendPreview(ctx, deps, user.id, ref, feed, preview, lang);
+    pending.photo = await sendPreview(ctx, deps, user.id, ref, feed, preview, lang, section);
     setSession(userId, { state: 'preview', pending });
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'source', link });
@@ -520,10 +572,11 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
 }
 
 /** Returns whether the preview went out as a photo (S5/S6 then edit a caption). */
-async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang): Promise<boolean> {
+async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang, section: string | null): Promise<boolean> {
   const view = s4View({
     platform: ref.platform,
-    author: feed.title ?? ref.externalId,
+    author: sourceTitle(feed.title ?? ref.externalId, section),
+    section,
     avatarUrl: feed.avatarUrl,
     items,
     personalChatId: personalChat(deps.db, ownerUserId).id,

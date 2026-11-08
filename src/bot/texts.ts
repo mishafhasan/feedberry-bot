@@ -87,18 +87,38 @@ export function s3Text(canonicalUrl: string, lang: Lang = 'en'): string {
 }
 
 /** S4 — preview. Items are the newest few, oldest first (§5.4). */
-export function s4Text(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string; lang?: Lang }): string {
+export function s4Text(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string; section?: string | null; lang?: Lang }): string {
   const lang = params.lang ?? 'en';
   return `${sourceBody(params)}\n\n${t(lang, 's4.question')}\n\n${t(lang, 's4.hint')}`;
 }
 
 /** The author + items block S4 and S5 share; kept so S5 can rebuild the caption without refetching. */
-export function sourceBody(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string }): string {
+export function sourceBody(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string; section?: string | null; lang?: Lang }): string {
   const lines = params.items.map((item) => {
     const when = item.publishedAt === null ? null : mmddhhmm(item.publishedAt, params.tz);
     return when === null ? `• — ${esc(item.title)}` : `• [${when}] — ${esc(item.title)}`;
   });
-  return `${platformIcon(params.platform)} <b>${esc(params.author)}</b>\n\n${lines.join('\n')}`;
+  // A category source says which category, so the preview cannot be mistaken for the whole site.
+  const scope = params.section === null || params.section === undefined ? '' : `\n${t(params.lang ?? 'en', 's4.category', { name: esc(sectionLabel(params.section)) })}`;
+  return `${platformIcon(params.platform)} <b>${esc(params.author)}</b>${scope}\n\n${lines.join('\n')}`;
+}
+
+/**
+ * What S4, S6 and the source list call the source. A category subscription names its section, unless
+ * the feed's own title already does (`Science Latest`).
+ */
+export function sourceTitle(title: string, section: string | null): string {
+  if (section === null) return title;
+  const label = sectionLabel(section);
+  const lower = title.toLowerCase();
+  return label.toLowerCase().split(' ').some((word) => word.length > 2 && lower.includes(word)) ? title : `${title} · ${label}`;
+}
+
+/** `/category/artificial-intelligence` → `Artificial Intelligence`; a trailing section id names nothing. */
+export function sectionLabel(section: string): string {
+  const words = section.split('/').filter((part) => part !== '' && !/^\d+$/.test(part));
+  const slug = words.at(-1) ?? section;
+  return slug.replace(/[-_]+/g, ' ').replace(/(^|\s)(\S)/g, (_, lead: string, char: string) => lead + char.toUpperCase());
 }
 
 /** S5 — the same preview with the add question (§7.2 add:save / add:save_silent). */

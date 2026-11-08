@@ -8,3 +8,4 @@ rsshub-cache/
 *.db-wal
 *.db-shm
 *.log
+.worktrees/

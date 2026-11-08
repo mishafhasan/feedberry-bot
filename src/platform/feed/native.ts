@@ -14,6 +14,8 @@ export interface FeedItem {
   publishedAt: number | null;
   summary: string | null;
   media: FeedMedia[];
+  /** `<category>` tags: the only thing a site-wide feed says about which section an item belongs to. */
+  categories?: string[];
 }
 
 export interface ParsedFeed {
@@ -33,8 +35,8 @@ export function handleFeedStatus(status: number): void {
   if (status >= 400) throw new Coded(E.NO_FEED, `feed replied ${status}`);
 }
 
-export async function fetchAndParse(http: Http, url: string): Promise<ParsedFeed> {
-  const res = await http(url, { maxBytes: FEED_LIMIT });
+export async function fetchAndParse(http: Http, url: string, timeoutMs?: number): Promise<ParsedFeed> {
+  const res = await http(url, { maxBytes: FEED_LIMIT, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   handleFeedStatus(res.status);
   return { ...parseFeed(res.body, res.url), feedUrl: res.url };
 }
@@ -95,14 +97,24 @@ function pageImage(html: string): string | null {
   return null;
 }
 
-export function discoverAlternate(html: string, baseUrl: string): string | null {
+export function discoverAlternates(html: string, baseUrl: string): string[] {
+  const feeds: string[] = [];
   for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
     if (!/rel\s*=\s*["']?alternate/i.test(tag)) continue;
     if (!/type\s*=\s*["']?application\/(rss|atom)\+xml/i.test(tag)) continue;
     const href = attr(tag, 'href');
-    if (href) return new URL(decodeEntities(href), baseUrl).toString();
+    if (!href) continue;
+    try {
+      feeds.push(new URL(decodeEntities(href), baseUrl).toString());
+    } catch {
+      // A broken href advertises nothing; the next one still counts.
+    }
   }
-  return null;
+  return feeds;
+}
+
+export function discoverAlternate(html: string, baseUrl: string): string | null {
+  return discoverAlternates(html, baseUrl)[0] ?? null;
 }
 
 /**
@@ -134,6 +146,7 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
       publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'updated')),
       summary: summary ? summary.slice(0, SUMMARY_LIMIT) : null,
       media: mediaOf(block, baseUrl),
+      categories: categoriesOf(block),
     });
   }
 
@@ -160,6 +173,17 @@ function avatarOf(head: string, baseUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** RSS puts the label in the body, Atom in `term`; both may repeat, and a duplicate is noise. */
+function categoriesOf(block: string): string[] | undefined {
+  const tags: string[] = [];
+  for (const match of block.matchAll(/<category\b([^>]*)>([\s\S]*?)<\/category>|<category\b([^>]*)\/>/gi)) {
+    const attrs = match[1] ?? match[3] ?? '';
+    const label = decodeEntities(/\bterm\s*=\s*["']([^"']*)["']/i.exec(attrs)?.[1] ?? stripTags(match[2] ?? '')).trim();
+    if (label !== '' && !tags.includes(label)) tags.push(label);
+  }
+  return tags.length === 0 ? undefined : tags;
 }
 
 function mediaOf(block: string, baseUrl: string): FeedMedia[] {

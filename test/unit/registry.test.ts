@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { classifyLink, detectSource } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource, isSectionSource, isSectionUrl, sectionOf } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -217,4 +217,41 @@ test('M13 registry: every TikTok post shape and share host is a single post', ()
   assert.equal(legacy.canonicalUrl, 'https://tiktok.com/v/123.html', 'the .html suffix stays: cobalt matches it');
 
   assert.equal(detectSource('https://www.tiktok.com/@user', opts).strategy, 'rsshub', 'a profile is still a feed');
+});
+
+test('M19 sections: a category URL is a source, an article stays a post', () => {
+  const source = { kind: 'source' };
+  assert.deepEqual(classifyLink('https://www.wired.com/category/science/', opts), source);
+  assert.deepEqual(classifyLink('https://techcrunch.com/category/artificial-intelligence/', opts), source);
+  assert.deepEqual(classifyLink('https://www.dailymirror.lk/top-stories/155', opts), source, 'a section id names a listing');
+
+  assert.deepEqual(classifyLink('https://www.wired.com/story/a-quiet-return/', opts), { kind: 'post', profileUrl: 'https://wired.com' });
+  assert.deepEqual(classifyLink('https://techcrunch.com/2026/11/06/a-post/', opts), { kind: 'post', profileUrl: 'https://techcrunch.com' });
+  assert.deepEqual(classifyLink('https://blog.test/news/2026/11/06/a-post', opts), { kind: 'post', profileUrl: 'https://blog.test' }, 'a dated article is not a section id');
+  assert.deepEqual(classifyLink('https://www.bbc.com/technology', opts), { kind: 'post', profileUrl: 'https://bbc.com' }, 'one segment is ambiguous: only its feed can tell');
+});
+
+test('M19 sections: the section cut keeps the listing and drops the page number', () => {
+  assert.equal(sectionOf('https://www.wired.com/category/science/'), '/category/science');
+  assert.equal(sectionOf('https://www.wired.com/category/science/page/2'), '/category/science');
+  assert.equal(sectionOf('https://www.dailymirror.lk/top-stories/155'), '/top-stories/155');
+  assert.equal(sectionOf('https://www.bbc.com/technology'), '/technology');
+
+  assert.equal(sectionOf('https://www.wired.com/'), null, 'a site root is the whole site');
+  assert.equal(sectionOf('https://feeds.bbci.co.uk/news/world/rss.xml'), null, 'a feed is already the source');
+  assert.equal(sectionOf('https://www.instagram.com/cristiano'), null, 'a known platform is a profile');
+});
+
+test('M19 sections: only a marker or a section id is a listing on the URL alone', () => {
+  assert.equal(isSectionUrl('/category/science'), true);
+  assert.equal(isSectionUrl('/topics/ai'), true);
+  assert.equal(isSectionUrl('/top-stories/155'), true);
+  assert.equal(isSectionUrl('/news/1234'), true, 'two segments, a numeric id');
+  assert.equal(isSectionUrl('/news/2026/11/06/a-post'), false, 'a dated article only looks like an id');
+  assert.equal(isSectionUrl('/technology'), false, 'an article slug looks the same');
+  assert.equal(isSectionUrl('/2026/11/06/a-post'), false, 'a dated article is not a section id');
+
+  assert.equal(isSectionSource(detectSource('https://www.wired.com/category/science/', opts)), true);
+  assert.equal(isSectionSource(detectSource('https://www.wired.com/story/a-quiet-return/', opts)), false);
+  assert.equal(isSectionSource(detectSource('https://www.instagram.com/cristiano', opts)), false);
 });
