@@ -301,10 +301,12 @@ A category URL is a source of its own (ADR-018). `sectionOf` reads the section p
 `/category/science` and `/top-stories/155` are sources in every screen. A one-segment page (`/technology`)
 is ambiguous, so free text resolves it before choosing a flow: a page with a section feed goes straight to
 the preview, a page without one keeps the Download/Add chooser. Stage 2 resolves the section feed in order: the feed the page
-scopes to itself, `<section>/feed` or `/rss`, an alias the page links to itself (`bbc.com/technology` →
-`/news/technology/rss.xml`), a feed directory the page links (matched by the section id), and last the
-site-wide feed filtered by `<category>` tags or item URL. A page that resolves to nothing is the site it
-belongs to; a section with no feed at all is `E_NO_FEED`, never an empty subscription.
+scopes to itself, the site-wide feed filtered by `<category>` tags or item URL (it answers in a second,
+where a category feed can be a 3 MB, half-minute download), `<section>/feed` or `/rss`, an alias the page
+links to itself (`bbc.com/technology` → `/news/technology/rss.xml`), and a feed directory the page links
+(matched by the section id). A page that resolves to nothing is the site it
+belongs to; a section with no feed at all is `E_NO_FEED`, never an empty subscription, and a timeout
+while guessing is `E_FEED_DOWN`, never a silent widening to the site.
 
 Formats and budgets (ADR-019): discovery reads RSS 2.0, Atom 1.0 and RSS 1.0 (RDF) documents, and a feed's
 charset comes from its BOM, then its own `<?xml encoding=?>` declaration, then the transport — one

@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
+import { Coded, E } from '../../src/platform/errors.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
@@ -61,6 +62,34 @@ test('M22: a post permalink offers download/add, and Add follows the site', asyn
     const preview = String(api.last('sendMessage')?.body.text ?? '');
     assert.match(preview, /<b>Example Blog<\/b>/, 'Add resolves the site, not the post’s comment feed');
     assert.doesNotMatch(preview, /Comments on/, 'the comment feed is never used');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M22: a post whose feed is down still offers the download', async () => {
+  // A transient outage must not turn a post link into "source unreachable": downloading needs no feed.
+  const down: Http = async (url) => {
+    if (url === POST) return { status: 200, url, contentType: 'text/html', body: '<html><head><title>Post</title></head></html>' };
+    throw new Coded(E.FEED_DOWN, `timeout ${url}`);
+  };
+
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-post-down-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http: down });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, POST));
+
+    const chooser = api.last('sendMessage');
+    assert.match(String(chooser?.body.text ?? ''), /This is a post link/, 'the download is offered despite the outage');
   } finally {
     db.close();
     await api.close();

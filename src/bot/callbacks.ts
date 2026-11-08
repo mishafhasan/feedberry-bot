@@ -330,14 +330,14 @@ function isPageLink(link: string, deps: BotDeps): boolean {
 
 /**
  * The page's own answer for anything that pasted a website page. `null` means "offer the download":
- * with `askIfNotSection`, a page that is not a category — or has no feed at all — is an article.
+ * with `askIfNotSection`, a page that is not a category — or whose feed is down — is still a post, and
+ * the download needs no feed at all.
  */
 async function pageSourceFor(deps: BotDeps, ref: SourceRef, askIfNotSection: boolean): Promise<{ ref: SourceRef; feed: ParsedFeed; section: boolean } | null> {
   try {
-    const page = await fetchPageSource(deps.http, ref);
-    return askIfNotSection && !page.section ? null : page;
+    return await fetchPageSource(deps.http, ref, !askIfNotSection);
   } catch (err) {
-    if (!isCoded(err) || err.code !== E.NO_FEED || !askIfNotSection) throw err;
+    if (!isCoded(err) || !askIfNotSection) throw err;
     return null;
   }
 }

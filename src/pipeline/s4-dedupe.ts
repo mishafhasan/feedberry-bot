@@ -74,9 +74,25 @@ function freshItems(items: FeedItem[], known: Identity): FeedItem[] {
   });
 }
 
-/** Feeds re-issue guids with a cache-busting tail; the base is the identity. */
+/** Cache-busting query keys a feed may append to an otherwise stable guid or link. */
+const TRACKING_KEY = /^(utm_|fbclid$|gclid$|mc_|ref$)/i;
+
+/**
+ * Feeds re-issue guids with a cache-busting tail; the base is the identity. A guid whose whole
+ * identity is its query — WordPress serves `/?p=16687997` for every post — keeps that query.
+ */
 export function normalizeGuid(guid: string): string {
-  return guid.trim().toLowerCase().replace(/[?#].*$/, '');
+  const base = guid.trim().toLowerCase().replace(/#.*$/, '');
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    return base;
+  }
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (TRACKING_KEY.test(key)) parsed.searchParams.delete(key);
+  }
+  return parsed.href;
 }
 
 /**
@@ -107,7 +123,7 @@ export function normalizeUrl(url: string): string {
     return url.trim();
   }
   for (const key of [...parsed.searchParams.keys()]) {
-    if (/^(utm_|fbclid$|gclid$|mc_|ref$)/i.test(key)) parsed.searchParams.delete(key);
+    if (TRACKING_KEY.test(key)) parsed.searchParams.delete(key);
   }
   const search = parsed.searchParams.toString();
   const host = parsed.hostname.replace(/^www\./, '').toLowerCase();

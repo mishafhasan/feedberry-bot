@@ -53,8 +53,10 @@ export async function fetchSourceFeed(http: Http, ref: SourceRef, selected: Cont
  * The source a pasted website page stands for (§5.3): the page's own category when the site has a feed
  * for it, otherwise the site the page belongs to — which is what subscribing to an article followed
  * before category sources existed. `section` says which of the two answered.
+ * `siteFallback` is off when the caller only asks "is this page a category?": an article's chooser
+ * needs no site feed, so the site page is not fetched for it.
  */
-export async function fetchPageSource(http: Http, ref: SourceRef): Promise<{ ref: SourceRef; feed: ParsedFeed; section: boolean }> {
+export async function fetchPageSource(http: Http, ref: SourceRef, siteFallback = true): Promise<{ ref: SourceRef; feed: ParsedFeed; section: boolean }> {
   const section = sectionOf(ref.canonicalUrl);
   if (section !== null) {
     try {
@@ -68,6 +70,7 @@ export async function fetchPageSource(http: Http, ref: SourceRef): Promise<{ ref
       if (isSectionUrl(section)) throw err;
     }
   }
+  if (!siteFallback) throw new Coded(E.NO_FEED, `no feed for ${section ?? ref.canonicalUrl}`);
   const site = siteOf(ref);
   return { ref: site, feed: await fetchNativeFeed(http, site), section: false };
 }

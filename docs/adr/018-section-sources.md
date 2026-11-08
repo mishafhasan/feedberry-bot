@@ -38,12 +38,16 @@ requires a fetch, so it cannot be decided in the pure stage of §5.1.
    `classifyLink` answers `source` for those, so they behave exactly like a profile link everywhere.
 2. **A one-segment page is proven by its feed**, not by its shape (`/science` and `/my-article` are
    identical on the URL): free text resolves the page first, so a section goes straight to the preview
-   and an article keeps the Download/Add chooser. Add Source resolves it the same way, with the site as
-   the fallback (`fetchPageSource` returns which of the two answered).
+   and an article keeps the Download/Add chooser. Free text asks only "is this page a section?", so it
+   does not fetch the site behind an article; Add Source resolves the full source, with the site as the
+   fallback (`fetchPageSource` returns which of the two answered).
 3. **Stage 2 resolves the section feed** in this order: stored feed, page-scoped `rel=alternate`, the
-   conventional path under the section, an alias the page links to itself, a feed directory the page
-   links, and finally the site-wide feed **filtered** by `<category>` tags or item URL. Nothing usable is
-   `E_NO_FEED` — never a silently empty source.
+   site-wide feed **filtered** by `<category>` tags or item URL, the conventional path under the section,
+   an alias the page links to itself, and a feed directory the page links. The filtered site feed comes
+   before the section path because a category feed can be megabytes and take half a minute (sammobile
+   `/news/feed/`: 3 MB, 28 s), while the site feed answers in a second and the filter already proves the
+   section. Nothing usable is `E_NO_FEED` — never a silently empty source; a timeout while guessing is an
+   outage (`E_FEED_DOWN`), not "this page is not a category".
 4. **Only an unscoped feed is filtered.** A feed whose URL carries the section segment is the section.
 
 ## Consequences
@@ -51,7 +55,7 @@ requires a fetch, so it cannot be decided in the pure stage of §5.1.
 - No schema change: the category is the `canonical_url` path, the feed is `sources.feed_url` (already
   stored by the first check), and `sources.title` names the category (`BBC News · Technology`).
 - `FeedItem` gains an optional `categories` field, so posts payloads stay small and old rows are valid.
-- A resolve may now try up to 12 feeds within 20 s. It happens once per add and once per unknown feed;
+- A resolve may now try up to 12 feeds within 60 s. It happens once per add and once per unknown feed;
   a resolved source stores its feed URL and later checks fetch exactly one.
 - A site that publishes no feed for a section (no advertised feed, no conventional path, no linked
   directory, no alias) is refused with `E_NO_FEED`. That is a property of the site, not of the bot.

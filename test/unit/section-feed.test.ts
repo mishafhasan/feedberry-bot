@@ -48,15 +48,35 @@ test('section feed: the feed the page scopes to itself answers, and nothing else
 
 test('section feed: the conventional path under the section answers when the page names no feed', async () => {
   const seen: string[] = [];
+  const page = 'https://site.test/category/science';
+  const sectionFeed = `${page}/feed/`;
   const feed = await fetchSectionFeed(
-    stubHttp({ [PAGE]: { status: 200, body: html('') }, [FEED]: { status: 200, body: rss(item('https://site.test/story/b')) } }, seen),
+    stubHttp({ [PAGE]: { status: 200, body: html('') }, [sectionFeed]: { status: 200, body: rss(item('https://site.test/story/b')) } }, seen),
     section,
     '/category/science',
   );
 
   assert.equal(feed.items.length, 1);
-  assert.equal(feed.feedUrl, FEED);
-  assert.deepEqual(seen, [PAGE, FEED], '/feed/ is the first convention tried');
+  assert.equal(feed.feedUrl, sectionFeed);
+  assert.deepEqual(seen, [PAGE, 'https://site.test/feed/', 'https://site.test/rss', sectionFeed], 'the site feed is cheap evidence, then the path under the section');
+});
+
+test('section feed: a fast site-wide feed proves the section before a slow category feed', async () => {
+  // sammobile.com/news: the category feed is 3 MB and takes half a minute; the site feed answers in
+  // a second and every item already lives under /news, which is the proof the section needs.
+  const page = 'https://site.test/news';
+  const siteFeed = 'https://site.test/feed/';
+  const slow = `${page}/feed/`;
+  const http: Http = async (url) => {
+    if (url === page) return { status: 200, url, contentType: 'text/html', body: html('') };
+    if (url === siteFeed) return { status: 200, url, contentType: 'application/rss+xml', body: rss(item('https://site.test/news/a')) };
+    if (url === slow) throw new Coded(E.FEED_DOWN, 'timeout');
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  const feed = await fetchSectionFeed(http, { ...section, canonicalUrl: page, externalId: 'site.test' }, '/news');
+  assert.equal(feed.feedUrl, siteFeed);
+  assert.equal(feed.items.length, 1);
 });
 
 test('section feed: an alias the page links to itself carries the feed (bbc.com/technology → /news/technology)', async () => {
@@ -173,6 +193,20 @@ test('section feed: a post’s own comment feed is not a category', async () => 
   );
 });
 
+test('section feed: a timeout while guessing is an outage, not "no feed here"', async () => {
+  // A category feed that exists but times out must not widen the source to the whole site.
+  const http: Http = async (url) => {
+    if (url === PAGE) return { status: 200, url, contentType: 'text/html', body: html('') };
+    throw new Coded(E.FEED_DOWN, `timeout ${url}`);
+  };
+
+  await assert.rejects(
+    () => fetchSectionFeed(http, section, '/category/science'),
+    (err: unknown) => isCoded(err) && err.code === E.FEED_DOWN,
+    'the outage reaches the caller instead of NO_FEED',
+  );
+});
+
 test('section feed: a page with no feed for the section is an honest E_NO_FEED', async () => {
   await assert.rejects(
     () => fetchSectionFeed(stubHttp({ [PAGE]: { status: 200, body: html('') } }, []), section, '/category/science'),
@@ -199,6 +233,22 @@ test('section feed: a category URL with no feed is refused, never widened to the
     () => fetchPageSource(stubHttp({ [PAGE]: { status: 200, body: html('') } }, []), section),
     (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
   );
+});
+
+test('section feed: a pasted article is answered without fetching the site behind it', async () => {
+  // The chooser discards the site feed, so a 12 s site page must not be fetched to say "not a category".
+  const seen: string[] = [];
+  const article = 'https://blog.test/posts/a-quiet-return';
+  const http = stubHttp(
+    { [article]: { status: 200, body: html(alternate('https://blog.test/rss')) }, 'https://blog.test/rss': { status: 200, body: rss(item('https://blog.test/posts/other')) } },
+    seen,
+  );
+
+  await assert.rejects(
+    () => fetchPageSource(http, { ...section, canonicalUrl: article, externalId: 'blog.test' }, false),
+    (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
+  );
+  assert.ok(!seen.includes('https://blog.test'), 'the site page is not fetched for a chooser');
 });
 
 test('section feed: a pasted article falls back to the site it belongs to', async () => {

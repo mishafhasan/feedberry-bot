@@ -1,4 +1,4 @@
-import { Coded, E } from '../errors.ts';
+import { Coded, E, isCoded } from '../errors.ts';
 import { HTML_LIMIT, type Http } from '../http.ts';
 import { decodeEntities, discoverAlternates, fetchAndParse, handleFeedStatus, parseFeed, type FeedItem, type ParsedFeed } from './native.ts';
 import type { SourceRef } from '../registry.ts';
@@ -7,9 +7,10 @@ import type { SourceRef } from '../registry.ts';
 const SUFFIXES = ['/feed/', '/rss', '/rss.xml', '/feed.xml', '/index.xml', '/atom.xml'];
 
 /** One resolve tries this many feeds, and never spends longer than this: a site without a feed for
- *  the section must fail at add time, not hang the flow. */
+ *  the section must fail at add time, not hang the flow. A big category feed (275 items, 3 MB) answered
+ *  in 28 s in the wild, so the ceiling is the RSSHub one, not the 20 s transport default. */
 const MAX_FEEDS = 12;
-const MAX_MS = 20_000;
+const MAX_MS = 60_000;
 
 /** A section word shorter than this matches too much in a URL to be evidence; a section id always counts. */
 const MIN_KEY = 4;
@@ -17,13 +18,13 @@ const MIN_KEY = 4;
 /**
  * Stage 2 for a section source (ARCHITECTURE §5.3): the feed of one category of a site.
  * A category page rarely names its own feed, so the section proves itself in order through the feed
- * the page scopes to itself, the conventional path under the section, an alias the page links
- * (`/news/technology`), a feed directory the page links, or the site-wide feed filtered by category.
+ * the page scopes to itself, the site-wide feed it filters down to the section, the conventional
+ * path under the section, an alias the page links (`/news/technology`), or a feed directory.
  */
 export async function fetchSectionFeed(http: Http, ref: SourceRef, section: string): Promise<ParsedFeed> {
   // A stored feed already answered for this source; only an unscoped one needs the filter again.
   if (ref.feedUrl !== null) {
-    const kept = usable(await fetchAndParse(http, ref.feedUrl), section, ref.canonicalUrl);
+    const kept = usable(await fetchAndParse(http, ref.feedUrl, MAX_MS), section, ref.canonicalUrl);
     if (kept === null) throw new Coded(E.NO_FEED, `nothing in ${section}`);
     return kept;
   }
@@ -37,20 +38,32 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
   }
 
   const alternates = discoverAlternates(page.body, page.url);
+  const origin = originOf(page.url);
   const candidates = [
     ...alternates.filter((url) => isScoped(url, section)),
-    ...SUFFIXES.map((suffix) => new URL(section + suffix, originOf(page.url)).toString()),
+    // A category feed can be a 3 MB, 30 s download; the site-wide feed answers in a second and the
+    // item filter still proves the section, so the cheap evidence is asked first.
+    ...['/feed/', '/rss'].map((suffix) => new URL(suffix, origin).toString()),
+    ...SUFFIXES.map((suffix) => new URL(section + suffix, origin).toString()),
     ...aliasBases(page.body, page.url, section).flatMap((base) => [`${base}/rss.xml`, `${base}/feed/`]),
   ];
 
   const startedAt = Date.now();
   const remaining = (): number => MAX_MS - (Date.now() - startedAt);
   const tried = new Set<string>();
+  /** The first real outage, kept so a timeout is never mistaken for "this page is not a section". */
+  let failure: Coded | null = null;
   const attempt = async (url: string): Promise<ParsedFeed | null> => {
     const left = remaining();
     if (tried.has(url) || tried.size >= MAX_FEEDS || left <= 0) return null;
     tried.add(url);
-    return tryFeed(http, url, section, left, ref.canonicalUrl);
+    try {
+      return usable(await fetchAndParse(http, url, left), section, ref.canonicalUrl);
+    } catch (err) {
+      // A guessed URL that 404s or answers a soft-404 page is expected; a timeout is not.
+      if (isCoded(err) && err.code !== E.NO_FEED && failure === null) failure = err;
+      return null;
+    }
   };
 
   for (const url of candidates) {
@@ -65,16 +78,9 @@ export async function fetchSectionFeed(http: Http, ref: SourceRef, section: stri
     if (feed !== null) return feed;
   }
 
+  // An outage seen while guessing is not "not a category": widening to the site would store the wrong source.
+  if (failure !== null) throw failure;
   throw new Coded(E.NO_FEED, `no feed for ${section}`);
-}
-
-/** A guessed URL that 404s or answers a soft-404 page is expected; the next candidate is the point. */
-async function tryFeed(http: Http, url: string, section: string, timeoutMs: number, pageUrl: string): Promise<ParsedFeed | null> {
-  try {
-    return usable(await fetchAndParse(http, url, timeoutMs), section, pageUrl);
-  } catch {
-    return null;
-  }
 }
 
 /**

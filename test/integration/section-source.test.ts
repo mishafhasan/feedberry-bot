@@ -104,13 +104,11 @@ test('M19: a category link is previewed as a category and stored with its own fe
     // A page with no category feed is an article: the download choice stays, but is offered from the
     // resolution instead of from the URL shape.
     resetSession(USER_ID); // the preview above owns the session; a fresh message starts a new flow
-    const before = seen.filter((url) => url === SITE_FEED).length;
+    const feedsBefore = seen.filter((url) => url === SITE_FEED).length;
+    const pagesBefore = seen.filter((url) => url === SITE).length;
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, ARTICLE));
-    assert.equal(
-      seen.filter((url) => url === SITE_FEED).length - before,
-      2,
-      'the feed is fetched as the alternate and again as the site fallback, never as a directory too',
-    );
+    assert.equal(seen.filter((url) => url === SITE_FEED).length - feedsBefore, 1, 'the page’s own alternate is fetched once as evidence');
+    assert.equal(seen.filter((url) => url === SITE).length - pagesBefore, 0, 'a chooser needs no site page');
     const chooser = api.last('sendMessage');
     assert.match(String(chooser?.body.text ?? ''), /post link/);
     const buttons = ((chooser?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> } | undefined)?.inline_keyboard ?? []).flat().map((button) => button.callback_data);
