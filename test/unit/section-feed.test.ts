@@ -157,6 +157,22 @@ test('section feed: a scoped feed is never emptied by the tag filter', async () 
   assert.equal(feed.items.length, 1, 'the section feed is the section, whatever its items are tagged');
 });
 
+test('section feed: a post’s own comment feed is not a category', async () => {
+  // WordPress answers `/<post-slug>/feed/` with the comments feed; its items point at the post itself.
+  const page = 'https://blog.test/news/how-to-do-a-thing';
+  const comments = `${page}/feed/`;
+  const body = rss(
+    '<item><title>By: someone</title><link>https://www.blog.test/news/how-to-do-a-thing/#comment-1</link><guid>x</guid></item>',
+    'Comments on: How to do a thing',
+  );
+
+  await assert.rejects(
+    () => fetchSectionFeed(stubHttp({ [page]: { status: 200, body: html('') }, [comments]: { status: 200, body } }, []), { ...section, canonicalUrl: page, externalId: 'blog.test' }, '/news/how-to-do-a-thing'),
+    (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
+    'items that point back at the page are not a section',
+  );
+});
+
 test('section feed: a page with no feed for the section is an honest E_NO_FEED', async () => {
   await assert.rejects(
     () => fetchSectionFeed(stubHttp({ [PAGE]: { status: 200, body: html('') } }, []), section, '/category/science'),

@@ -68,6 +68,11 @@ this decision.
     so `/rss/breaking_news/108` is a `feedUrl` rather than a page. Before, only a path *ending* in
     feed/rss/xml qualified; the URL was read as a page, resolved to its site root, and a site whose root
     publishes no feed answered `E_NO_FEED` — even though the pasted URL was a valid feed.
+11. **The pasted page is never its own evidence, scoped or not.** WordPress answers `/<post-slug>/feed/`
+    with the post's **comments** feed, whose URL carries the slug and whose items point back at the post, so
+    the scoped test alone accepted it and a post link became a "category". `usable()` now drops items that
+    point at the page before deciding, and compares hosts without `www.` (canonical URLs drop it, feed items
+    keep it). A feed that is only the page talking about itself is not a section.
 
 ## Consequences
 

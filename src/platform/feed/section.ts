@@ -80,24 +80,30 @@ async function tryFeed(http: Http, url: string, section: string, timeoutMs: numb
 /**
  * A feed scoped to the section is already the section's own. A site-wide feed keeps only the items
  * that carry the section in their link or their `<category>` tags; none is `null`, never an empty feed.
- * The pasted page itself never counts: an article is an item of its own site's feed.
+ * The pasted page never counts, scoped or not: WordPress serves a post's own comment feed at
+ * `/<post-slug>/feed/`, whose items point straight back at the post.
  */
 function usable(feed: ParsedFeed, section: string, pageUrl: string): ParsedFeed | null {
-  if (feed.feedUrl !== null && feed.feedUrl !== undefined && isScoped(feed.feedUrl, section)) return feed;
-  const items = feed.items.filter((item) => !samePage(item.link, pageUrl) && inSection(item, section));
-  return items.length === 0 ? null : { ...feed, items };
+  const items = feed.items.filter((item) => !samePage(item.link, pageUrl));
+  if (items.length === 0) return null;
+  if (feed.feedUrl !== null && feed.feedUrl !== undefined && isScoped(feed.feedUrl, section)) return { ...feed, items };
+  const matching = items.filter((item) => inSection(item, section));
+  return matching.length === 0 ? null : { ...feed, items: matching };
 }
 
-/** Two links to the same page, whatever tracking query or trailing slash the feed added. */
+/** Two links to the same page, whatever the feed added: `www.`, a tracking query, a trailing slash. */
 function samePage(left: string, right: string): boolean {
   try {
     const a = new URL(left);
     const b = new URL(right);
-    return a.host === b.host && stripSlash(a.pathname) === stripSlash(b.pathname);
+    return bareHost(a) === bareHost(b) && stripSlash(a.pathname) === stripSlash(b.pathname);
   } catch {
     return left === right;
   }
 }
+
+/** Canonical URLs drop `www.`, feed items rarely do. */
+const bareHost = (url: URL): string => url.host.replace(/^www\./, '');
 
 /** A feed URL carries the section's own segment: `/category/science/feed/`, `/news/technology/rss.xml`. */
 function isScoped(url: string, section: string): boolean {
