@@ -378,7 +378,8 @@ function single(u: URL, platform: Platform, externalId: string, canonicalUrl?: s
 /** A plain website: use it as a feed if it looks like one, otherwise discover (stage 2). */
 function genericWebsite(u: URL): SourceRef {
   const path = u.pathname.replace(/\/+$/, '') || '/';
-  const looksLikeFeed = /(\.(xml|rss|atom)|feed|rss)(\/)?$/i.test(u.pathname);
+  // The same rule sectionOf uses: `/rss/breaking_news/108` is a feed even though it does not end in one.
+  const looksLikeFeed = FEED_PAGE.test(u.pathname);
   const href = `${u.protocol}//${normalizeHost(u.hostname)}${path === '/' ? '' : path}${u.search}`;
   return { platform: 'rss', canonicalUrl: href, externalId: u.hostname, feedUrl: looksLikeFeed ? href : null, strategy: 'native_rss' };
 }

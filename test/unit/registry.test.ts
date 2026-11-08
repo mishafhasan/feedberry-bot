@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { classifyLink, detectSource, isSectionSource, isSectionUrl, sectionOf } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource, isSectionSource, isSectionUrl, isWebsitePage, sectionOf } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -256,4 +256,17 @@ test('M19 sections: only a marker or a section id is a listing on the URL alone'
   assert.equal(isSectionSource(detectSource('https://www.wired.com/category/science/', opts)), true);
   assert.equal(isSectionSource(detectSource('https://www.wired.com/story/a-quiet-return/', opts)), false);
   assert.equal(isSectionSource(detectSource('https://www.instagram.com/cristiano', opts)), false);
+});
+
+test('M21 registry: a URL that names a feed is used as a feed, wherever the marker sits', () => {
+  const ref = detectSource('https://www.dailymirror.lk/rss/breaking_news/108', opts);
+  assert.equal(ref.feedUrl, 'https://dailymirror.lk/rss/breaking_news/108', 'the URL itself answers with RSS');
+  assert.equal(isWebsitePage(ref), false, 'so it is never offered as a one-off article');
+  assert.deepEqual(classifyLink('https://www.dailymirror.lk/rss/breaking_news/108', opts), { kind: 'source' });
+
+  // The shapes that already worked keep working.
+  assert.equal(detectSource('https://blog.example.test/rss', opts).feedUrl, 'https://blog.example.test/rss');
+  assert.equal(detectSource('https://blog.example.test/feed.xml', opts).feedUrl, 'https://blog.example.test/feed.xml');
+  // A page that merely starts with the word is still a page.
+  assert.equal(detectSource('https://blog.example.test/feed-reader/review', opts).feedUrl, null);
 });

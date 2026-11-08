@@ -64,6 +64,10 @@ this decision.
    already alternates: the directory pass used to fetch the feed, discard it on the content-type check, and
    let `attempt()` fetch it again. Trade-off: a site that mislabels an HTML index as `rss+xml` loses that
    one directory pass; no such site was found, and keeping it would cost a request on every add.
+10. **A pasted feed URL is used as itself.** `genericWebsite` now applies the same path rule as `sectionOf`,
+    so `/rss/breaking_news/108` is a `feedUrl` rather than a page. Before, only a path *ending* in
+    feed/rss/xml qualified; the URL was read as a page, resolved to its site root, and a site whose root
+    publishes no feed answered `E_NO_FEED` — even though the pasted URL was a valid feed.
 
 ## Consequences
 
