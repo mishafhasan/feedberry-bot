@@ -10,6 +10,8 @@ export interface UserRow {
   locale: string | null;
   created_at: number;
   status: string;
+  /** ADR-020: comma list used by every subscription without its own; NULL means no filter. */
+  default_keywords: string | null;
 }
 
 /** First contact creates the row; later contacts reuse it (OQ-15). The upsert never changes status. */
@@ -72,4 +74,9 @@ export function listAllowedTgIds(db: Db): number[] {
 /** The bot's interface language lives on the user row, so it survives a restart. */
 export function setLocale(db: Db, tgUserId: number, locale: string): void {
   db.prepare('UPDATE users SET locale = ? WHERE tg_user_id = ?').run(locale, tgUserId);
+}
+
+/** ADR-020: NULL clears the fallback, which is what turns every source back to "all posts". */
+export function setDefaultKeywords(db: Db, tgUserId: number, raw: string | null): void {
+  db.prepare('UPDATE users SET default_keywords = ? WHERE tg_user_id = ?').run(raw, tgUserId);
 }

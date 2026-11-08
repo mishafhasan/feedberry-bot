@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- test/fixtures/keyword-feed.rss — hand-written for ADR-020. Only item 1 says "AI"; only item 3
+     carries the tag "Sport", so a keyword can be proven to match a tag and nothing else. -->
+<rss version="2.0">
+  <channel>
+    <title>Keyword Blog</title>
+    <link>https://keyword.test</link>
+    <description>Three posts, three different ways to match.</description>
+    <item>
+      <title>AI agents take over the newsroom</title>
+      <link>https://keyword.test/ai-agents</link>
+      <guid isPermaLink="false">kw-1</guid>
+      <pubDate>Sat, 07 Nov 2026 10:00:00 +0000</pubDate>
+      <description>Local models ship today.</description>
+      <category>AI</category>
+    </item>
+    <item>
+      <title>Weekly roundup</title>
+      <link>https://keyword.test/roundup</link>
+      <guid isPermaLink="false">kw-2</guid>
+      <pubDate>Sat, 07 Nov 2026 09:00:00 +0000</pubDate>
+      <description>Everything else that happened this week.</description>
+      <category>News</category>
+    </item>
+    <item>
+      <title>Football final</title>
+      <link>https://keyword.test/football</link>
+      <guid isPermaLink="false">kw-3</guid>
+      <pubDate>Sat, 07 Nov 2026 08:00:00 +0000</pubDate>
+      <description>Match report from the stadium.</description>
+      <category>Sport</category>
+    </item>
+  </channel>
+</rss>

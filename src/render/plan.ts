@@ -23,14 +23,16 @@ export interface PostPayload {
   title: string;
   summary: string | null;
   media: Array<{ url: string; type: string }>;
+  /** ADR-020: the feed's own tags, kept so the keyword filter can match them at delivery. */
+  categories: string[];
 }
 
 export function payloadOf(payloadJson: string | null): PostPayload {
   try {
     const parsed = JSON.parse(payloadJson ?? '{}') as Partial<PostPayload>;
-    return { title: parsed.title ?? '', summary: parsed.summary ?? null, media: parsed.media ?? [] };
+    return { title: parsed.title ?? '', summary: parsed.summary ?? null, media: parsed.media ?? [], categories: parsed.categories ?? [] };
   } catch {
-    return { title: '', summary: null, media: [] };
+    return { title: '', summary: null, media: [], categories: [] };
   }
 }
 

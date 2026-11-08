@@ -17,10 +17,12 @@ export function s1Keyboard(lang: Lang = 'en'): InlineKeyboard {
     .text(t(lang, 'btn.add'), 'menu:add')
     .text(t(lang, 'btn.sources'), 'menu:sources')
     .row()
+    .text(t(lang, 'btn.filter'), 'menu:filter')
     .text(t(lang, 'btn.supported'), 'menu:supported')
-    .text(t(lang, 'btn.help'), 'menu:help')
     .row()
+    .text(t(lang, 'btn.help'), 'menu:help')
     .text(t(lang, 'btn.download'), 'menu:download')
+    .row()
     .text(t(lang, 'btn.schedule'), 'menu:schedule');
 }
 
@@ -87,6 +89,8 @@ export function s5Keyboard(lang: Lang = 'en'): InlineKeyboard {
     .text(t(lang, 'btn.addLatest'), 'add:save')
     .row()
     .text(t(lang, 'btn.addSilent'), 'add:save_silent')
+    .row()
+    .text(t(lang, 'btn.keywords'), 'add:kw')
     .row()
     .text(t(lang, 'btn.back'), 'nav:back');
 }

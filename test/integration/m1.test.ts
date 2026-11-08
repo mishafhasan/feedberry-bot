@@ -33,7 +33,7 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     assert.match(s1Html, /Sources: 0 \/ 250/);
     assert.match(s1Html, /<b>FeedBerry<\/b>/, 'the dictionary bold markers become real bold');
     assert.doesNotMatch(s1Html, /Trial ends/, 'OQ-7: trial line hidden');
-    assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 6, 'six S1 buttons in three rows');
+    assert.equal(s1.body.reply_markup.inline_keyboard.flat().length, 7, 'seven S1 buttons in four rows');
 
     const beforeAdd = api.calls.length;
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:add'));
@@ -54,12 +54,14 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     const beforeRestart = api.calls.length;
     await restarted.handleUpdate(startUpdate(4, USER_ID));
 
-    // /start sends the reply keyboard first, then S1: find S1 rather than assume its position.
+    // /start after a restart is still one S1 message, and still no reply keyboard.
     const afterRestart = api.callsSince(beforeRestart);
-    assert.ok(
+    assert.equal(
       afterRestart.some((call) => call.body.reply_markup && 'keyboard' in (call.body.reply_markup as object)),
-      'the custom reply keyboard is attached to /start',
+      false,
+      'the reply keyboard stays hidden by default',
     );
+    assert.equal(afterRestart.filter((call) => call.method === 'sendRichMessage').length, 1, 'S1 is the whole answer');
     assert.match(
       afterRestart.map((call) => String(call.body.rich_message?.html ?? '')).find((text) => text.includes('Sources:')) ?? '',
       /Sources: 0 \/ 250/,

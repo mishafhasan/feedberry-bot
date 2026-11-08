@@ -22,6 +22,8 @@ export interface AddSourceInput {
   backfillCount: number;
   /** The kinds this chat watches; null keeps every one. */
   contentTypes?: ContentKind[] | null;
+  /** ADR-020: the keywords this chat asked for; null falls back to the user default. */
+  keywords?: string | null;
   now?: number;
 }
 
@@ -156,6 +158,7 @@ export function addSource(db: Db, input: AddSourceInput): { sourceId: number; pe
       deliver: true,
       nextSlotAt: null, // M4 fills the slot; a null slot is not due
       contentTypes: input.contentTypes ?? null,
+      keywords: input.keywords ?? null,
       now,
     });
     if (!subscription) throw new Coded(E.DUPLICATE, 'same source and chat');

@@ -63,7 +63,7 @@ function buttonData(call: { body: Record<string, any> } | undefined): string[] {
   return (markup?.inline_keyboard ?? []).flat().map((button) => String(button.callback_data ?? ''));
 }
 
-test('reply keyboard: /start shows the custom keyboard and its labels act like the buttons', async () => {
+test('reply keyboard: /start leaves the menu hidden, and a tapped label still acts like a button', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-menu-'));
   const db = openDb(join(dir, 'bot.db'));
@@ -74,19 +74,17 @@ test('reply keyboard: /start shows the custom keyboard and its labels act like t
     await bot.init();
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
+    // S1 is the only message: no "menu ready" notice, and nothing installed under the input box.
+    assert.equal(api.calls.filter((call) => call.method === 'sendRichMessage').length, 1, 'S1 goes out');
+    assert.equal(api.calls.some((call) => call.method === 'sendMessage'), false, 'no notice accompanies it');
     const withKeyboard = api.calls.find((call) => (call.body.reply_markup as { keyboard?: unknown } | undefined)?.keyboard !== undefined);
-    assert.ok(withKeyboard, 'a ReplyKeyboardMarkup is sent, so the menu sits under the message box');
-    const rows = (withKeyboard?.body.reply_markup as { keyboard: Array<Array<{ text: string }>> }).keyboard;
-    const labels = rows.flat().map((button) => button.text);
-    assert.ok(labels.includes('➕ Add Source'), 'the menu carries the same actions as S1');
-    assert.ok(!labels.includes('✖️ Hide menu'), 'no dedicated hide row: Telegram\'s keyboard icon in the input area is the toggle');
-    assert.ok(!(withKeyboard?.body.reply_markup as { is_persistent?: boolean }).is_persistent, 'a non-persistent keyboard is the one Telegram lets the user fold and reopen');
+    assert.equal(withKeyboard, undefined, 'the reply keyboard stays hidden by default');
 
-    // A tapped label is an action: it opens the add flow instead of being parsed as a link.
+    // A phone that still holds an older keyboard keeps working: its label is an action.
     await bot.handleUpdate(textUpdate(2, USER_ID, '➕ Add Source'));
     assert.match(String(api.last('sendMessage')?.body.text), /Adding a source/);
 
-    // A chat still showing the old keyboard heals on the stale row: it gets the new foldable menu, never remove_keyboard.
+    // A chat still showing the old keyboard heals on the stale row: it gets the current foldable menu.
     await bot.handleUpdate(textUpdate(3, USER_ID, '✖️ Hide menu'));
     const healed = api.last('sendMessage')?.body.reply_markup as { keyboard?: unknown; is_persistent?: boolean } | undefined;
     assert.ok(healed?.keyboard, 'the stale label installs the current menu');

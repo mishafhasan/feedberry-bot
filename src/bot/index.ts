@@ -11,11 +11,10 @@ import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
 import { TelegramSender } from '../telegram/api.ts';
 import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openScheduleFor, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
+import { handleKeywordInput, openFilterFor } from './keywords.ts';
 import { deny, gate, isAdmin } from './access.ts';
 import { handleAdminInput, openAdminPanel } from './admin.ts';
 import { getSession, resetSession } from './fsm.ts';
-import { langFor, t } from './i18n/index.ts';
-import { replyMenu } from './reply-menu.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
 
@@ -55,6 +54,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
       { command: 'start', description: 'Start / Main Menu' },
       { command: 'download', description: 'Download Mode' },
       { command: 'my_sources', description: 'My Sources' },
+      { command: 'filter', description: 'Keyword filters' },
       { command: 'schedule', description: 'Check schedule' },
       { command: 'supported_sites', description: 'Supported Sites' },
       { command: 'language', description: 'Change Interface Language' },
@@ -71,8 +71,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     ensurePrivateChat(db, user.id, userId);
     resetSession(userId);
     const view = mainMenu(userId, deps);
-    // The custom keyboard under the input needs its own message: one message carries one markup.
-    await ctx.reply(t(langFor(user.locale), 'notice.menuReady'), { reply_markup: replyMenu(langFor(user.locale)) });
+    // S1 is the whole menu: no reply keyboard is installed, so nothing sits under the input box.
     await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
   });
 
@@ -95,6 +94,13 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     if (userId === undefined) return;
     resetSession(userId);
     await openScheduleFor(ctx, deps, userId);
+  });
+
+  bot.command('filter', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId === undefined) return;
+    resetSession(userId);
+    await openFilterFor(ctx, deps, userId);
   });
 
   bot.command('supported_sites', async (ctx) => replyWith(ctx, s12View()));
@@ -128,8 +134,10 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     if (threadId !== undefined) captureTopic(db, ctx.chat.id, threadId);
     // An admin typing into a panel step is never a source link or a menu label.
     if (await handleAdminInput(ctx, deps, userId)) return;
-    // A tapped reply-keyboard button is an action, never a link to resolve.
+    // A tapped reply-keyboard button is an action, never a link to resolve and never a keyword list.
     if (await handleReplyMenu(ctx, deps, userId, ctx.message.text)) return;
+    // A keyword prompt owns the next ordinary message until it is answered (ADR-020).
+    if (await handleKeywordInput(ctx, deps, userId)) return;
     if (getSession(userId).state === 'awaiting_source_link') await handleSourceLink(ctx, deps);
     else await handleFreeText(ctx, deps);
   });

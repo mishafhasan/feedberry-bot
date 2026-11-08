@@ -25,7 +25,14 @@ export function insertPosts(db: Db, sourceId: number, items: FeedItem[], now = D
 
   const rows: PostRow[] = [];
   for (const item of items) {
-    insert.run(sourceId, item.guid, item.link, item.publishedAt, JSON.stringify({ title: item.title, summary: item.summary, media: item.media }), now);
+    insert.run(
+      sourceId,
+      item.guid,
+      item.link,
+      item.publishedAt,
+      JSON.stringify({ title: item.title, summary: item.summary, media: item.media, categories: item.categories ?? [] }),
+      now,
+    );
     rows.push(read.get(sourceId, item.guid) as unknown as PostRow);
   }
   return rows;
