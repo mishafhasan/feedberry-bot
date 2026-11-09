@@ -65,6 +65,18 @@ export const loadCookies = async (path = env.cookiePath) => {
     return cookies;
 };
 
+// Seed the pool from memory for hosts that keep credentials in their own environment:
+// no file to read, nothing written back.
+export function setCookies(services = {}) {
+    for (const [service, entries] of Object.entries(services)) {
+        if (!VALID_SERVICES.has(service) || !Array.isArray(entries)) continue;
+
+        const valid = entries.filter(entry => typeof entry === 'string');
+        if (valid.length) cookies[service] = valid;
+    }
+    return cookies;
+}
+
 export function getCookie(service) {
     if (!VALID_SERVICES.has(service)) return;
     if (!cookies[service] || !cookies[service].length) return;

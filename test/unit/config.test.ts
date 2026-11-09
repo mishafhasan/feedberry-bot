@@ -21,7 +21,10 @@ test('parseConfig applies the §6 defaults', () => {
 
 test('parseConfig enables X profile sources only with a Twitter token', () => {
   assert.equal(parseConfig(base).xProfiles, false, 'no token: X profiles stay refused');
-  assert.equal(parseConfig({ ...base, TWITTER_AUTH_TOKEN: ' abc ' }).xProfiles, true);
+  assert.equal(parseConfig(base).twitterAuthToken, undefined);
+  const cfg = parseConfig({ ...base, TWITTER_AUTH_TOKEN: ' abc ' });
+  assert.equal(cfg.xProfiles, true);
+  assert.equal(cfg.twitterAuthToken, 'abc', 'the extractor gets the bare cookie value');
 });
 
 test('parseConfig normalizes the RSSHub base and rejects garbage limits', () => {

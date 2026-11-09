@@ -39,4 +39,7 @@ declare module 'cobalt-engine' {
 
   export function hasFFmpeg(): boolean;
   export function sizeOf(files: string[]): Promise<number>;
+
+  /** Seed the cookie pool in memory; no file is read or written. */
+  export function setCookies(services: Record<string, string[]>): Record<string, unknown>;
 }

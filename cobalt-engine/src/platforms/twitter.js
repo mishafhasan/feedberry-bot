@@ -242,7 +242,7 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
     let guestToken = await getGuestToken(dispatcher);
     if (!guestToken) return { error: "fetch.fail" };
 
-    let tweet = await requestTweet(dispatcher, id, guestToken);
+    let tweet = await requestTweet(dispatcher, id, guestToken, cookie);
 
     if ([403, 404, 429].includes(tweet.status)) {
         // get new token & retry if old one expired

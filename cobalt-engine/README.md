@@ -117,7 +117,7 @@ Resolves a list with bounded concurrency; `concurrency` defaults to 4. One faili
 
 ### Others
 
-`configure(env)` for process-wide defaults, `loadCookies(path)` for a cookie pool, `hasFFmpeg()`, `isSupported(url)`, `normalizeURL(url)`, `extract(url)`.
+`configure(env)` for process-wide defaults, `loadCookies(path)` for a cookie pool, `setCookies({ service: ["cookie"] })` to seed that pool from memory instead of a file, `hasFFmpeg()`, `isSupported(url)`, `normalizeURL(url)`, `extract(url)`.
 
 ## CLI
 

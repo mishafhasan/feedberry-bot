@@ -11,6 +11,7 @@ services:
       # must be cleared here or compose injects it into the bot as well.
       INSTAGRAM_COOKIE: ""
       FACEBOOK_COOKIE: ""
+      # TWITTER_AUTH_TOKEN deliberately stays: the media extractor signs in to X with it.
     volumes:
       - ./data:/data
     # Media never survives the job that downloaded it (§5.5, stage 9), so keep it in RAM.

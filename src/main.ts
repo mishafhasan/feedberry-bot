@@ -1,4 +1,5 @@
 /** Boot order: config -> db -> bot -> worker -> tick (IMPLEMENTATION_PLAN §2). */
+import { setCookies } from 'cobalt-engine';
 import { createBot, networkFor } from './bot/index.ts';
 import { telegraphClient } from './article/telegraph.ts';
 import { parseConfig, type Config } from './config.ts';
@@ -20,6 +21,8 @@ try {
 
 const db = openDb(cfg.dbPath);
 const http = networkFor(cfg);
+// X refuses gated media to guests; the same auth_token RSSHub uses makes the extraction call signed in.
+if (cfg.twitterAuthToken) setCookies({ twitter: [`auth_token=${cfg.twitterAuthToken}`] });
 const bot = createBot({ cfg, db, http, media: cobaltEngine, telegraph: telegraphClient, apiRoot: cfg.telegramApiRoot });
 
 log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });

@@ -28,6 +28,8 @@ export interface Config {
   telegramBeta: boolean;
   /** X profile feeds exist only when the operator gave RSSHub a Twitter token (ADR-017). */
   xProfiles: boolean;
+  /** The X `auth_token` itself: RSSHub's feed route and the media extractor both authenticate with it. */
+  twitterAuthToken: string | undefined;
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
@@ -37,6 +39,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   }
 
   const adminChatId = int(env.ADMIN_CHAT_ID, undefined, 'ADMIN_CHAT_ID');
+
+  const twitterAuthToken = (env.TWITTER_AUTH_TOKEN ?? '').trim() || undefined;
 
   const rsshubBase = (env.RSSHUB_BASE ?? '').trim().replace(/\/+$/, '');
   if (!rsshubBase) throw new Error('RSSHUB_BASE is missing. Set it to your self-hosted RSSHub, e.g. http://rsshub:1200.');
@@ -63,7 +67,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     trialEnabled: flag(env.TRIAL_ENABLED),
     telegramBeta: flag(env.TELEGRAM_BETA),
     // The same token the RSSHub sidecar needs; its presence is what makes an X profile addable.
-    xProfiles: (env.TWITTER_AUTH_TOKEN ?? '').trim() !== '',
+    xProfiles: twitterAuthToken !== undefined,
+    twitterAuthToken,
   };
 }
 

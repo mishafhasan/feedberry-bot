@@ -13,7 +13,7 @@
 export { resolve, resolveMany, PLATFORMS } from "./src/engine.js";
 export { download, hasFFmpeg, sizeOf } from "./src/download.js";
 export { configure, env } from "./src/settings.js";
-export { loadCookies, stopCookieFlush } from "./src/cookie-store.js";
+export { loadCookies, setCookies, stopCookieFlush } from "./src/cookie-store.js";
 export { extract, normalizeURL } from "./src/links.js";
 export { extractWebPage } from "./src/web.js";
 
