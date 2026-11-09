@@ -54,13 +54,14 @@ test('M1: /start → S1, menu:add → S2, nav:back → S1, user survives a resta
     const beforeRestart = api.calls.length;
     await restarted.handleUpdate(startUpdate(4, USER_ID));
 
-    // /start after a restart reinstalls the reply keyboard (non-persistent, so the input-area icon
-    // folds it away) and then S1.
+    // /start after a restart is still one S1 message, and still no reply keyboard.
     const afterRestart = api.callsSince(beforeRestart);
-    const keyboards = afterRestart.filter((call) => call.body.reply_markup && 'keyboard' in (call.body.reply_markup as object));
-    assert.equal(keyboards.length, 1, 'one reply-keyboard install');
-    assert.notEqual((keyboards[0]?.body.reply_markup as { is_persistent?: boolean }).is_persistent, true, 'non-persistent: the icon hides and re-opens it');
-    assert.equal(afterRestart.filter((call) => call.method === 'sendRichMessage').length, 1, 'S1 follows it');
+    assert.equal(
+      afterRestart.some((call) => call.body.reply_markup && 'keyboard' in (call.body.reply_markup as object)),
+      false,
+      'the reply keyboard stays hidden by default',
+    );
+    assert.equal(afterRestart.filter((call) => call.method === 'sendRichMessage').length, 1, 'S1 is the whole answer');
     assert.match(
       afterRestart.map((call) => String(call.body.rich_message?.html ?? '')).find((text) => text.includes('Sources:')) ?? '',
       /Sources: 0 \/ 250/,

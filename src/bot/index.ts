@@ -15,8 +15,7 @@ import { handleKeywordInput, openFilterFor } from './keywords.ts';
 import { deny, gate, isAdmin } from './access.ts';
 import { handleAdminInput, openAdminPanel } from './admin.ts';
 import { getSession, resetSession, setSession } from './fsm.ts';
-import { langFor, t } from './i18n/index.ts';
-import { replyMenu } from './reply-menu.ts';
+import { langFor } from './i18n/index.ts';
 import { s2View } from './screens/s2.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
@@ -75,10 +74,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
     ensurePrivateChat(db, user.id, userId);
     resetSession(userId);
     const view = mainMenu(userId, deps);
-    // One message carries one markup, so the reply keyboard rides its own notice. Non-persistent,
-    // so Telegram's keyboard icon by the message box folds it away and brings it back.
-    const lang = langFor(user.locale);
-    await ctx.reply(t(lang, 'notice.menuReady'), { reply_markup: replyMenu(lang) });
+    // S1 is the whole menu: no reply keyboard is installed, so nothing sits under the input box.
     await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
   });
 

@@ -7,9 +7,8 @@ import { t, type Lang } from './i18n/index.ts';
  * is why the router matches on text. Hiding it is Telegram's own keyboard icon in the input area,
  * which only exists when the markup is *not* persistent (Bot API `is_persistent`), so no "Hide menu"
  * row is needed — and none may be added back without losing that toggle.
- * `/start` installs it in its own notice (one message carries one markup). The labels stay mapped
- * so a phone that still holds an older keyboard keeps working, and the retired `Hide menu` row
- * heals into this one.
+ * `/start` no longer installs it: S1 is the whole menu. The labels stay mapped so a phone that still
+ * holds an older keyboard keeps working, and the retired `Hide menu` row heals into this one.
  */
 export function replyMenu(lang: Lang = 'en'): Keyboard {
   return new Keyboard()

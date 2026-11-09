@@ -49,7 +49,7 @@ function recordingEngine(): { engine: MediaEngine; urls: string[] } {
     engine: {
       async resolve(url) {
         urls.push(url);
-        return { items: [], title: null };
+        return { items: [], title: null, artist: null };
       },
       async download() {
         throw new Error('a filtered post must never reach the downloader');
