@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
+import { t } from '../../src/bot/i18n/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, SCHEMA_VERSION, schemaVersion, type Db } from '../../src/db/index.ts';
 import { ensurePrivateChat, upsertChat } from '../../src/db/repos/chats.ts';
@@ -133,7 +134,7 @@ test('a prompt never eats a menu tap, a link, or another row\'s tap', async () =
     // The S1 button and the reply-keyboard label land on the same rich screen as the command.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:filter'));
     assert.match(String(api.last('editMessageText')?.body.rich_message?.html ?? ''), /Keyword filters/);
-    await bot.handleUpdate(textUpdate(updateId++, USER_ID, '🔑 Filter'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, t('en', 'btn.filter')));
     assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html ?? ''), /Keyword filters/);
 
     await bot.handleUpdate(commandUpdate(updateId++, USER_ID, 'filter'));

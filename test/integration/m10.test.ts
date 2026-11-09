@@ -106,11 +106,14 @@ test('M10 menu: seven buttons, /supported_sites and /language answer, language i
     await bot.handleUpdate(commandUpdate(5, USER_ID, 'download'));
     assert.match(String(api.last('sendMessage')?.body.text), /Send a post link/);
 
-    await bot.handleUpdate(commandUpdate(6, USER_ID, 'my_sources'));
+    await bot.handleUpdate(commandUpdate(6, USER_ID, 'addsource'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Adding a source/, '/addsource opens the same screen as the button');
+
+    await bot.handleUpdate(commandUpdate(7, USER_ID, 'my_sources'));
     assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html), /Source list · Private messages/);
 
     // Switching to Russian stores the locale and repaints S1 in Russian.
-    await bot.handleUpdate(callbackUpdate(7, USER_ID, 'lang:ru'));
+    await bot.handleUpdate(callbackUpdate(8, USER_ID, 'lang:ru'));
     assert.equal(ensureUser(db, USER_ID).locale, 'ru');
     assert.match(String(api.last('editMessageText')?.body.rich_message?.html), /Источники:/);
     assert.match(String(api.last('editMessageText')?.body.rich_message?.html), /Ваш ID/);
@@ -118,7 +121,7 @@ test('M10 menu: seven buttons, /supported_sites and /language answer, language i
     // A fresh bot on the same file still speaks Russian: the locale lives in the database.
     const restarted = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
     await restarted.init();
-    await restarted.handleUpdate(startUpdate(8, USER_ID));
+    await restarted.handleUpdate(startUpdate(9, USER_ID));
     assert.match(String(api.last('sendRichMessage')?.body.rich_message?.html), /Источники: 0 \/ 250/, 'the language survives a restart');
   } finally {
     db.close();

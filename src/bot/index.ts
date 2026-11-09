@@ -14,9 +14,10 @@ import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, main
 import { handleKeywordInput, openFilterFor } from './keywords.ts';
 import { deny, gate, isAdmin } from './access.ts';
 import { handleAdminInput, openAdminPanel } from './admin.ts';
-import { getSession, resetSession } from './fsm.ts';
+import { getSession, resetSession, setSession } from './fsm.ts';
 import { langFor, t } from './i18n/index.ts';
 import { replyMenu } from './reply-menu.ts';
+import { s2View } from './screens/s2.ts';
 import { s12View } from './screens/s12.ts';
 import { s13View, s14View, s15View } from './screens/s13.ts';
 
@@ -54,6 +55,7 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
   void bot.api
     .setMyCommands([
       { command: 'start', description: 'Start / Main Menu' },
+      { command: 'addsource', description: 'Add a source' },
       { command: 'download', description: 'Download Mode' },
       { command: 'my_sources', description: 'My Sources' },
       { command: 'filter', description: 'Keyword filters' },
@@ -81,6 +83,14 @@ export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBo
   });
 
   // The five remaining commands mirror the S1 buttons; each answers with a reply, not an edit.
+  bot.command('addsource', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId === undefined) return;
+    resetSession(userId);
+    setSession(userId, { state: 'awaiting_source_link' });
+    await replyWith(ctx, s2View(cfg.telegramBeta, langFor(ensureUser(db, userId).locale)));
+  });
+
   bot.command('download', async (ctx) => {
     const userId = ctx.from?.id;
     if (userId === undefined) return;
