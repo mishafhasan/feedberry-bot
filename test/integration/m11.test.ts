@@ -63,7 +63,7 @@ function buttonData(call: { body: Record<string, any> } | undefined): string[] {
   return (markup?.inline_keyboard ?? []).flat().map((button) => String(button.callback_data ?? ''));
 }
 
-test('reply keyboard: /start leaves the menu hidden, and a tapped label still acts like a button', async () => {
+test('reply keyboard: /start installs the foldable menu, and a tapped label still acts like a button', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-menu-'));
   const db = openDb(join(dir, 'bot.db'));
@@ -74,11 +74,12 @@ test('reply keyboard: /start leaves the menu hidden, and a tapped label still ac
     await bot.init();
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
-    // S1 is the only message: no "menu ready" notice, and nothing installed under the input box.
+    // The reply keyboard needs its own message; S1 keeps the inline one.
     assert.equal(api.calls.filter((call) => call.method === 'sendRichMessage').length, 1, 'S1 goes out');
-    assert.equal(api.calls.some((call) => call.method === 'sendMessage'), false, 'no notice accompanies it');
     const withKeyboard = api.calls.find((call) => (call.body.reply_markup as { keyboard?: unknown } | undefined)?.keyboard !== undefined);
-    assert.equal(withKeyboard, undefined, 'the reply keyboard stays hidden by default');
+    assert.ok(withKeyboard, 'the reply keyboard is installed');
+    assert.notEqual((withKeyboard?.body.reply_markup as { is_persistent?: boolean }).is_persistent, true, 'non-persistent: the input-area icon hides and re-opens it');
+    assert.ok((api.last('sendRichMessage')?.body.reply_markup as { inline_keyboard?: unknown } | undefined)?.inline_keyboard, 'S1 still carries its inline menu');
 
     // A phone that still holds an older keyboard keeps working: its label is an action.
     await bot.handleUpdate(textUpdate(2, USER_ID, '➕ Add Source'));
