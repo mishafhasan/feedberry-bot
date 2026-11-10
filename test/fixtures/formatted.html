@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Formatting a post for Instant View</title>
+  <meta property="og:site_name" content="Format Lab">
+  <meta property="article:published_time" content="2026-11-02T09:30:00Z">
+</head>
+<body>
+  <nav><a href="/">Home</a> <a href="/about">About</a></nav>
+  <article>
+    <h1>Formatting a post for Instant View</h1>
+    <p class="byline">By Dana Writer</p>
+    <p>Every blog post carries more than words: <strong>strong</strong>, <em>emphasis</em>,
+      <s>struck</s>, <code>inline()</code> and a <a href="/guides/instant-view">relative link</a>
+      that must survive the trip. This paragraph is deliberately long enough to give Readability
+      something to score, because a page under four hundred characters is a link card, not an article.</p>
+    <h2>Headings keep their rank</h2>
+    <p>The page uses every heading level: h2, h3, h4, h5 and h6 all appear below so the converter
+      must map six levels onto Telegra.ph's two. Nothing may leak as bare text between blocks.</p>
+    <h3>Third level</h3>
+    <p>Third-level text sits under the third heading.</p>
+    <h4>Fourth level</h4>
+    <p>Fourth-level text sits under the fourth heading.</p>
+    <h5>Fifth level</h5>
+    <p>Fifth-level text sits under the fifth heading.</p>
+    <h6>Sixth level</h6>
+    <p>Sixth-level text sits under the sixth heading.</p>
+    <h2>Lists</h2>
+    <ul>
+      <li><p>First bullet with a <a href="https://example.com/bullet">link</a></p></li>
+      <li><p>Second bullet</p>
+        <ul><li>Nested bullet one</li><li>Nested bullet two</li></ul>
+      </li>
+      <li>Bare bullet without a paragraph</li>
+    </ul>
+    <ol><li>Step one</li><li>Step two</li><li>Step three</li></ol>
+    <ul><li><p>Item with a picture <img src="/images/list-photo.jpg" alt="list"></p></li></ul>
+    <blockquote>
+      <p>A quote that spans two paragraphs must stay one quote.</p>
+      <p>The second paragraph of the quote.</p>
+      <ul><li>a quoted list item</li></ul>
+      <img src="/images/quote.jpg" alt="quote">
+    </blockquote>
+    <aside>A pull quote worth keeping.</aside>
+    <h2>Code</h2>
+    <p>Inline code such as <code>npm test</code> stays monospace.</p>
+    <pre><code>function greet(name) {
+  const message = `hello ${name}`;
+  return message;
+}</code></pre>
+    <h2>Tables</h2>
+    <table>
+      <caption>Delivery options</caption>
+      <thead><tr><th>Plan</th><th>Price</th><th>Limit</th></tr></thead>
+      <tbody>
+        <tr><td>Free</td><td>$0</td><td>3 sources</td></tr>
+        <tr><td>Pro</td><td>$5</td><td>50 sources</td></tr>
+        <tr><td>Gift</td><td><img src="/images/gift.jpg" alt="gift"></td><td>included</td></tr>
+      </tbody>
+    </table>
+    <h2>Media</h2>
+    <figure><img src="/images/hero.jpg" alt="hero"><figcaption>The hero picture, captioned.</figcaption></figure>
+    <figure><img src="/images/second.jpg" alt="second"><p>A caption written as a paragraph.</p></figure>
+    <p>An inline picture <img src="/images/inline-hero.jpg" alt="inline hero"> splits the paragraph around it.</p>
+    <p>Embedded below: <iframe src="https://www.youtube.com/embed/inline-frame" width="640" height="360"></iframe></p>
+    <video><source src="/media/clip.mp4" type="video/mp4"></video>
+    <iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="640" height="360"></iframe>
+    <hr>
+    <div>Loose text in a container still becomes a paragraph.</div>
+    <p>Closing paragraph so the article scores above the thin-page threshold and the reader keeps
+      the whole body, including titles and every element the converter has to normalise.</p>
+  </article>
+  <script>window.tracking = true;</script>
+</body>
+</html>

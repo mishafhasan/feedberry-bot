@@ -27,7 +27,7 @@ sitemap is the one machine-readable list a site publishes without opting in.
 
 ## Decision
 
-1. **Images are materialised before anything reads the page.** `resolveImages(document, baseUrl)` runs on the
+1. **Images are materialised before anything reads the page.** `resolveMedia(document, baseUrl)` runs on the
    raw DOM *and* on Readability's HTML: `srcset` picks the widest usable candidate, a `<picture><source srcset>`
    supplies the picture when the `<img>` has no source, `data-src` supplies a lazy one, and a CSS
    `background-image` becomes an `<img>`. The ranking lives once, in `src/platform/media-urls.ts`, and both
