@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
-import { Coded, E } from '../platform/errors.ts';
+import { log } from '../obs/log.ts';
+import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { MediaFile } from '../render/plan.ts';
 import { overCeiling } from '../render/video.ts';
 
@@ -30,8 +31,15 @@ export function mediaSignal(ms = 120_000): AbortSignal {
 export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir: string, options: PrepareOptions): Promise<MediaFile[]> {
   const files: MediaFile[] = [];
   for (const item of items) {
-    const path = await engine.download(item, dir, options.signal);
-    files.push({ path, kind: item.kind, size: (await stat(path)).size, url: item.url });
+    try {
+      const path = await engine.download(item, dir, options.signal);
+      files.push({ path, kind: item.kind, size: (await stat(path)).size, url: item.url });
+    } catch (err) {
+      // A big file is the one most likely to time out mid-transfer, and cobalt reports that as
+      // "no media". Keep the post: the video links from the caption, the rest of it still ships.
+      log('warn', 'media_item_failed', { kind: item.kind, code: isCoded(err) ? err.code : 'unknown' });
+      if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url });
+    }
   }
 
   // R15: only a video is withheld from every send; every other file is still uploaded, so it still

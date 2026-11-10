@@ -97,22 +97,32 @@ export class TelegramSender {
     return ids;
   }
 
-  /** R3/R4: same-kind groups of 10, caption on the first item only, groups reply to each other. */
+  /** R3/R4: groups of 10, caption on the first item only, groups reply to each other. */
   private async sendAlbum(target: Target, items: Array<{ file: string; kind: 'photo' | 'video' }>, caption: string): Promise<number[]> {
     const parts = splitMessage(caption, CAPTION_LIMIT);
     const ids: number[] = [];
     let replyTo: number | undefined;
 
     for (const [index, group] of chunk(items).entries()) {
-      const media = group.map((item, itemIndex) => ({
-        type: item.kind,
-        media: new InputFile(item.file),
-        ...(index === 0 && itemIndex === 0 && parts[0] ? { caption: parts[0], parse_mode: 'HTML' as const } : {}),
-      }));
-      // OQ-12: an album reserves one token per item against the group/global buckets.
-      const messages = await this.run(target, group.length, () => this.api.sendMediaGroup(target.chatId, media, this.groupBody(target, replyTo)));
-      ids.push(...messages.map((message) => message.message_id));
-      replyTo = messages[0]?.message_id;
+      const head = index === 0 ? parts[0] : undefined;
+      let messageIds: number[];
+
+      // §8.3: a group takes 2–10 items, so an album's tail of one travels as its own media message.
+      if (group.length === 1 && group[0]) {
+        messageIds = [await this.sendLone(target, group[0], replyTo, head)];
+      } else {
+        const media = group.map((item, itemIndex) => ({
+          type: item.kind,
+          media: new InputFile(item.file),
+          ...(itemIndex === 0 && head ? { caption: head, parse_mode: 'HTML' as const } : {}),
+        }));
+        // OQ-12: an album reserves one token per item against the group/global buckets.
+        const messages = await this.run(target, group.length, () => this.api.sendMediaGroup(target.chatId, media, this.groupBody(target, replyTo)));
+        messageIds = messages.map((message) => message.message_id);
+      }
+
+      ids.push(...messageIds);
+      replyTo = messageIds[0];
     }
 
     for (const part of parts.slice(1)) {
@@ -121,6 +131,21 @@ export class TelegramSender {
       replyTo = next.message_id;
     }
     return ids;
+  }
+
+  /** The album item that could not join a group: same caption and reply rules, one media message. */
+  private async sendLone(target: Target, item: { file: string; kind: 'photo' | 'video' }, replyTo: number | undefined, caption?: string): Promise<number> {
+    const body = {
+      parse_mode: 'HTML' as const,
+      message_thread_id: target.messageThreadId ?? undefined,
+      reply_parameters: replyTo === undefined ? undefined : { message_id: replyTo },
+      ...(caption ? { caption } : {}),
+    };
+    const input = new InputFile(item.file);
+    const message = await this.run(target, 1, async () =>
+      item.kind === 'photo' ? this.api.sendPhoto(target.chatId, input, body) : this.api.sendVideo(target.chatId, input, { ...body, supports_streaming: true }),
+    );
+    return message.message_id;
   }
 
   /** Every send goes through the limiter and the 429 handler; nothing else may call the Api. */
