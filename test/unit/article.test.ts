@@ -12,6 +12,7 @@ const PAGES: Record<string, string> = {
   'https://blog.example.test/long': fixture('long-70kb.html'),
   'https://blog.example.test/thin': fixture('thin.html'),
   'https://blog.example.test/bbc': fixture('bbc.html'),
+  'https://blog.example.test/medium': fixture('medium.html'),
 };
 
 const http: Http = async (url) => {
@@ -77,6 +78,23 @@ test('M7 article: Telegraph nodes only carry href and src', async () => {
   const json = JSON.stringify(nodes);
   assert.match(json, /"tag":"p"/);
   assert.doesNotMatch(json, /"class"|"style"/);
+});
+
+test('M23 article: a Medium picture keeps the file that lives only on its <source>', async () => {
+  const article = await extractArticle(http, 'https://blog.example.test/medium');
+  const imgs = article.html.match(/<img\b[^>]*>/gi) ?? [];
+
+  assert.equal(imgs.length, 2, 'Readability drops the srcless <img>, so the cover and the lazy picture survive');
+  assert.match(imgs[0] ?? '', /src="https:\/\/miro\.medium\.com\/v2\/resize:fit:1400\/format:webp\/1\*cover\.png"/, 'the widest <source> candidate becomes the source');
+  assert.match(article.html, /src="https:\/\/miro\.medium\.com\/v2\/lazy\.png"/, 'a lazy image keeps its data-src file');
+  assert.doesNotMatch(article.html, /<source|srcset|data-src/i, 'no wrapper or lazy attribute reaches Instant View');
+});
+
+test('M23 article: a CSS background becomes a picture Instant View can fetch', () => {
+  const fixed = fixImageUrls('<div style="background-image:url(/hero.png)"><p>A caption</p></div>', 'https://blog.example.test/story');
+
+  assert.match(fixed, /<img src="https:\/\/blog\.example\.test\/hero\.png">/);
+  assert.doesNotMatch(fixImageUrls('<div style="background:grey"></div>', 'https://blog.example.test/story'), /<img/);
 });
 
 test('M7 article: a page over 64 KB is chained with "Read Next page"', async () => {

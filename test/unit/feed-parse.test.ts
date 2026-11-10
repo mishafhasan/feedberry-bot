@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { Coded, E } from '../../src/platform/errors.ts';
+import { Coded, E, isCoded } from '../../src/platform/errors.ts';
 import { parseFeed, discoverAlternate, discoverAlternates, fetchNativeFeed } from '../../src/platform/feed/native.ts';
 import { fetchRsshubFeed } from '../../src/platform/feed/rsshub.ts';
 import type { Http } from '../../src/platform/http.ts';
@@ -244,4 +244,119 @@ test('M20 discovery: a page that only advertises a sitemap still gets its guesse
 
   const feed = await fetchNativeFeed(http, blogRef);
   assert.equal(feed.feedUrl, 'https://site.test/feed', 'a weak alternate is not a promise, so /feed is tried');
+});
+
+test('M23 parser: a post body carries every picture it embeds, in post order, once each, with its size', () => {
+  const feed = parseFeed(file('blog-inline-media.xml'), 'https://blog.example.test/feed');
+  const item = feed.items[0];
+
+  assert.deepEqual(item?.media, [
+    { url: 'https://cdn.example.test/cover.jpg', type: 'photo', width: 1200, height: 630 },
+    { url: 'https://blog.example.test/img/one.png', type: 'photo', width: 700, height: 394 },
+    { url: 'https://cdn.example.test/two-1400.png', type: 'photo' },
+    { url: 'https://cdn.example.test/three.png', type: 'photo' },
+    { url: 'https://cdn.example.test/four.jpg', type: 'photo' },
+    { url: 'https://blog.example.test/img/loop.gif', type: 'photo', width: 480, height: 270 },
+  ]);
+  assert.equal(feed.items[1]?.media.length, 0, 'a data: URI, a fragment and an unparseable enclosure are not pictures');
+});
+
+test('M23 parser: an embedded video or animation becomes a line the caption can actually play', () => {
+  const feed = parseFeed(file('blog-inline-media.xml'), 'https://blog.example.test/feed');
+
+  assert.equal(
+    feed.items[0]?.summary,
+    [
+      'The long version of the post.',
+      '🎬 https://www.youtube.com/embed/abc123',
+      '🎞️ https://blog.example.test/img/loop.gif',
+    ].join('\n\n'),
+  );
+  assert.equal(feed.items[1]?.summary, 'Only words here, and not one usable picture.', 'a post with no player keeps its words alone');
+  assert.match(
+    feed.items[2]?.summary ?? '',
+    /A body escaped instead of wrapped in CDATA\.\n\n🎬 https:\/\/player\.vimeo\.com\/video\/77$/,
+    'a body escaped instead of CDATA still yields its pictures and its player',
+  );
+  assert.deepEqual(feed.items[2]?.media, [{ url: 'https://cdn.example.test/escaped.png', type: 'photo' }]);
+});
+
+test('M23 parser: a long post keeps the player line the body cap would have cut', () => {
+  const body = `<p>${'word '.repeat(900)}</p><iframe src="https://player.vimeo.com/video/9"></iframe>`;
+  const feed = parseFeed(
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><description>d</description><item><guid>g</guid><link>https://site.test/a</link><description><![CDATA[${body}]]></description></item></channel></rss>`,
+    'https://site.test/feed',
+  );
+
+  assert.match(feed.items[0]?.summary ?? '', /🎬 https:\/\/player\.vimeo\.com\/video\/9$/);
+});
+
+const sitemapRef = { platform: 'rss' as const, canonicalUrl: 'https://newsletter.example.test', externalId: 'newsletter.example.test', feedUrl: null, strategy: 'native_rss' as const };
+const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://newsletter.example.test/</loc><lastmod>2026-11-03</lastmod></url>
+  <url><loc>https://newsletter.example.test/archive</loc><lastmod>2026-11-03</lastmod></url>
+  <url><loc>https://newsletter.example.test/p/nvidia-ceo-admits-affair</loc><lastmod>2026-11-02</lastmod></url>
+  <url><loc>https://newsletter.example.test/p/your-bank-account-can-now-talk-to-claude</loc><lastmod>2026-10-30</lastmod></url>
+</urlset>`;
+
+test('M23 discovery: a site with no feed at all is followed through its sitemap', async () => {
+  const seen: string[] = [];
+  const http: Http = async (url) => {
+    seen.push(url);
+    if (url === sitemapRef.canonicalUrl) return { status: 200, url, contentType: 'text/html', body: '<html><head><title>Evolving AI Insights</title></head><body><p>No feed here.</p></body></html>' };
+    if (url === 'https://newsletter.example.test/sitemap.xml') return { status: 200, url, contentType: 'application/xml', body: SITEMAP };
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  const feed = await fetchNativeFeed(http, sitemapRef);
+
+  assert.ok(seen.includes('https://newsletter.example.test/sitemap.xml'), 'asked after the conventional paths');
+  assert.equal(feed.feedUrl, 'https://newsletter.example.test/sitemap.xml', 'the sitemap is stored, so the next check reads one URL');
+  assert.deepEqual(
+    feed.items.map((item) => item.link),
+    ['https://newsletter.example.test/p/nvidia-ceo-admits-affair', 'https://newsletter.example.test/p/your-bank-account-can-now-talk-to-claude'],
+    'only the directory that holds most of the sitemap is followed, newest first',
+  );
+  assert.equal(feed.items[0]?.title, 'nvidia ceo admits affair', 'the slug is the only title a sitemap offers');
+  assert.equal(feed.items[0]?.publishedAt, Date.parse('2026-11-02'));
+});
+
+test('M23 discovery: a stored sitemap is read as the page list it is, without a page fetch', async () => {
+  const seen: string[] = [];
+  const http: Http = async (url) => {
+    seen.push(url);
+    return { status: 200, url, contentType: 'application/xml', body: '<urlset><url><loc>https://site.test/p/one</loc></url></urlset>' };
+  };
+
+  const feed = await fetchNativeFeed(http, { ...sitemapRef, feedUrl: 'https://newsletter.example.test/sitemap.xml' });
+
+  assert.deepEqual(seen, ['https://newsletter.example.test/sitemap.xml']);
+  assert.equal(feed.items.length, 1);
+});
+
+test('M23 discovery: a sitemap that lists no page is still E_NO_FEED', async () => {
+  const http: Http = async (url) => {
+    if (url === sitemapRef.canonicalUrl) return { status: 200, url, contentType: 'text/html', body: '<html><head></head></html>' };
+    if (url === 'https://newsletter.example.test/sitemap.xml') return { status: 200, url, contentType: 'application/xml', body: '<urlset><url><loc>https://newsletter.example.test/</loc></url></urlset>' };
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  await assert.rejects(
+    () => fetchNativeFeed(http, sitemapRef),
+    (err: unknown) => isCoded(err) && err.code === E.NO_FEED,
+  );
+});
+
+test('M23 discovery: an undated sitemap is followed whole, never a frozen first window', async () => {
+  const locs = Array.from({ length: 60 }, (_, index) => `<url><loc>https://site.test/p/post-${index}</loc></url>`).join('');
+  const http: Http = async (url) => {
+    if (url === 'https://site.test') return { status: 200, url, contentType: 'text/html', body: '<html><head></head></html>' };
+    if (url === 'https://site.test/sitemap.xml') return { status: 200, url, contentType: 'application/xml', body: `<urlset>${locs}</urlset>` };
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  const feed = await fetchNativeFeed(http, { platform: 'rss', canonicalUrl: 'https://site.test', externalId: 'site.test', feedUrl: null, strategy: 'native_rss' });
+
+  assert.equal(feed.items.length, 60, 'every page counts when no <lastmod> can order them');
+  assert.equal(feed.items[59]?.link, 'https://site.test/p/post-59');
 });

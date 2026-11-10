@@ -270,3 +270,16 @@ test('M21 registry: a URL that names a feed is used as a feed, wherever the mark
   // A page that merely starts with the word is still a page.
   assert.equal(detectSource('https://blog.example.test/feed-reader/review', opts).feedUrl, null);
 });
+
+test('M23 registry: a Substack publication is a source at /feed, whether a post or the root was pasted', () => {
+  const root = detectSource('https://newsletter.example.substack.com/', opts);
+  assert.equal(root.platform, 'rss');
+  assert.equal(root.canonicalUrl, 'https://newsletter.example.substack.com');
+  assert.equal(root.feedUrl, 'https://newsletter.example.substack.com/feed', 'the one path every Substack answers');
+  assert.equal(root.strategy, 'native_rss');
+  assert.equal(isWebsitePage(root), false, 'so the add flow never offers a download instead');
+
+  const post = detectSource('https://newsletter.example.substack.com/p/nvidia-ceo-admits-affair', opts);
+  assert.equal(post.canonicalUrl, 'https://newsletter.example.substack.com', 'a post link names its publication');
+  assert.deepEqual(classifyLink('https://newsletter.example.substack.com/p/nvidia-ceo-admits-affair', opts), { kind: 'source' });
+});
