@@ -317,6 +317,12 @@ dead site cannot hold a worker job for five timeouts. A typed `rss`/`atom`/`rdf`
 authoritative and is never guessed past; a plain `application/xml` one may be a sitemap, so it falls through to
 the next alternate and then to the guessed paths.
 
+A site that publishes no feed is still followable through its sitemap (ADR-021): once the conventional paths are
+refused, `/sitemap.xml` is read as a page list — newest `<lastmod>` first, at most 50 pages, and only the path
+segment that holds at least half of it, so `/about` and `/subscribe` are not mistaken for posts. The sitemap URL is
+stored in `sources.feed_url` like a discovered feed. A Substack publication needs no fetch: its feed is always
+`<origin>/feed`, so the root and any post link are sources on the URL alone.
+
 ### 5.4 De-duplication and "seen"
 
 `guid` = feed `guid`/`id` if present, else `sha256(link)`. `posts` has `UNIQUE(source_id, guid)`.
@@ -993,3 +999,7 @@ default is marked **DECIDED**.
 | [015](adr/015-feed-adapter-in-m2.md) | Feed adapter (stage 2) in M2; scheduling stays in M4 |
 | [016](adr/016-source-list-actions-in-m3.md) | S8/S10/S11 in M3, S9 in M4; M8 keeps reliability |
 | [017](adr/017-owner-decisions.md) | Owner decisions on all 18 open questions (no stored credentials, Oracle primary, Reddit removed) |
+| [018](adr/018-section-sources.md) | A category URL is a source of its own |
+| [019](adr/019-rss-format-coverage.md) | RSS 2.0, Atom and RDF coverage; one decode per response |
+| [020](adr/020-keyword-filter.md) | Keyword filter on the parsed payload, before any download |
+| [021](adr/021-blog-media-and-sitemap-feeds.md) | Blog images from `srcset`/`<picture>`/CSS, video links in captions, sitemap as the last feed resort |
