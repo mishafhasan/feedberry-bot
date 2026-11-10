@@ -18,8 +18,16 @@ export interface Article {
   publishedAt: number | null;
 }
 
-/** Telegraph understands a small HTML subset; anything else is stripped before conversion. */
-const ALLOWED_TAGS = ['p', 'a', 'b', 'strong', 'i', 'em', 'u', 's', 'del', 'code', 'pre', 'blockquote', 'h3', 'h4', 'ul', 'ol', 'li', 'figure', 'figcaption', 'img', 'br', 'hr', 'iframe'];
+/**
+ * Every block Telegra.ph has no node for is kept until `telegraph.ts` flattens it: h1-h6 map onto
+ * h3/h4, and a table becomes one paragraph per row.
+ */
+const ALLOWED_TAGS = [
+  'p', 'a', 'b', 'strong', 'i', 'em', 'u', 's', 'del', 'code', 'pre', 'blockquote', 'aside',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'ul', 'ol', 'li', 'table', 'caption', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+  'figure', 'figcaption', 'img', 'video', 'br', 'hr', 'iframe',
+];
 
 /**
  * §5.6 article path: fetch through the §12.2 guard, Readability, sanitize, then the image-URL
@@ -33,7 +41,7 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
   const dom = new JSDOM(res.body, { url: res.url });
   // The page is materialised before the reader sees it: Medium's post pictures sit in
   // `<picture><source srcset>` beside an `<img>` that has no source, and Readability drops both.
-  resolveImages(dom.window.document, res.url);
+  resolveMedia(dom.window.document, res.url);
   const parsed = new Readability(dom.window.document).parse();
   if (!parsed?.content) throw new Coded(E.NO_FEED, 'readability extracted nothing');
 
@@ -41,7 +49,7 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
   // srcset>` and sanitize-html drops that wrapper, which used to delete every photo in the post.
   const clean = sanitizeHtml(fixImageUrls(parsed.content, res.url), {
     allowedTags: ALLOWED_TAGS,
-    allowedAttributes: { a: ['href'], img: ['src', 'srcset', 'alt'], iframe: ['src'] },
+    allowedAttributes: { a: ['href'], img: ['src', 'srcset', 'alt'], iframe: ['src'], video: ['src'] },
     allowedSchemes: ['http', 'https'],
   });
 
@@ -69,12 +77,15 @@ function parseDate(value: string | null | undefined): number | null {
  */
 export function fixImageUrls(html: string, baseUrl: string): string {
   const dom = new JSDOM(`<body>${html}</body>`, { url: baseUrl });
-  resolveImages(dom.window.document, baseUrl);
+  resolveMedia(dom.window.document, baseUrl);
   return dom.window.document.body.innerHTML;
 }
 
-/** The rules above, on a live document: the raw page and the reader's HTML both go through them. */
-export function resolveImages(document: Document, baseUrl: string): void {
+/**
+ * The rules above, on a live document: the raw page and the reader's HTML both go through them.
+ * Links and embeds are made absolute here too — Telegra.ph resolves a relative URL against itself.
+ */
+export function resolveMedia(document: Document, baseUrl: string): void {
   const page = new URL(baseUrl).href.replace(/#.*$/, '');
   for (const img of document.querySelectorAll('img')) {
     const chosen = imageOf(img, baseUrl, page);
@@ -101,6 +112,34 @@ export function resolveImages(document: Document, baseUrl: string): void {
     const img = document.createElement('img');
     img.setAttribute('src', chosen);
     element.appendChild(img);
+  }
+  // `<video><source>` spells the file one level down; Telegra.ph's video node takes it as `src`.
+  for (const video of document.querySelectorAll('video')) {
+    const chosen = usableUrl(video.getAttribute('src') ?? video.querySelector('source')?.getAttribute('src') ?? '', baseUrl, page);
+    if (chosen === null) video.remove();
+    else video.setAttribute('src', chosen);
+  }
+  for (const iframe of document.querySelectorAll('iframe[src]')) {
+    const chosen = absoluteUrl(iframe.getAttribute('src'), baseUrl);
+    if (chosen === null) iframe.remove();
+    else iframe.setAttribute('src', chosen);
+  }
+  // A relative href would be resolved against telegra.ph, not the publisher.
+  for (const anchor of document.querySelectorAll('a[href]')) {
+    const chosen = absoluteUrl(anchor.getAttribute('href'), baseUrl);
+    if (chosen === null) anchor.removeAttribute('href');
+    else anchor.setAttribute('href', chosen);
+  }
+}
+
+/** An http(s) link in absolute form; a fragment or a `mailto:` has no place on a Telegraph page. */
+function absoluteUrl(raw: string | null | undefined, baseUrl: string): string | null {
+  if (!raw || raw.trim().startsWith('#')) return null;
+  try {
+    const url = new URL(raw, baseUrl);
+    return /^https?:$/.test(url.protocol) ? url.href : null;
+  } catch {
+    return null;
   }
 }
 
