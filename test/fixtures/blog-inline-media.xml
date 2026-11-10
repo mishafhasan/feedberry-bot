@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A blog feed that ships its whole gallery inside the body, the way Medium and most CMSs do. -->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Inline Media Blog</title>
+    <link>https://blog.example.test/</link>
+    <description>Pictures and players in the post body</description>
+    <item>
+      <title>What is Laya?</title>
+      <link>https://blog.example.test/what-is-laya</link>
+      <guid>post-1</guid>
+      <media:thumbnail url="https://cdn.example.test/cover.jpg" width="1200" height="630" />
+      <description>Two sentences of blurb.</description>
+      <pubDate>Sun, 26 Sep 2026 10:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[
+        <p>The long version of the post.</p>
+        <figure><img src="/img/one.png" width="700" height="394" alt="one"></figure>
+        <figure><picture>
+          <source srcset="https://cdn.example.test/two-640.png 640w, https://cdn.example.test/two-1400.png 1400w">
+          <img alt="two">
+        </picture></figure>
+        <figure><img data-src="https://cdn.example.test/three.png" src="data:image/gif;base64,R0lGOD" alt="three"></figure>
+        <div style="background-image:url('https://cdn.example.test/four.jpg')"></div>
+        <figure><img src="/img/loop.gif" width="480" height="270" alt="the demo, animated"></figure>
+        <figure><img src="/img/one.png" alt="the same file again"></figure>
+        <iframe src="https://www.youtube.com/embed/abc123" title="live demo"></iframe>
+      ]]></content:encoded>
+    </item>
+    <item>
+      <title>No pictures</title>
+      <link>https://blog.example.test/no-pictures</link>
+      <guid>post-2</guid>
+      <description>Only words.</description>
+      <content:encoded><![CDATA[<p>Only words here, and not one usable picture.</p><img src="data:image/png;base64,AAAA"><img src="#">]]></content:encoded>
+      <enclosure url="http://[" type="image/png" length="1" />
+    </item>
+    <item>
+      <title>Escaped body</title>
+      <link>https://blog.example.test/escaped</link>
+      <guid>post-3</guid>
+      <description>&lt;p&gt;A body escaped instead of wrapped in CDATA.&lt;/p&gt;&lt;img src="https://cdn.example.test/escaped.png"&gt;&lt;iframe src="https://player.vimeo.com/video/77"&gt;&lt;/iframe&gt;</description>
+    </item>
+  </channel>
+</rss>
