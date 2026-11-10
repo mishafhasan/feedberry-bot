@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import sanitizeHtml from 'sanitize-html';
 import { Coded, E } from '../platform/errors.ts';
 import { HTML_LIMIT, type Http } from '../platform/http.ts';
+import { backgroundImages, imageSource, usableUrl } from '../platform/media-urls.ts';
 
 export interface Article {
   title: string;
@@ -30,22 +31,26 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
   if (res.status >= 400) throw new Coded(E.FEED_DOWN, `page replied ${res.status}`);
 
   const dom = new JSDOM(res.body, { url: res.url });
+  // The page is materialised before the reader sees it: Medium's post pictures sit in
+  // `<picture><source srcset>` beside an `<img>` that has no source, and Readability drops both.
+  resolveImages(dom.window.document, res.url);
   const parsed = new Readability(dom.window.document).parse();
   if (!parsed?.content) throw new Coded(E.NO_FEED, 'readability extracted nothing');
 
-  const clean = sanitizeHtml(parsed.content, {
+  // The image rules run before sanitizing: Medium keeps a post's picture in `<picture><source
+  // srcset>` and sanitize-html drops that wrapper, which used to delete every photo in the post.
+  const clean = sanitizeHtml(fixImageUrls(parsed.content, res.url), {
     allowedTags: ALLOWED_TAGS,
     allowedAttributes: { a: ['href'], img: ['src', 'srcset', 'alt'], iframe: ['src'] },
     allowedSchemes: ['http', 'https'],
   });
-  const html = fixImageUrls(clean, res.url);
 
   return {
     title: (parsed.title ?? '').trim() || url,
     byline: parsed.byline?.trim() || null,
     siteName: parsed.siteName?.trim() || null,
-    html,
-    textLength: textOf(html).length,
+    html: clean,
+    textLength: textOf(clean).length,
     url: res.url,
     publishedAt: parseDate(parsed.publishedTime),
   };
@@ -64,49 +69,62 @@ function parseDate(value: string | null | undefined): number | null {
  */
 export function fixImageUrls(html: string, baseUrl: string): string {
   const dom = new JSDOM(`<body>${html}</body>`, { url: baseUrl });
+  resolveImages(dom.window.document, baseUrl);
+  return dom.window.document.body.innerHTML;
+}
+
+/** The rules above, on a live document: the raw page and the reader's HTML both go through them. */
+export function resolveImages(document: Document, baseUrl: string): void {
   const page = new URL(baseUrl).href.replace(/#.*$/, '');
-  for (const img of dom.window.document.querySelectorAll('img')) {
-    const chosen = imageSource(img.getAttribute('srcset'), img.getAttribute('src'), baseUrl, page);
+  for (const img of document.querySelectorAll('img')) {
+    const chosen = imageOf(img, baseUrl, page);
     img.removeAttribute('srcset');
     if (chosen === null) img.remove();
     else img.setAttribute('src', chosen);
   }
-  return dom.window.document.body.innerHTML;
-}
-
-/** The widest *usable* candidate: srcset entries first, then `src`, which never outranks them. */
-function imageSource(srcset: string | null | undefined, src: string | null | undefined, baseUrl: string, page: string): string | null {
-  const candidates = [
-    // Sites emit `240w,https://…` without a space, so each entry is checked on its own merits.
-    ...(srcset ?? '').split(',').map((entry) => {
-      const [url = '', descriptor = ''] = entry.trim().split(/\s+/);
-      return { url, size: Number.parseFloat(descriptor) || 0 }; // 1536w and 1.5x both rank
-    }),
-    { url: src ?? '', size: -1 },
-  ];
-
-  let best: { url: string; size: number } | null = null;
-  for (const candidate of candidates) {
-    const usable = usableUrl(candidate.url, baseUrl, page);
-    if (usable !== null && (best === null || candidate.size > best.size)) best = { url: usable, size: candidate.size };
+  // Readability drops an `<img>` that carries no source, which leaves Medium's
+  // `<picture><source srcset>` orphaned: the sources themselves are the picture.
+  for (const picture of document.querySelectorAll('picture')) {
+    const chosen = sourceOf(picture, baseUrl, page);
+    if (chosen === null || picture.querySelector('img') !== null) continue;
+    const img = document.createElement('img');
+    img.setAttribute('src', chosen);
+    picture.appendChild(img);
   }
-  return best?.url ?? null;
-}
-
-function usableUrl(raw: string, baseUrl: string, page: string): string | null {
-  if (raw.trim() === '') return null;
-  try {
-    const absolute = new URL(raw, baseUrl);
-    if (!/^https?:$/.test(absolute.protocol) || /styles/i.test(absolute.pathname) || PLACEHOLDER.test(absolute.pathname)) return null;
-    // Whitespace or `#` resolves to the article itself: hotlinking an HTML page is a broken picture.
-    return absolute.href.replace(/#.*$/, '') === page ? null : absolute.toString();
-  } catch {
-    return null;
+  // A hero drawn as a CSS background carries no `<img>` at all; Instant View needs one it can fetch.
+  // Only the article's own container counts, or every banner and icon sprite becomes a picture.
+  const painted = new Set<string>();
+  for (const element of (document.querySelector('article, main') ?? document.body).querySelectorAll('[style]')) {
+    const chosen = backgroundImages(element.getAttribute('style')).map((url) => usableUrl(url, baseUrl, page)).find((url) => url !== null);
+    if (chosen === undefined || painted.has(chosen) || element.querySelector('img') !== null) continue;
+    painted.add(chosen);
+    const img = document.createElement('img');
+    img.setAttribute('src', chosen);
+    element.appendChild(img);
   }
 }
 
-/** Spacer files sites park in a slot before a script swaps the picture in. `blank`/`transparent` are real words, not signals. */
-const PLACEHOLDER = /(?:^|\/)(?:grey-)?(?:placeholder|spacer|1x1)[^/]*\.(?:gif|png|jpe?g|webp|svg)$/i;
+/**
+ * The picture an `<img>` stands for. Medium ships the real file only in `<picture><source srcset>`
+ * and leaves the `<img>` without a `src`; lazy images keep theirs in `data-src` behind a spacer.
+ */
+function imageOf(img: Element, baseUrl: string, page: string): string | null {
+  const direct = imageSource(img.getAttribute('srcset'), img.getAttribute('src'), baseUrl, page);
+  if (direct !== null) return direct;
+  const picture = img.closest('picture');
+  const fromSource = picture === null ? null : sourceOf(picture, baseUrl, page);
+  if (fromSource !== null) return fromSource;
+  return imageSource(null, img.getAttribute('data-src') ?? img.getAttribute('data-lazy-src'), baseUrl, page);
+}
+
+/** The widest candidate a `<picture>`'s own `<source srcset>` elements offer. */
+function sourceOf(picture: Element, baseUrl: string, page: string): string | null {
+  for (const source of picture.querySelectorAll('source')) {
+    const chosen = imageSource(source.getAttribute('srcset') ?? source.getAttribute('data-srcset'), null, baseUrl, page);
+    if (chosen !== null) return chosen;
+  }
+  return null;
+}
 
 export function textOf(html: string): string {
   return html

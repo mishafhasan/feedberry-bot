@@ -378,9 +378,16 @@ function single(u: URL, platform: Platform, externalId: string, canonicalUrl?: s
 /** A plain website: use it as a feed if it looks like one, otherwise discover (stage 2). */
 function genericWebsite(u: URL): SourceRef {
   const path = u.pathname.replace(/\/+$/, '') || '/';
+  const host = normalizeHost(u.hostname);
+  // Every Substack publication answers its feed at `<origin>/feed`, custom domains included, and a
+  // post link names its publication: no page fetch is needed to tell one from the other (ADR-021).
+  if (host.endsWith('.substack.com')) {
+    const origin = `${u.protocol}//${host}`;
+    return { platform: 'rss', canonicalUrl: origin, externalId: host, feedUrl: `${origin}/feed`, strategy: 'native_rss' };
+  }
   // The same rule sectionOf uses: `/rss/breaking_news/108` is a feed even though it does not end in one.
   const looksLikeFeed = FEED_PAGE.test(u.pathname);
-  const href = `${u.protocol}//${normalizeHost(u.hostname)}${path === '/' ? '' : path}${u.search}`;
+  const href = `${u.protocol}//${host}${path === '/' ? '' : path}${u.search}`;
   return { platform: 'rss', canonicalUrl: href, externalId: u.hostname, feedUrl: looksLikeFeed ? href : null, strategy: 'native_rss' };
 }
 

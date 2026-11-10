@@ -1,10 +1,14 @@
 import { Coded, E, isCoded, type ErrorCode } from '../errors.ts';
 import { FEED_LIMIT, HTML_LIMIT, type Http } from '../http.ts';
+import { backgroundImages, imageSource, usableUrl } from '../media-urls.ts';
 import type { SourceRef } from '../registry.ts';
 
 export interface FeedMedia {
   url: string;
   type: 'photo' | 'video' | 'audio' | 'unknown';
+  /** The size the feed or the tag itself declares (MRSS attributes, `<img width height>`); absent when unknown. */
+  width?: number;
+  height?: number;
 }
 
 export interface FeedItem {
@@ -36,9 +40,24 @@ export function handleFeedStatus(status: number): void {
 }
 
 export async function fetchAndParse(http: Http, url: string, timeoutMs?: number): Promise<ParsedFeed> {
+  const res = await load(http, url, timeoutMs);
+  return { ...parseFeed(res.body, res.url), feedUrl: res.url };
+}
+
+/**
+ * The page list a site with no feed publishes (ADR-021). Only discovery's last guess and the URL it
+ * stores read a sitemap: a `rel=alternate application/xml` is as often a sitemap as a feed, and that
+ * one must still fall through to the conventional paths (ADR-019).
+ */
+export async function fetchSitemap(http: Http, url: string, timeoutMs?: number): Promise<ParsedFeed> {
+  const res = await load(http, url, timeoutMs);
+  return { ...parseSitemap(res.body, res.url), feedUrl: res.url };
+}
+
+async function load(http: Http, url: string, timeoutMs?: number) {
   const res = await http(url, { maxBytes: FEED_LIMIT, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   handleFeedStatus(res.status);
-  return { ...parseFeed(res.body, res.url), feedUrl: res.url };
+  return res;
 }
 
 /**
@@ -56,7 +75,8 @@ export class DiscoveredFeedError extends Coded {
 
 /** Stage 2 for `native_rss`: use the feed, or discover `rel=alternate` / common paths. */
 export async function fetchNativeFeed(http: Http, ref: SourceRef, budgetMs = 20_000): Promise<ParsedFeed> {
-  if (ref.feedUrl) return fetchAndParse(http, ref.feedUrl);
+  // A stored fallback is a sitemap by name, which is the one thing this reader can tell without a fetch.
+  if (ref.feedUrl) return isSitemapUrl(ref.feedUrl) ? fetchSitemap(http, ref.feedUrl) : fetchAndParse(http, ref.feedUrl);
 
   const page = await http(ref.canonicalUrl, { maxBytes: HTML_LIMIT });
   handleFeedStatus(page.status);
@@ -86,6 +106,16 @@ export async function fetchNativeFeed(http: Http, ref: SourceRef, budgetMs = 20_
       if (feed.items.length > 0) return feed;
     } catch {
       // A 404 on a guessed path is expected; try the next one.
+    }
+  }
+
+  // A site with no feed of its own still lists its pages, and that list is the last resort (ADR-021).
+  const left = deadline - Date.now();
+  if (left > 0) {
+    try {
+      return await fetchSitemap(http, new URL('/sitemap.xml', page.url).toString(), left);
+    } catch {
+      // Most sites have no sitemap either; NO_FEED below is the honest answer.
     }
   }
   throw new Coded(E.NO_FEED, 'no feed discovered');
@@ -149,18 +179,17 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
     seen.add(guid);
     // A feed may carry a short `description` beside the full `content:encoded`. The longest is
     // the post; picking the first tag drops the caption entirely on CMS feeds.
-    const bodies = ['description', 'summary', 'content:encoded', 'content']
-      .map((tag) => stripTags(firstTag(block, tag), true))
-      .filter((candidate) => candidate !== '');
-    const summary = bodies.sort((left, right) => right.length - left.length)[0] ?? '';
+    const html = bodyOf(block);
+    const images = inlineImages(html, link, baseUrl);
+    const summary = summaryOf(html, images, baseUrl);
     items.push({
       guid,
       link,
       // No invented title: the renderer owns the fallbacks, and a copy of the body would repeat it.
       title: stripTags(firstTag(block, 'title')),
       publishedAt: dateOf(firstTag(block, 'pubDate') ?? firstTag(block, 'published') ?? firstTag(block, 'dc:date') ?? firstTag(block, 'updated')),
-      summary: summary ? summary.slice(0, SUMMARY_LIMIT) : null,
-      media: mediaOf(block, baseUrl),
+      summary: summary || null,
+      media: mediaOf(block, images, baseUrl),
       categories: categoriesOf(block),
     });
   }
@@ -176,6 +205,103 @@ export function parseFeed(xml: string, baseUrl: string): ParsedFeed {
     avatarUrl: avatarOf(head, baseUrl),
     items,
   };
+}
+
+/** The name a sitemap is stored under: `<origin>/sitemap.xml`, or one the user pasted as a feed. */
+const SITEMAP_URL = /^sitemap/i;
+
+/** The URL discovery falls back to, and stores, for a site that publishes no feed. */
+function isSitemapUrl(url: string): boolean {
+  try {
+    return SITEMAP_URL.test(new URL(url).pathname.split('/').pop() ?? '');
+  } catch {
+    return false;
+  }
+}
+
+/** How many of a sitemap's pages one source follows: a sitemap is an inventory, not a 20-item feed. */
+const SITEMAP_ITEMS = 50;
+/** An undated sitemap cannot be ordered, so its whole list is the source; this only bounds the parse. */
+const SITEMAP_MAX = 1000;
+
+/**
+ * Last resort for a site that publishes no feed at all (ADR-021): a beehiiv newsletter with RSS
+ * switched off still lists its posts in a sitemap. Only the path segment that holds most of the
+ * sitemap is followed — a newsletter's `/p/…`, a blog's `/blog/…` — because `/about` and
+ * `/subscribe` are the site, not its posts. With no such directory the whole sitemap is the blog.
+ * shortcut: `<urlset>` only; a `<sitemapindex>` needs its children fetched, and such a site has a feed.
+ */
+export function parseSitemap(xml: string, baseUrl: string): ParsedFeed {
+  const entries: Array<{ url: string; at: number | null }> = [];
+  const seen = new Set<string>();
+  for (const match of xml.matchAll(/<url>([\s\S]*?)<\/url>/gi)) {
+    const block = match[1] ?? '';
+    const raw = text(firstTag(block, 'loc'));
+    if (raw === '') continue;
+    let url: URL;
+    try {
+      url = new URL(decodeEntities(raw), baseUrl);
+    } catch {
+      continue; // A broken <loc> lists nothing.
+    }
+    if (!/^https?:$/.test(url.protocol) || url.pathname === '/') continue;
+    const href = url.toString();
+    if (seen.has(href)) continue;
+    seen.add(href);
+    entries.push({ url: href, at: dateOf(firstTag(block, 'lastmod')) });
+  }
+
+  const directory = postDirectory(entries);
+  const pages = entries.filter((entry) => directory === null || pathSegment(entry.url) === directory);
+  // A dated sitemap is read newest first and only its window is followed; the rest is history. An
+  // undated one cannot be ordered, so every page counts — a fixed first-N window would freeze the
+  // source on whichever pages the file happens to list first and never deliver again.
+  const window = pages.some((entry) => entry.at !== null)
+    ? [...pages].sort((left, right) => (right.at ?? 0) - (left.at ?? 0)).slice(0, SITEMAP_ITEMS)
+    : pages.slice(0, SITEMAP_MAX);
+  const items: FeedItem[] = window.map((entry) => ({
+    guid: entry.url,
+    link: entry.url,
+    // A sitemap carries no titles; the page's own slug is the one line a list can print.
+    title: slugTitle(entry.url),
+    publishedAt: entry.at,
+    summary: null,
+    media: [],
+  }));
+  if (items.length === 0) throw new Coded(E.NO_FEED, 'sitemap lists no pages');
+  return { title: null, avatarUrl: null, items };
+}
+
+/** The first path segment that holds at least half the sitemap, or null when the paths are flat. */
+function postDirectory(entries: Array<{ url: string }>): string | null {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const segment = pathSegment(entry.url);
+    if (segment !== '') counts.set(segment, (counts.get(segment) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((left, right) => right[1] - left[1])[0];
+  return top !== undefined && top[1] * 2 >= entries.length ? top[0] : null;
+}
+
+function pathSegment(url: string): string {
+  try {
+    return new URL(url).pathname.split('/').find((part) => part !== '') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** `nvidia-ceo-admits-affair` for a page whose sitemap entry names nothing else. */
+function slugTitle(url: string): string {
+  const tail = url.split('/').filter(Boolean).at(-1) ?? '';
+  let last = tail;
+  try {
+    last = decodeURIComponent(tail);
+  } catch {
+    // A malformed escape keeps its raw spelling.
+  }
+  const words = last.replace(/[-_]+/g, ' ').trim();
+  return words.length <= 120 ? words : `${words.slice(0, 119)}…`;
 }
 
 function avatarOf(head: string, baseUrl: string): string | null {
@@ -205,16 +331,143 @@ function categoriesOf(block: string): string[] | undefined {
   return tags.length === 0 ? undefined : tags;
 }
 
-function mediaOf(block: string, baseUrl: string): FeedMedia[] {
+function mediaOf(block: string, images: MediaImage[], baseUrl: string): FeedMedia[] {
   const media: FeedMedia[] = [];
+  const seen = new Set<string>();
+  const add = (entry: FeedMedia): void => {
+    if (seen.has(entry.url)) return;
+    seen.add(entry.url);
+    media.push(entry);
+  };
   for (const tag of block.match(/<(enclosure|media:content|media:thumbnail)\b[^>]*>/gi) ?? []) {
     const url = attr(tag, 'url');
     if (!url) continue;
     // A `media:thumbnail` is always a picture, even when it carries no type attribute.
     const type = /^<media:thumbnail/i.test(tag) ? 'photo' : kindOf(attr(tag, 'type'));
-    media.push({ url: new URL(decodeEntities(url), baseUrl).toString(), type });
+    try {
+      add({ url: new URL(decodeEntities(url), baseUrl).toString(), type, ...sizeOf({ width: attr(tag, 'width'), height: attr(tag, 'height') }) });
+    } catch {
+      // A broken enclosure URL is not media, and it must not cost the item.
+    }
   }
-  return media;
+  for (const image of images) add({ url: image.url, type: 'photo', ...sizeOf(image) });
+  // A gallery bigger than this is a datasheet, not a post; every URL would land in one payload row.
+  return media.length > MEDIA_PER_POST ? media.slice(0, MEDIA_PER_POST) : media;
+}
+
+/** shortcut: 50 pictures per post; raise it if a feed ever ships a real gallery past that. */
+const MEDIA_PER_POST = 50;
+
+/** MRSS and `<img>` state a picture's size in attributes; a size that is not a number is not a size. */
+function sizeOf(source: { width?: string | number | null; height?: string | number | null }): { width?: number; height?: number } {
+  const size: { width?: number; height?: number } = {};
+  const width = Number(source.width ?? NaN);
+  const height = Number(source.height ?? NaN);
+  if (Number.isInteger(width) && width > 0) size.width = width;
+  if (Number.isInteger(height) && height > 0) size.height = height;
+  return size;
+}
+
+/** One picture a post body carries, with the size its own tag declared. */
+interface MediaImage {
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+/** The picture tags a post body can carry, and any tag that paints one in CSS. */
+const IMAGE_TAG = /<img\b[^>]*>|<source\b[^>]*>|<[a-z][^>]*\bstyle\s*=\s*(?:"[^"]*"|'[^']*')[^>]*>/gi;
+
+/**
+ * Every picture the post's own HTML carries, in post order (ADR-021). A CMS that ships its gallery
+ * only inside `content:encoded` left `FeedItem.media` empty, so Telegram got a bare link card.
+ * `page` is the post itself: an image pointing back at it is a broken picture, not media.
+ */
+function inlineImages(html: string | null, baseUrl: string, page: string): MediaImage[] {
+  if (!html) return [];
+  const found = new Map<string, MediaImage>();
+  const add = (url: string | null, size: { width?: number; height?: number } = {}): void => {
+    if (url !== null && !found.has(url)) found.set(url, { url, ...size });
+  };
+  for (const [tag] of html.matchAll(IMAGE_TAG)) {
+    if (/^<img\b/i.test(tag)) {
+      // A lazy image keeps its real file in `data-src` while `src` is a data: URI or a spacer.
+      const lazy = attr(tag, 'data-src') ?? attr(tag, 'data-lazy-src') ?? attr(tag, 'data-original');
+      add(
+        imageSource(attr(tag, 'srcset'), attr(tag, 'src'), baseUrl, page) ?? imageSource(null, lazy, baseUrl, page),
+        sizeOf({ width: attr(tag, 'width'), height: attr(tag, 'height') }),
+      );
+    } else if (/^<source\b/i.test(tag)) {
+      // Medium spells its picture only on `<source>`; the `<img>` under it has no source at all.
+      add(imageSource(attr(tag, 'srcset') ?? attr(tag, 'data-srcset'), null, baseUrl, page));
+    }
+    // A CSS background is a picture the post never spelled as one. `attr` cannot read this one: a
+    // quoted `url('…')` closes its match early, so the style is parsed whole.
+    const style = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    for (const raw of backgroundImages(style?.[1] ?? style?.[2])) add(usableUrl(decodeEntities(raw), baseUrl, page));
+  }
+  return [...found.values()];
+}
+
+/** The item's longest body, still as the HTML it was written in: its pictures and embeds live there. */
+function bodyOf(block: string): string | null {
+  let best: string | null = null;
+  let bestLength = 0;
+  for (const tag of ['description', 'summary', 'content:encoded', 'content']) {
+    const raw = firstTag(block, tag);
+    if (raw === null) continue;
+    // A body is sometimes escaped instead of wrapped in CDATA (`&lt;img …&gt;`), and then no tag
+    // rule can see its pictures. Only media markup counts: `<p>` is a topic, not a body.
+    const html = ESCAPED_MARKUP.test(raw) && !REAL_MARKUP.test(raw) ? decodeEntities(raw) : raw;
+    const length = stripTags(html, true).length;
+    if (length > bestLength) {
+      best = html;
+      bestLength = length;
+    }
+  }
+  return best;
+}
+
+const ESCAPED_MARKUP = /&lt;\s*(?:img|picture|source|iframe|video|embed)\b/i;
+const REAL_MARKUP = /<\s*(?:img|picture|source|iframe|video|embed)\b/i;
+
+/** The post's words, then a line per player and per animation: a caption can play neither (ADR-021). */
+function summaryOf(html: string | null, images: MediaImage[], baseUrl: string): string {
+  // The words are what a reader can live without at the cap; a player line must never be the part cut.
+  const text = stripTags(html, true).slice(0, SUMMARY_LIMIT);
+  const players = embedLinks(html, baseUrl).map((url) => `🎬 ${url}`);
+  // A remote `.gif` reaches Telegram as a still picture, so the animation also gets a tappable link.
+  const loops = images.filter((image) => /\.gif$/i.test(pathOf(image.url))).map((image) => `🎞️ ${image.url}`);
+  return [text, ...players, ...loops].filter((part) => part !== '').join('\n\n');
+}
+
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return '';
+  }
+}
+
+/** Hosts and files whose embed URL is a video rather than a picture or an audio clip. */
+const VIDEO_URL = /(?:^|\.)(?:youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|streamable\.com|loom\.com)$|^player\.twitch\.tv$|\.(?:mp4|webm|mov|m3u8)$/i;
+
+/** Every video the post's HTML embeds, so the caption carries a link Telegram can actually play. */
+function embedLinks(html: string | null, baseUrl: string): string[] {
+  if (!html) return [];
+  const found: string[] = [];
+  for (const tag of html.match(/<(?:iframe|video|embed|source)\b[^>]*>/gi) ?? []) {
+    const raw = attr(tag, 'src') ?? attr(tag, 'data-src');
+    if (raw === null) continue;
+    try {
+      const url = new URL(decodeEntities(raw), baseUrl);
+      // An audio or poster <source> is not a video; only a player URL earns a line.
+      if (VIDEO_URL.test(url.hostname) || VIDEO_URL.test(url.pathname)) found.push(url.toString());
+    } catch {
+      // A broken embed URL embeds nothing.
+    }
+  }
+  return [...new Set(found)];
 }
 
 function kindOf(type: string | null): FeedMedia['type'] {
