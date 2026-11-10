@@ -3,7 +3,7 @@ import type { Article } from '../article/readability.ts';
 import { leadOf } from '../article/readability.ts';
 import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/plan.ts';
 import { postHeader } from '../render/caption.ts';
-import { renderVideo } from '../render/video.ts';
+import { renderAlbum, renderVideo } from '../render/video.ts';
 import type { PostKind } from './s3-classify.ts';
 
 /** R9/R7/R8 need facts about the downloaded video; other rows ignore them. */
@@ -22,10 +22,9 @@ export interface RenderExtras {
   titleFallback?: string | null;
 }
 
-/** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14). Stage 7 owns splitting and the reply chain. */
+/** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14/R15). Stage 7 owns splitting and the reply chain. */
 export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras): MessagePlan {
   const caption = bodyOf(post, extras);
-  const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
 
   switch (kind) {
     case 'text':
@@ -49,7 +48,8 @@ export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], ex
       });
     }
     case 'album':
-      return files.length > 0 ? { kind, items: asItems, caption } : { kind: 'text', text: clampMessage(caption) };
+      // R15: an oversized video keeps its frame and a link; the rest of the post still ships as one album.
+      return renderAlbum(files, caption);
   }
 }
 
@@ -73,7 +73,6 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
   const title = meta.title ?? null;
   const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform });
   const caption = artist !== null && title !== null ? `${header}\n\n${esc(title)}` : header;
-  const asItems = files.map((file) => ({ file: file.path, kind: file.kind === 'video' ? ('video' as const) : ('photo' as const) }));
   if (files.length === 0) return { kind: 'link_only', text: esc(link) };
 
   const kinds = new Set(files.map((file) => file.kind));
@@ -85,7 +84,10 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
     if (only.kind === 'video') return renderVideo(only, caption, { durationSec: null, thumbnail: null, link });
     return { kind: only.kind === 'animation' ? 'animation' : 'photo', file: only.path, caption };
   }
-  return { kind: 'album', items: asItems, caption };
+
+  // R15: the same rule as a scheduled album — the frame plus the link stands in for a video too big to send.
+  const album = renderAlbum(files, caption);
+  return album.kind === 'text' ? { kind: 'link_only', text: `${clampMessage(album.text, 4000)}\n\n${esc(link)}` } : album;
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

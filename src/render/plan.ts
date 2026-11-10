@@ -6,6 +6,8 @@ export interface MediaFile {
   path: string;
   kind: MediaKind;
   size: number;
+  /** Where it came from; a file past the upload ceiling links back to it from the caption (R15). */
+  url?: string;
 }
 
 export type MessagePlan =
