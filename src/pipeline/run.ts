@@ -11,7 +11,7 @@ import { log } from '../obs/log.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
 import { probeDuration } from '../media/probe.ts';
-import type { Thumbnailer } from '../media/thumb.ts';
+import { standInFrames, type Thumbnailer } from '../media/thumb.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import { allowsContent, parseContentTypes, youtubeKindOf } from '../platform/content-types.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
@@ -268,7 +268,11 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
     return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback });
   }
 
-  if (kind !== 'video') return renderPost(post, kind, files, { platform, sourceTitle, titleFallback });
+  if (kind !== 'video') {
+    // R15: an oversized video cannot ride in the album, so a frame rides in its place.
+    if (kind === 'album') files.push(...(await standInFrames(files, dir, deps.thumbnail)));
+    return renderPost(post, kind, files, { platform, sourceTitle, titleFallback });
+  }
 
   const video = files[0];
   if (!video) return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback });

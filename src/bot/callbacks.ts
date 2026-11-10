@@ -8,6 +8,7 @@ import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourc
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
+import { standInFrames, type Thumbnailer } from '../media/thumb.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
@@ -109,6 +110,8 @@ export interface BotDeps {
   db: Db;
   http: Http;
   media: MediaEngine;
+  /** Frame for a video past the upload ceiling (R15). */
+  thumbnail: Thumbnailer;
   sender: TelegramSender;
   /** Telegra.ph publisher; tests inject a recorder, production uses the real client. */
   telegraph?: TelegraphClient;
@@ -989,6 +992,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const owner = profileOfPost(ref.canonicalUrl);
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+        // R15: a clip too big to upload leaves a frame behind, exactly as a scheduled album does.
+        if (files.length > 1) files.push(...(await standInFrames(files, dir, deps.thumbnail)));
         // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
         const page: ReadMorePage = {
           id: 0,
@@ -1121,6 +1126,8 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
   if (files.length === 0) return { kind: 'text', text: text === '' ? header : `${header}\n\n${esc(text)}` };
+  // R15: a clip too big to upload leaves a frame behind, exactly as a scheduled album does.
+  if (files.length > 1) files.push(...(await standInFrames(files, dir, deps.thumbnail)));
 
   // A caption past the limit keeps the media and moves the post's tail to an Instant View page.
   const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: post.items.filter((item) => item.kind === 'photo').map((item) => item.url) };

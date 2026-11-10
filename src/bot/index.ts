@@ -6,6 +6,7 @@ import { ensureUser } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import { statusText } from '../obs/status.ts';
 import { cobaltEngine, type MediaEngine } from '../media/cobalt.ts';
+import { ffmpegThumbnail, type Thumbnailer } from '../media/thumb.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
@@ -29,6 +30,8 @@ export interface CreateBotOptions {
   http?: Http;
   /** Media engine (ADR-005); tests inject a fixture-backed fake. */
   media?: MediaEngine;
+  /** Frame for a video that cannot be uploaded (R15); tests inject a stub. */
+  thumbnail?: Thumbnailer;
   /** Telegra.ph publisher; tests inject a recorder. */
   telegraph?: TelegraphClient;
 }
@@ -40,10 +43,10 @@ export function networkFor(cfg: Config): Http {
   return (url, opts) => (isTrusted(url, cfg) ? trustedFetch(url, opts) : safeFetch(url, opts));
 }
 
-export function createBot({ cfg, db, apiRoot, http, media, telegraph }: CreateBotOptions): Bot {
+export function createBot({ cfg, db, apiRoot, http, media, thumbnail, telegraph }: CreateBotOptions): Bot {
   const bot = new Bot(cfg.botToken, apiRoot ? { client: { apiRoot } } : undefined);
   const network: Http = http ?? networkFor(cfg);
-  const deps = { cfg, db, http: network, media: media ?? cobaltEngine, sender: new TelegramSender(bot.api), telegraph };
+  const deps = { cfg, db, http: network, media: media ?? cobaltEngine, thumbnail: thumbnail ?? ffmpegThumbnail, sender: new TelegramSender(bot.api), telegraph };
 
   // The allowlist gate sits in front of every handler: commands, text, callbacks and chat changes.
   bot.use(async (ctx, next) => {
