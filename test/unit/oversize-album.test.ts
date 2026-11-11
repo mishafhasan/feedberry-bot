@@ -44,7 +44,7 @@ const poster = (): MediaFile[] => [
 ];
 
 test('R15: a video past the ceiling links from the caption and never enters the album', () => {
-  const plan = renderPost(post, 'album', poster(), { platform: 'x', sourceTitle: '@Royal' });
+  const plan = renderPost(post, 'album', poster(), { platform: 'rss', sourceTitle: '@Royal' });
   assert.equal(plan.kind, 'album');
   if (plan.kind !== 'album') return;
 
@@ -53,13 +53,13 @@ test('R15: a video past the ceiling links from the caption and never enters the 
     ['v1.mp4', 'v2.mp4', 'i1.jpg', 'i2.jpg', 'thumb-1.jpg'],
     'the 51 MB clip is left out; its frame takes the last slot',
   );
-  assert.match(plan.caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/1">@Royal<\/a> \| X\n⏱️ Time: 11\/10 16:07/);
+  assert.match(plan.caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/1">@Royal<\/a> \| RSS\n⏱️ Time: 11\/10 16:07/);
   assert.ok(plan.caption.endsWith(LINK), `the caption ends with the direct link:\n${plan.caption}`);
   assert.equal(plan.caption.match(/🎬/g)?.length, 1, 'one line per oversized video');
 });
 
 test('R15: an album with nothing left to upload still ships its words and every link', () => {
-  const plan = renderPost(post, 'album', [{ path: 'v3.mp4', kind: 'video', size: OVER, url: BIG }], { platform: 'x', sourceTitle: '@Royal' });
+  const plan = renderPost(post, 'album', [{ path: 'v3.mp4', kind: 'video', size: OVER, url: BIG }], { platform: 'rss', sourceTitle: '@Royal' });
 
   assert.equal(plan.kind, 'text', 'no empty sendMediaGroup is ever attempted');
   assert.ok(plan.kind === 'text' && plan.text.endsWith(LINK));
@@ -70,19 +70,19 @@ test('R15: one survivor travels as a single video, never a one-item group', () =
     { path: 'v1.mp4', kind: 'video', size: 1024, url: 'https://cdn.test/v1.mp4' },
     { path: 'v3.mp4', kind: 'video', size: OVER, url: BIG },
   ];
-  const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
+  const plan = renderPost(post, 'album', files, { platform: 'rss', sourceTitle: '@Royal' });
 
   assert.equal(plan.kind, 'video', 'sendMediaGroup refuses fewer than two items');
   assert.ok(plan.kind === 'video' && plan.caption.endsWith(LINK));
 });
 
-test('R15: Download Mode applies the same rule to a carousel', () => {
+test('R15: Download Mode ships one rich message, the big clip left out and linked', () => {
   const plan = renderDownload(poster(), { title: 'Three clips', artist: '@Royal', platform: 'x' }, 'https://x.com/Royal/status/1');
 
-  assert.equal(plan.kind, 'album');
-  if (plan.kind !== 'album') return;
-  assert.deepEqual(plan.items.map((item) => item.file), ['v1.mp4', 'v2.mp4', 'i1.jpg', 'i2.jpg', 'thumb-1.jpg']);
-  assert.ok(plan.caption.endsWith(LINK));
+  assert.equal(plan.kind, 'rich');
+  if (plan.kind !== 'rich') return;
+  assert.deepEqual(plan.media.map((m) => m.file), ['v1.mp4', 'v2.mp4', 'i1.jpg', 'i2.jpg', 'thumb-1.jpg'], 'the 51 MB clip never uploads');
+  assert.ok(plan.html.includes(`<p>${LINK}</p>`), 'the message ends with the direct link');
 });
 
 /** A fake engine whose files land as sparse bytes of the requested size. */
@@ -166,7 +166,7 @@ test('R15: a download that fails is a link, not a lost post', async () => {
     assert.equal(files[0]?.path, '', 'the video left no bytes behind');
     assert.equal(files[0]?.url, BIG, 'but its link is kept');
 
-    const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
+    const plan = renderPost(post, 'album', files, { platform: 'rss', sourceTitle: '@Royal' });
     assert.equal(plan.kind, 'photo', 'the photo is not dragged into a one-item group');
     assert.ok(plan.kind === 'photo' && plan.caption.endsWith(LINK), 'and the caption still links the clip');
   } finally {
@@ -205,7 +205,7 @@ test('R15: two oversized clips get their own numbers', () => {
     { path: 'i1.jpg', kind: 'photo', size: 1024 },
     { path: 'i2.jpg', kind: 'photo', size: 1024 },
   ];
-  const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
+  const plan = renderPost(post, 'album', files, { platform: 'rss', sourceTitle: '@Royal' });
 
   assert.ok(plan.kind === 'album' && plan.caption.endsWith(`🎬 <a href="${BIG}">Video 1</a>\n🎬 <a href="https://cdn.test/v2.mp4">Video 2</a>`), 'each clip keeps its own link and number');
 });

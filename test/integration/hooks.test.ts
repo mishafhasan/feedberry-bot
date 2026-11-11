@@ -64,7 +64,7 @@ async function deliver(api: FakeApi, dir: string): Promise<string> {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: noMedia });
     await bot.init();
     await deliverPending({ db, http, cfg, media: noMedia, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
-    return String(api.last('sendMessage')?.body.text ?? '');
+    return String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
   } finally {
     db.close();
   }

@@ -207,13 +207,15 @@ export interface DeliveryTargetRow {
   /** ADR-020: this chat's keyword list, and the user's fallback behind it. */
   keywords: string | null;
   default_keywords: string | null;
+  /** The subscriber's timezone for the post's `⏱️ Time:` line (D2, ADR-023). */
+  tz: string;
 }
 
 /** Stage 7 targets: every active subscription whose chat may still receive posts (§9.4). */
 export function deliveryTargets(db: Db, sourceId: number): DeliveryTargetRow[] {
   return db
     .prepare(
-      `SELECT c.id AS chat_id, c.tg_chat_id, c.message_thread_id, c.type, sub.content_types, sub.keywords, u.default_keywords
+      `SELECT c.id AS chat_id, c.tg_chat_id, c.message_thread_id, c.type, sub.content_types, sub.keywords, u.default_keywords, u.tz
        FROM subscriptions sub JOIN chats c ON c.id = sub.chat_id JOIN users u ON u.id = sub.user_id
        WHERE sub.source_id = ? AND sub.deliver = 1 AND c.can_post = 1
        ORDER BY c.id`,

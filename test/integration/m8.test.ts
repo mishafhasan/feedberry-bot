@@ -146,7 +146,7 @@ test('M8: a 429 waits retry_after + 1 s and succeeds without spending a job atte
     assert.equal(delivery.status, 'sent');
     assert.equal(delivery.attempts, 1, 'a flood wait is not a pipeline failure');
 
-    const sends = api.calls.filter((c) => c.method === 'sendMessage');
+    const sends = api.calls.filter((c) => c.method === 'sendRichMessage');
     assert.equal(sends.length, 2, 'one rejected attempt and one retry');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM jobs WHERE state = 'done'"), 1, 'the job finished on its first attempt');
   } finally {
@@ -198,12 +198,13 @@ test('M8: an unparseable post is resent as plain text, not dropped', async () =>
     await bot.init();
     await runOnce({ db, http, cfg, media: noMedia, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 1 }, Date.now());
 
+    const rich = api.calls.filter((c) => c.method === 'sendRichMessage');
+    assert.equal(rich.length, 1, 'the rejected rich attempt');
     const sends = api.calls.filter((c) => c.method === 'sendMessage');
-    assert.equal(sends.length, 2, 'one rejected attempt and one plain-text resend');
-    assert.equal(sends[0]?.body.parse_mode, 'HTML');
-    assert.equal(sends[1]?.body.parse_mode, undefined, 'the retry drops parse_mode');
-    assert.doesNotMatch(String(sends[1]?.body.text), /&lt;|&gt;|&amp;/, 'HTML entities are undone for the plain resend');
-    assert.match(String(sends[1]?.body.text), /Bold <title>/, 'the literal text survives the round trip');
+    assert.equal(sends.length, 1, 'one plain-text resend');
+    assert.equal(sends[0]?.body.parse_mode, undefined, 'the retry drops parse_mode');
+    assert.doesNotMatch(String(sends[0]?.body.text), /&lt;|&gt;|&amp;/, 'HTML entities are undone for the plain resend');
+    assert.match(String(sends[0]?.body.text), /Bold <title>/, 'the literal text survives the round trip');
 
     const delivery = db.prepare('SELECT status FROM deliveries WHERE post_id = ?').get(post.id) as { status: string };
     assert.equal(delivery.status, 'sent');

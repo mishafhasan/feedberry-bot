@@ -77,7 +77,7 @@ const http: Http = async (url) => {
   throw new Error(`no page fetch expected in R15, got ${url}`);
 };
 
-test('R15: an album with one 51 MB clip ships as a frame plus a caption link', async () => {
+test('R15: a carousel with one 51 MB clip ships as one rich message, the clip linked', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-r15-int-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test' });
@@ -109,17 +109,16 @@ test('R15: an album with one 51 MB clip ships as a frame plus a caption link', a
     assert.equal(result.delivered, 1, 'the post is delivered, never dropped');
     assert.equal(result.failed, 0);
 
-    const groups = api.calls.filter((call) => call.method === 'sendMediaGroup');
-    assert.equal(groups.length, 1, 'five items fit one group');
-    const media = groups[0]?.body.media as Array<{ type: string; caption?: string }>;
-    assert.equal(media.length, 5, 'two clips + two photos + the frame standing in for the big clip');
-    assert.deepEqual(media.map((item) => item.type), ['video', 'video', 'photo', 'photo', 'photo'], 'the 51 MB clip is not one of them');
+    assert.equal(api.calls.filter((call) => call.method === 'sendMediaGroup').length, 0, 'no attached media group on the rich path');
+    const rich = api.last('sendRichMessage');
+    const media = rich?.body.rich_message?.media as Array<{ media: { type: string } }>;
+    assert.deepEqual(media.map((item) => item.media.type), ['video', 'video', 'photo', 'photo'], 'the 51 MB clip never uploads, and no frame stands in');
 
-    const caption = String(media[0]?.caption ?? '');
-    assert.match(caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/2120186300917542912">@Royal<\/a> \| X/);
-    assert.match(caption, /⏱️ Time: 11\/10 16:07/);
-    assert.ok(caption.includes('Three clips'), 'the post text sits between the header and the links');
-    assert.ok(caption.endsWith(LINK), `the caption links the clip it could not send:\n${caption}`);
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.match(html, /<a href="https:\/\/x\.com\/Royal\/status\/2120186300917542912">@Royal<\/a> \| X/);
+    assert.match(html, /⏱️ Time: 10\/11 16:07/);
+    assert.ok(html.includes('Three clips'), 'the post text sits between the header and the links');
+    assert.ok(html.includes(`<p>${LINK}</p>`), `the message links the clip it could not send:\n${html}`);
 
     assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 0, 'the 51 MB clip never starts an upload');
 
@@ -132,7 +131,7 @@ test('R15: an album with one 51 MB clip ships as a frame plus a caption link', a
   }
 });
 
-test('R15: Download Mode delivers the same carousel, frame included', async () => {
+test('R15: Download Mode delivers the same carousel as one rich message', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-r15-dl-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
@@ -148,11 +147,11 @@ test('R15: Download Mode delivers the same carousel, frame included', async () =
     await bot.handleUpdate(textUpdate(3, USER_ID, POST));
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'dl:post'));
 
-    const groups = api.calls.filter((call) => call.method === 'sendMediaGroup');
-    assert.equal(groups.length, 1, 'the carousel ships as one group');
-    const media = groups[0]?.body.media as Array<{ type: string; caption?: string }>;
-    assert.deepEqual(media.map((item) => item.type), ['video', 'video', 'photo', 'photo', 'photo'], 'the 51 MB clip is replaced by its frame');
-    assert.ok(String(media[0]?.caption ?? '').endsWith(LINK), 'the caption still links the clip');
+    assert.equal(api.calls.filter((call) => call.method === 'sendMediaGroup').length, 0, 'the carousel ships as one rich message');
+    const rich = api.last('sendRichMessage');
+    const media = rich?.body.rich_message?.media as Array<{ media: { type: string } }>;
+    assert.deepEqual(media.map((item) => item.media.type), ['video', 'video', 'photo', 'photo'], 'the 51 MB clip never uploads');
+    assert.ok(String(rich?.body.rich_message?.html ?? '').includes(`<p>${LINK}</p>`), 'the message still links the clip');
   } finally {
     db.close();
     await api.close();
@@ -191,9 +190,10 @@ test('R15: a lone oversized video in Download Mode ends on its media file, not t
     await bot.handleUpdate(textUpdate(3, USER_ID, POST));
 
     // The pasted link alone delivers: there is no second button to press.
-    const text = String(api.calls.filter((call) => call.method === 'sendMessage' && String(call.body.text ?? '').includes('🎬')).at(-1)?.body.text ?? '');
-    assert.ok(text.endsWith(LINK), `the last line is the media file:\n${text}`);
-    assert.ok(!text.trimEnd().endsWith(POST), 'the post page is not the last thing the reader sees');
+    const rich = api.calls.filter((call) => call.method === 'sendRichMessage').at(-1);
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.ok(html.includes(`<p>${LINK}</p>`), `the media file link is present:\n${html}`);
+    assert.equal(rich?.body.rich_message?.media, undefined, 'nothing uploads for a lone oversized clip');
     assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 0, 'the clip never starts an upload');
   } finally {
     db.close();

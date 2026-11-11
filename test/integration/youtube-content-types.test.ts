@@ -122,7 +122,9 @@ test('youtube: a Shorts link downloads through cobalt instead of failing as an u
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:download'));
     await bot.handleUpdate(textUpdate(3, USER_ID, 'https://youtube.com/shorts/ccIE0DwsH4I?si=RIOFlxJwTiwsKDf-'));
 
-    assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 1, 'the clip is delivered');
+    const rich = api.calls.filter((call) => call.method === 'sendRichMessage' && /<video src="tg:\/\/video/.test(String(call.body.rich_message?.html ?? '')));
+    assert.equal(rich.length, 1, 'the clip is delivered as one rich message');
+    assert.match(String(rich[0]?.body.rich_message?.html ?? ''), /<video src="tg:\/\/video\?id=m0">/, 'the clip rides in the slideshow');
     const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
     assert.ok(!texts.some((text) => /isn't a supported source/.test(text)), 'the link is never refused');
     assert.ok(seen.some((url) => url === 'https://youtube.com/shorts/ccIE0DwsH4I'), 'the page still names its words and date');
@@ -275,11 +277,12 @@ test('youtube: a posts-only chat receives the community post and none of the upl
     assert.equal(result.delivered, 1, 'the community post is sent');
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM posts').get() as { n: number }).n, 1, 'no uploads were recorded for a Posts-only chat');
 
-    const photo = api.calls.find((call) => call.method === 'sendPhoto');
-    assert.ok(photo, 'the post ships its photo, not a bare link');
-    assert.match(String(photo?.body.caption), /Community post words/);
-    assert.equal(String(photo?.body.caption).split('Community post words').length - 1, 1, 'the words are printed once, not as a title and a body');
-    assert.match(String(photo?.body.caption), /youtube\.com\/post\/UgkxCOMMUNITY_POST_1/, 'the permalink is one tap away');
+    const rich = api.calls.find((call) => call.method === 'sendRichMessage');
+    assert.ok(rich, 'the post ships its photo, not a bare link');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.match(html, /Community post words/);
+    assert.equal(html.split('Community post words').length - 1, 1, 'the words are printed once, not as a title and a body');
+    assert.match(html, /youtube\.com\/post\/UgkxCOMMUNITY_POST_1/, 'the permalink is one tap away');
   } finally {
     db.close();
     await api.close();
@@ -458,10 +461,11 @@ test('youtube: two chats on one channel each receive only the kinds they picked'
     assert.equal(result.delivered, 2, 'one message per chat, not one per kind');
 
     const to = (chatId: number) => api.calls.filter((call) => Number(call.body.chat_id) === chatId);
-    assert.ok(to(USER_ID).some((call) => call.method === 'sendPhoto'), 'the post reaches the chat that asked for posts');
-    assert.ok(!to(USER_ID).some((call) => call.method === 'sendVideo'), 'and no video follows it');
-    assert.ok(to(1001).some((call) => call.method === 'sendVideo'), 'the video reaches the chat that asked for videos');
-    assert.ok(!to(1001).some((call) => call.method === 'sendPhoto'), 'and no post follows it');
+    const htmlOf = (call: { body: Record<string, any> }) => String(call.body.rich_message?.html ?? '');
+    assert.ok(to(USER_ID).some((call) => call.method === 'sendRichMessage' && /<img src="tg:\/\/photo/.test(htmlOf(call))), 'the post reaches the chat that asked for posts');
+    assert.ok(!to(USER_ID).some((call) => call.method === 'sendRichMessage' && /<video src="tg:\/\/video/.test(htmlOf(call))), 'and no video follows it');
+    assert.ok(to(1001).some((call) => call.method === 'sendRichMessage' && /<video src="tg:\/\/video/.test(htmlOf(call))), 'the video reaches the chat that asked for videos');
+    assert.ok(!to(1001).some((call) => call.method === 'sendRichMessage' && /<img src="tg:\/\/photo/.test(htmlOf(call))), 'and no post follows it');
   } finally {
     db.close();
     await api.close();

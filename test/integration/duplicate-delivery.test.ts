@@ -72,7 +72,10 @@ async function addSource(bot: Awaited<ReturnType<typeof addHeadless>>['bot'], db
 }
 
 const deliveredTexts = (api: Awaited<ReturnType<typeof fakeBotApi>>, from: number): string[] =>
-  api.callsSince(from).filter((call) => call.method === 'sendMessage' || call.method === 'sendPhoto').map((call) => String(call.body.text ?? call.body.caption ?? ''));
+  api.callsSince(from).flatMap((call) =>
+    call.method === 'sendRichMessage' ? [String(call.body.rich_message?.html ?? '')]
+    : call.method === 'sendMessage' || call.method === 'sendPhoto' ? [String(call.body.text ?? call.body.caption ?? '')]
+    : []);
 
 test('duplicate: a feed that lists one post twice delivers it once', async () => {
   const http: Http = async (url) => ({ status: 200, url, contentType: 'application/rss+xml', body: duplicatedFeed });

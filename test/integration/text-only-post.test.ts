@@ -48,11 +48,11 @@ test('Download Mode: a words-only post arrives as its text and its link', async 
     await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:download'));
     await bot.handleUpdate(textUpdate(3, USER_ID, POST));
 
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.ok(html.includes(WORDS), `the words are delivered, saw: ${html.slice(0, 80)}`);
+    assert.match(html, /⏱️ Time: 13\/12 22:37/, 'the publish date wears the day-first line of every other source');
+    assert.match(html, /<a href="https:\/\/jacobwren\.tumblr\.com\/post\/802858401532116992">jacobwren<\/a> \| Tumblr/, 'the canonical post link is the header');
     const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
-    const post = texts.find((text) => text.includes(WORDS));
-    assert.ok(post, `the words are delivered, saw: ${texts.map((t) => t.slice(0, 40)).join(' | ')}`);
-    assert.match(post, /⏱️ Time: 12\/13 22:37/, 'the publish date wears the same line as every other source');
-    assert.ok(post.endsWith('https://jacobwren.tumblr.com/post/802858401532116992'), 'the canonical post link closes it');
     assert.ok(!texts.some((text) => text.includes('Couldn’t extract media') || text.includes("Couldn't extract media")), 'no extraction error notice');
   } finally {
     db.close();

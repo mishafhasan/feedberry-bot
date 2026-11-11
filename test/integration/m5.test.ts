@@ -221,7 +221,7 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
     // Download mode stays ready: the next post link goes through stages 1 and 3-7.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
     const methods = api.calls.map((c) => c.method).join(',');
-    assert.ok(api.calls.some((c) => c.method === 'sendPhoto'), `the media is sent to the same chat (saw ${methods})`);
+    assert.ok(api.calls.some((c) => c.method === 'sendRichMessage'), `the post is sent to the same chat as one rich message (saw ${methods})`);
 
     const row = db.prepare('SELECT post_id, status FROM deliveries ORDER BY id DESC LIMIT 1').get() as { post_id: number | null; status: string };
     assert.equal(row.post_id, null, 'Download mode has no posts row');
@@ -238,7 +238,7 @@ test('M5 download mode: post link delivers media with post_id NULL, profile link
   }
 });
 
-test('M5 download mode: a long caption arrives as one photo with a Read more link', async () => {
+test('M5 download mode: a long caption arrives whole in one rich message, no Instant View', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-dl-more-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0', MAX_DOWNLOADS_PER_DAY: '5' });
@@ -260,13 +260,13 @@ test('M5 download mode: a long caption arrives as one photo with a Read more lin
     await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.instagram.com/p/LONG/'));
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
-    const caption = String(api.calls.find((call) => call.method === 'sendPhoto')?.body.caption ?? '');
-    assert.match(caption, /<a href="https:\/\/telegra\.ph\/dl-1">👉🏻 Read more<\/a>$/, 'the caption ends in the Instant View link');
-    assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
+    const rich = api.last('sendRichMessage');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.ok(html.includes(LONG), 'the whole caption rides inside the rich message');
+    assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
+    assert.ok(!api.calls.some((call) => call.method === 'sendPhoto'), 'no attached media message');
     assert.ok(!api.calls.some((call) => /\(2\/2\)$/.test(String(call.body.text ?? ''))), 'the rest is not sent as a second message');
-    assert.equal(pages.length, 1, 'one page for the download');
-    assert.match(pages[0]?.content ?? '', /word word/, 'the page carries the whole caption');
-    assert.match(pages[0]?.content ?? '', /cdn\.test\/p\.jpg/, 'and the downloaded photo');
+    assert.equal(pages.length, 0, 'Download Mode never publishes a Telegraph page (ADR-023)');
   } finally {
     db.close();
     await api.close();

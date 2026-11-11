@@ -19,7 +19,9 @@ export type MessagePlan =
   /** R7/R8: thumbnail photo, then the source link. `remote` means Telegram fetches it itself. */
   | { kind: 'thumbnail'; file: string; caption: string; link: string; remote?: boolean }
   /** R3/R4: one `sendMediaGroup` per 10 items. Photos and videos may share a group. */
-  | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string };
+  | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string }
+  /** ADR-023: one rich message — html with `tg://…?id=` refs into `media`, uploaded by stage 7. */
+  | { kind: 'rich'; html: string; media: Array<{ id: string; file: string; kind: MediaKind }> };
 
 /** What a `posts.payload_json` row carries from stage 2 to the renderer. */
 export interface PostPayload {
@@ -50,3 +52,6 @@ export function clampMessage(text: string, limit = 4096): string {
   const cut = text.lastIndexOf(' ', limit - 1);
   return `${text.slice(0, cut > 0 ? cut : limit - 1)}…`;
 }
+
+/** Rich message text cap [TG-RICH]; the post body is clamped to fit (ADR-023). */
+export const RICH_TEXT_LIMIT = 32768;

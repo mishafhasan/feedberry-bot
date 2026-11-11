@@ -5,6 +5,7 @@ import { renderDownload } from '../../src/pipeline/render-post.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
+const htmlOf = (plan: ReturnType<typeof renderDownload>): string => (plan.kind === 'rich' ? plan.html : '');
 
 test('Instagram post links: the owner comes from the URL, or from the download', () => {
   const share = 'https://www.instagram.com/cristiano/p/C1xYz/';
@@ -18,45 +19,42 @@ test('Instagram post links: the owner comes from the URL, or from the download',
 
 test('Download caption: the account names the source and the post text follows it', () => {
   const plan = renderDownload([photo], { title: 'Sunset over the bay', artist: 'cristiano', platform: 'instagram' }, 'https://instagram.com/p/C1xYz/');
-  const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.match(caption, /🌐 <a href="https:\/\/instagram\.com\/p\/C1xYz\/">cristiano<\/a> \| Instagram/, 'the header links the post under the account, and names the platform');
-  assert.match(caption, /\n\nSunset over the bay$/, 'the post text is kept, not dropped');
+  assert.equal(plan.kind, 'rich', 'one rich message per post (ADR-023)');
+  assert.match(htmlOf(plan), /<a href="https:\/\/instagram\.com\/p\/C1xYz\/">cristiano<\/a> \| Instagram/, 'the header links the post under the account, and names the platform');
+  assert.match(htmlOf(plan), /<p>Sunset over the bay<\/p>/, 'the post text is kept, not dropped');
+  assert.match(htmlOf(plan), /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
 });
 
 test('Download caption: without an author the title stays the source and is not repeated', () => {
   const plan = renderDownload([photo], { title: 'Big Buck Bunny', artist: null, platform: 'youtube' }, 'https://youtu.be/abc');
-  const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.match(caption, />Big Buck Bunny<\/a> \| YouTube/);
-  assert.doesNotMatch(caption, /\n\nBig Buck Bunny/, 'no duplicated title');
+  assert.match(htmlOf(plan), />Big Buck Bunny<\/a> \| YouTube/);
+  assert.doesNotMatch(htmlOf(plan), /<p>Big Buck Bunny<\/p>/, 'no duplicated title');
 });
 
 test('Download caption: a flattened numbered list gets its own lines back', () => {
   // What TikTok hands over: every item on one line, numbers glued to the previous sentence.
   const flat = '50 websites that feel like the internet’s hidden toolbox 1. http://unpaywall.org — Free research papers 2. http://openlibrary.org — Borrow books online 4. http://alternativeto.net — App alternatives';
   const plan = renderDownload([photo], { title: flat, artist: 'amanyahd', platform: 'tiktok' }, 'https://www.tiktok.com/@amanyahd/video/1');
-  const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.match(caption, /hidden toolbox\n1\. http:\/\/unpaywall\.org — Free research papers\n2\. http:\/\/openlibrary\.org/, 'one item per line');
-  assert.doesNotMatch(caption, /papers 2\./, 'no number left glued to the previous item');
+  assert.match(htmlOf(plan), /hidden toolbox<br\/>1\. http:\/\/unpaywall\.org — Free research papers<br\/>2\. http:\/\/openlibrary\.org/, 'one item per line, kept as <br/>');
+  assert.doesNotMatch(htmlOf(plan), /papers 2\./, 'no number left glued to the previous item');
 });
 
 test('Download caption: prose with one numbered mention is left alone', () => {
   const prose = 'I tried 2. things today and none of them worked';
   const plan = renderDownload([photo], { title: prose, artist: 'someone', platform: 'tiktok' }, 'https://www.tiktok.com/@someone/video/2');
-  const caption = plan.kind === 'photo' ? plan.caption : '';
 
-  assert.ok(caption.endsWith(prose), 'the sentence keeps its shape');
+  assert.ok(htmlOf(plan).includes(`<p>${prose}</p>`), 'the sentence keeps its shape');
 });
 
-test('Download caption: a words-only post keeps its text and its link', () => {
+test('Download caption: a words-only post keeps its text, still one rich message', () => {
   const link = 'https://jacobwren.tumblr.com/post/802858401532116992';
   const plan = renderDownload([], { title: 'But AI can’t do your job.', artist: 'jacobwren', publishedAt: Date.UTC(2025, 11, 13, 22, 37), platform: 'tumblr' }, link);
-  const text = plan.kind === 'link_only' ? plan.text : '';
 
-  assert.equal(plan.kind, 'link_only', 'no media does not mean no post');
-  assert.match(text, /🌐 <a href="[^"]+">jacobwren<\/a> \| Tumblr\n⏱️ Time: 12\/13 22:37/, 'same header + time as every other source');
-  assert.ok(text.includes('But AI can’t do your job.'), 'the words survive');
-  assert.ok(text.endsWith(link), 'and the post is one tap away');
+  assert.equal(plan.kind, 'rich', 'no media does not mean no post');
+  assert.match(htmlOf(plan), /<a href="[^"]+">jacobwren<\/a> \| Tumblr<br\/>⏱️ Time: 13\/12 22:37/, 'same header + day-first time as every other source');
+  assert.ok(htmlOf(plan).includes('But AI can’t do your job.'), 'the words survive');
+  assert.doesNotMatch(htmlOf(plan), /<tg-slideshow>/, 'no media, no slideshow');
 });

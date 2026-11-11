@@ -8,7 +8,7 @@ import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourc
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
-import { standInFrames, type Thumbnailer } from '../media/thumbnail.ts';
+import { type Thumbnailer } from '../media/thumbnail.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
@@ -26,8 +26,6 @@ import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
 import { mediaSignal, prepareMedia } from '../pipeline/prepare-media.ts';
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
-import { withReadMore, type ReadMorePage } from '../pipeline/read-more.ts';
-import { postHeader } from '../render/caption.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
@@ -976,7 +974,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       if (page !== null) {
         engineAuthor = page.author;
         channel = page.channel;
-        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal, ref.platform);
+        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal, ref.platform, user.tz);
       } else {
         const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
@@ -994,19 +992,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const owner = profileOfPost(ref.canonicalUrl);
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
-        // R15: a clip too big to upload leaves a frame behind, exactly as a scheduled album does.
-        if (files.length > 1) files.push(...(await standInFrames(files, dir, deps.thumbnail)));
-        // A long caption keeps the media and links the rest to Instant View, like a scheduled post.
-        const page: ReadMorePage = {
-          id: 0,
-          url: ref.canonicalUrl,
-          publishedAt,
-          // The post's own words are the body; a title here would print its first line twice.
-          title: null,
-          parts: text === null ? [] : [text],
-          images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
-        };
-        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt, platform: ref.platform }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+        // ADR-023: one rich message carries the whole post; a video too big to upload keeps its link.
+        plan = renderDownload(files, { title: text, artist: source, publishedAt, platform: ref.platform, tz: user.tz }, ref.canonicalUrl);
       }
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
@@ -1113,13 +1100,10 @@ function pageFallback(err: unknown, adapter: string, url: string): null {
   throw err;
 }
 
-/** One message for a post the page itself carried: its words, then its media, tail on Instant View. */
-async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal, platform: string): Promise<MessagePlan> {
-  const text = post.text;
+/** One rich message for a post the page itself carried: its words and its media (ADR-023). */
+async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal, platform: string, tz: string): Promise<MessagePlan> {
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
   const source = post.name ?? post.author ?? hostOf(link);
-  const header = postHeader({ sourceTitle: source, url: link, publishedAt: post.publishedAt, platform });
-
   let files: MediaFile[] = [];
   try {
     files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
@@ -1127,14 +1111,7 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
     // Over the size cap the post still ships its words; the media is the part that is lost.
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
-  if (files.length === 0) return { kind: 'text', text: text === '' ? header : `${header}\n\n${esc(text)}` };
-  // R15: a clip too big to upload leaves a frame behind, exactly as a scheduled album does.
-  if (files.length > 1) files.push(...(await standInFrames(files, dir, deps.thumbnail)));
-
-  // A caption past the limit keeps the media and moves the post's tail to an Instant View page.
-  const page: ReadMorePage = { id: 0, url: link, publishedAt: null, title: null, parts: text === '' ? [] : [text], images: post.items.filter((item) => item.kind === 'photo').map((item) => item.url) };
-  const plan = renderDownload(files, { title: text === '' ? null : text, artist: source, publishedAt: post.publishedAt, platform }, link);
-  return withReadMore(plan, page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+  return renderDownload(files, { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
 async function showError(ctx: Context, deps: BotDeps, userId: number, err: unknown, last: LastError): Promise<void> {
