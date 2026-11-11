@@ -356,8 +356,12 @@ test('threads: a blocked permalink keeps the feed text instead of losing the pos
     await runFetchSource({ db, http, cfg, media, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.match(html, /feed preview/, 'the feed text ships when the permalink says no');
     assertHeaderBlock(html, 'https:\/\/(?:www\.)?threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
+    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'the long feed text opens with a Show more button');
+    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
+    await bot.handleUpdate(callbackUpdate(1, USER_ID, `more:${token}`));
+    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
+    assert.match(expanded, /feed preview/, 'the feed text ships when the permalink says no');
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number }).n, 1, 'one delivery, not two');
   } finally {
     db.close();

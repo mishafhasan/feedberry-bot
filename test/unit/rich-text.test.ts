@@ -84,17 +84,17 @@ test('rich text: blocks between paragraphs keep the paragraph order', () => {
   assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
 });
 
-test('rich text: the preview keeps whole paragraphs, four or about 500 chars', () => {
+test('rich text: the preview keeps whole paragraphs, two or about 240 chars', () => {
   const text = [1, 2, 3, 4, 5, 6].map((n) => `Paragraph ${n}. ${'word '.repeat(20).trim()}`).join('\n\n');
   const preview = truncateParagraphs(text);
 
-  assert.equal(preview.split('\n\n').length, 4, 'four paragraphs fit the preview');
-  assert.match(preview, /Paragraph 4\./);
-  assert.doesNotMatch(preview, /Paragraph 5/, 'the cut lands on a paragraph boundary');
-  assert.ok(preview.length <= 500, `preview is ${preview.length} chars`);
+  assert.equal(preview.split('\n\n').length, 2, 'two paragraphs fit the preview');
+  assert.match(preview, /Paragraph 2\./);
+  assert.doesNotMatch(preview, /Paragraph 3/, 'the cut lands on a paragraph boundary');
+  assert.ok(preview.length <= 240, `preview is ${preview.length} chars`);
   assert.equal(truncateParagraphs('one\n\ntwo'), 'one\n\ntwo', 'a short post is untouched');
   assert.equal(truncateParagraphs(`long `.repeat(300).trim()), `long `.repeat(300).trim(), 'one long paragraph is never cut');
-  assert.equal(truncateParagraphs('a\nb\n\nc\n\nd'), 'a\nb\n\nc\n\nd', 'line breaks inside a kept paragraph stay');
+  assert.equal(truncateParagraphs('a\nb\n\nc'), 'a\nb\n\nc', 'line breaks inside a kept paragraph stay');
   const titleAndBody = `Title\n\n${'word '.repeat(300).trim()}`;
   assert.equal(truncateParagraphs(titleAndBody), titleAndBody, 'a title never stands alone as the preview');
 });

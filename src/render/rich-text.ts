@@ -151,9 +151,9 @@ function quote(run: Array<{ depth: number; text: string }>): string {
   return `<blockquote>${walk(1)}</blockquote>`;
 }
 
-/** The "Show more" preview: the first four paragraphs, about 500 characters. */
-export const PREVIEW_PARAGRAPHS = 4;
-export const PREVIEW_CHARS = 500;
+/** The "Show more" preview: the first two paragraphs, about 240 characters. */
+export const PREVIEW_PARAGRAPHS = 2;
+export const PREVIEW_CHARS = 240;
 
 /**
  * The preview for a long post: whole paragraphs only, so a cut never lands mid-sentence.

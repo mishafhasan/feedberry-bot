@@ -70,7 +70,7 @@ test('rich_more: one message with the Show more button, expanded in place by fil
     const ids = await sender.send({ kind: 'rich_more', html: preview, fullHtml, media: [{ id: 'm0', file: photo, kind: 'photo' }] }, target);
     assert.equal(ids.length, 1);
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.match(html, /<tg-button-row align="left"><tg-button type="callback_data" data="more:[A-Za-z0-9_-]{8}">Show more<\/tg-button><\/tg-button-row>$/, 'the button closes the preview');
+    assert.match(html, /<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="more:[A-Za-z0-9_-]{8}">Show more<\/tg-button><\/tg-button-row>$/, 'the button closes the preview');
 
     const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
     const payload = morePayload(token);

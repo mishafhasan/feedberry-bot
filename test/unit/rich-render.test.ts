@@ -99,8 +99,8 @@ test('rich: a long multi-paragraph post opens truncated, with the full body kept
 
   assert.equal(plan.kind, 'rich_more');
   if (plan.kind !== 'rich_more') return;
-  assert.match(plan.html, /<p>Para 1:[\s\S]*<\/p><p>Para 4:/);
-  assert.doesNotMatch(plan.html, /Para 5/);
+  assert.match(plan.html, /<p>Para 1:[\s\S]*<\/p><p>Para 2:/);
+  assert.doesNotMatch(plan.html, /Para 3/);
   assert.match(plan.fullHtml, /Para 6:/, 'the full body waits behind the button');
   assert.deepEqual(plan.media, []);
 });

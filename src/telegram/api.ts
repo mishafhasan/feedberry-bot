@@ -267,8 +267,9 @@ export function plainText(html: string): string {
   return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
-/** The one button of the preview; `more:<token>` stays far below the 64-byte callback cap. */
-const moreButton = (token: string): string => `<tg-button-row align="left"><tg-button type="callback_data" data="more:${token}">Show more</tg-button></tg-button-row>`;
+/** The one button of the preview; `more:<token>` stays far below the 64-byte callback cap.
+ * style="primary" is the blue full-width pill the product asked for (one button fills the row). */
+const moreButton = (token: string): string => `<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="more:${token}">Show more</tg-button></tg-button-row>`;
 
 /**
  * The file_ids the send returned, in `media` order: the slideshow keeps visual order and audio its
