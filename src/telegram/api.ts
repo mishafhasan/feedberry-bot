@@ -3,7 +3,7 @@ import { log } from '../obs/log.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import { chunk } from '../render/albums.ts';
 import { splitMessage } from '../render/caption.ts';
-import type { MessagePlan } from '../render/plan.ts';
+import type { MessagePlan } from '../render/message-plan.ts';
 import { RateLimiter, sharedLimiter } from './ratelimit.ts';
 import type { Target } from './target.ts';
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { detectSource, profileFromAuthor, profileOfPost } from '../../src/platform/registry.ts';
-import { renderDownload } from '../../src/pipeline/s6-render.ts';
+import { renderDownload } from '../../src/pipeline/render-post.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };

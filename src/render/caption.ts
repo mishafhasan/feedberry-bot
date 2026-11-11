@@ -1,5 +1,5 @@
 import type { Platform } from '../platform/registry.ts';
-import { esc } from './plan.ts';
+import { esc } from './message-plan.ts';
 
 /**
  * §8.2 part 1: cut on a word boundary, never inside an HTML tag, and number every part only when

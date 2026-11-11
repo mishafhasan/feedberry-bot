@@ -4,8 +4,8 @@ import type { Http } from '../platform/http.ts';
 import { isCoded } from '../platform/errors.ts';
 import { log } from '../obs/log.ts';
 import { postHeader } from '../render/caption.ts';
-import { esc, type MessagePlan } from '../render/plan.ts';
-import { renderArticle } from './s6-render.ts';
+import { esc, type MessagePlan } from '../render/message-plan.ts';
+import { renderArticle } from './render-post.ts';
 
 /** R13 fires below this many readable characters (§8.1). */
 export const ARTICLE_MIN_CHARS = 400;

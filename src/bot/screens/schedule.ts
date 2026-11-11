@@ -2,7 +2,7 @@ import { InlineKeyboard } from 'grammy';
 import type { SourceCard } from '../../db/repos/subscriptions.ts';
 import { t, type Lang } from '../i18n/index.ts';
 import { CHIPS, esc } from '../texts.ts';
-import { PAGE_SIZE } from './s7.ts';
+import { PAGE_SIZE } from './my-sources.ts';
 
 /** S16 cadence choices in minutes; `null` (sent as 0) is the 08:00/20:00 default of §4.3. */
 export const SCHEDULE_OPTIONS: readonly number[] = [15, 30, 60, 180, 360, 720, 1440];
@@ -21,7 +21,7 @@ export function cadenceLabel(minutes: number | null, lang: Lang = 'en'): string 
 }
 
 /** The list: one button per source carrying its current cadence, then the pager. */
-export function s16List(params: { cards: SourceCard[]; offset: number; total: number; page: number; lang?: Lang }): ScheduleView {
+export function scheduleListView(params: { cards: SourceCard[]; offset: number; total: number; page: number; lang?: Lang }): ScheduleView {
   const lang = params.lang ?? 'en';
   const pages = Math.max(1, Math.ceil(params.total / PAGE_SIZE));
 
@@ -46,7 +46,7 @@ export function s16List(params: { cards: SourceCard[]; offset: number; total: nu
 }
 
 /** The picker: default first, then each interval; the active one is marked. `null` means all sources. */
-export function s16Picker(card: SourceCard | null, lang: Lang = 'en'): ScheduleView {
+export function schedulePickerView(card: SourceCard | null, lang: Lang = 'en'): ScheduleView {
   const text = card
     ? [
         t(lang, 'schedule.title'),

@@ -3,13 +3,13 @@ import type { BotDeps } from './callbacks.ts';
 import { listSourceCards, setSubscriptionKeywords, subscriptionCard } from '../db/repos/subscriptions.ts';
 import { ensureUser, setDefaultKeywords } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
-import { formatKeywords, parseKeywords } from '../pipeline/filter.ts';
-import { getSession, setSession, type KeywordStep } from './fsm.ts';
+import { formatKeywords, parseKeywords } from '../pipeline/keyword-filter.ts';
+import { getSession, setSession, type KeywordStep } from './session.ts';
 import { langFor, t } from './i18n/index.ts';
-import { s5View } from './screens/s5.ts';
-import { s19View } from './screens/s19.ts';
+import { deliveryOptionsView } from './screens/delivery-options.ts';
+import { keywordFilterView } from './screens/keyword-filter.ts';
 import { esc } from './texts.ts';
-import { PAGE_SIZE } from './screens/s7.ts';
+import { PAGE_SIZE } from './screens/my-sources.ts';
 
 const langOf = (deps: BotDeps, userId: number) => langFor(ensureUser(deps.db, userId).locale);
 
@@ -100,7 +100,7 @@ async function repaintS5(ctx: Context, deps: BotDeps, userId: number, messageId:
   const chatId = ctx.chat?.id;
   const pending = getSession(userId).pending;
   if (chatId === undefined || pending === undefined) return;
-  const view = s5View(pending.bodyText, langOf(deps, userId), pending.keywords ?? [], ensureUser(deps.db, userId).default_keywords);
+  const view = deliveryOptionsView(pending.bodyText, langOf(deps, userId), pending.keywords ?? [], ensureUser(deps.db, userId).default_keywords);
   const markup = { parse_mode: 'HTML' as const, reply_markup: view.keyboard };
   try {
     if (pending.photo) await ctx.api.editMessageCaption(chatId, messageId, { caption: view.text, ...markup });
@@ -123,7 +123,7 @@ async function renderFilter(ctx: Context, deps: BotDeps, userId: number, page: n
     ({ rows, total } = listSourceCards(deps.db, user.id, null, PAGE_SIZE, pageIndex * PAGE_SIZE));
   }
 
-  const view = s19View({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, defaults: user.default_keywords, lang: langFor(user.locale) });
+  const view = keywordFilterView({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, defaults: user.default_keywords, lang: langFor(user.locale) });
   // Any repaint of the list is also a cancel: a prompt left armed would eat the next ordinary message.
   setSession(userId, { state: 'idle', keywordStep: undefined, kwPage: pageIndex });
   const markup = { reply_markup: view.keyboard };

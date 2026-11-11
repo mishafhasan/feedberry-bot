@@ -1,6 +1,6 @@
 import { GrammyError, type Context } from 'grammy';
 import type { BotDeps } from './callbacks.ts';
-import { getSession, resetSession, setSession } from './fsm.ts';
+import { getSession, resetSession, setSession } from './session.ts';
 import { t, langFor } from './i18n/index.ts';
 import { isAdmin } from './access.ts';
 import { listSourcesForUser } from '../db/repos/subscriptions.ts';
@@ -10,8 +10,8 @@ import { log } from '../obs/log.ts';
 import { isCoded } from '../platform/errors.ts';
 import { senderTarget } from '../telegram/api.ts';
 import { esc } from './texts.ts';
-import { ADM, adminConfirmSendView, adminOverviewView, adminPromptView, adminUserView, adminUsersView, type AdminView } from './screens/s17.ts';
-import { PAGE_SIZE } from './screens/s7.ts';
+import { ADM, adminConfirmSendView, adminOverviewView, adminPromptView, adminUserView, adminUsersView, type AdminView } from './screens/admin-screens.ts';
+import { PAGE_SIZE } from './screens/my-sources.ts';
 
 /** The panel is operator-facing and English-only; users keep their own language. */
 const LANG = 'en' as const;

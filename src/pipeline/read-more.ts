@@ -2,11 +2,13 @@ import { publishArticle, type TelegraphClient } from '../article/telegraph.ts';
 import type { PostRow } from '../db/repos/posts.ts';
 import { log } from '../obs/log.ts';
 import { cutCaption } from '../render/caption.ts';
-import { esc, payloadOf, type MessagePlan } from '../render/plan.ts';
+import { esc, payloadOf, type MessagePlan } from '../render/message-plan.ts';
+import { VIDEO_LINK_PREFIX } from '../render/video.ts';
 import { CAPTION_LIMIT } from '../telegram/api.ts';
-import { bodyParts } from './s6-render.ts';
+import { bodyParts } from './render-post.ts';
 
 const READ_MORE = '👉🏻 Read more';
+const ELLIPSIS = '...';
 const MAX_TITLE = 120;
 /** Below this, the caption would be a stub — better to keep today's split behaviour. */
 const MIN_BODY = 200;
@@ -64,11 +66,17 @@ export async function withReadMore(
   }
   if (url === null) return plan;
 
-  const fixed = `...\n\n<a href="${esc(url)}">${READ_MORE}</a>`;
-  const budget = CAPTION_LIMIT - fixed.length;
+  const fixed = `\n\n<a href="${esc(url)}">${READ_MORE}</a>`;
+  // R15: a 🎬 line is the only way to reach a video too big to upload, so the cut keeps it.
+  const lines = plan.caption.split('\n');
+  const links = lines.filter((line) => line.startsWith(VIDEO_LINK_PREFIX));
+  const body = links.length === 0 ? plan.caption : lines.filter((line) => !line.startsWith(VIDEO_LINK_PREFIX)).join('\n').trimEnd();
+  const tail = links.length === 0 ? '' : `\n\n${links.join('\n')}`;
+  const budget = CAPTION_LIMIT - fixed.length - ELLIPSIS.length - tail.length;
   if (budget < MIN_BODY) return plan;
   log('info', 'readmore_page', { post: page.id });
-  return { ...plan, caption: `${cutCaption(plan.caption, budget)}${fixed}` };
+  const head = cutCaption(body, budget);
+  return { ...plan, caption: `${head}${head.length < body.length ? ELLIPSIS : ''}${tail}${fixed}` };
 }
 
 /** The post's own text and pictures, published as one page; null when Telegraph says no. */

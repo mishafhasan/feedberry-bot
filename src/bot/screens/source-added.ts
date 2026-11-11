@@ -8,6 +8,6 @@ export interface S6View {
   keyboard: InlineKeyboard;
 }
 
-export function s6View(title: string, lang: Lang = 'en'): S6View {
+export function sourceAddedView(title: string, lang: Lang = 'en'): S6View {
   return { text: s6Text(title, lang), keyboard: s6Keyboard(lang) };
 }

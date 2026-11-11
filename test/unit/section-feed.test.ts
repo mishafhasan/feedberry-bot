@@ -9,7 +9,7 @@ import { parseFeed } from '../../src/platform/feed/native.ts';
 import { fetchSectionFeed } from '../../src/platform/feed/section.ts';
 import type { Http } from '../../src/platform/http.ts';
 import type { SourceRef } from '../../src/platform/registry.ts';
-import { fetchPageSource } from '../../src/pipeline/s2-feed.ts';
+import { fetchPageSource } from '../../src/pipeline/fetch-feed.ts';
 
 const PAGE = 'https://site.test/category/science';
 const FEED = 'https://site.test/category/science/feed/';

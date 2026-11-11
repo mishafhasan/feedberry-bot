@@ -18,7 +18,7 @@ import { insertPosts } from '../../src/db/repos/posts.ts';
 import { getSource, upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
-import type { MediaEngine, MediaItem } from '../../src/media/cobalt.ts';
+import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { deliverPending, runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';

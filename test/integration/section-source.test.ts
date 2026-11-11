@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
-import { resetSession } from '../../src/bot/fsm.ts';
+import { resetSession } from '../../src/bot/session.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';

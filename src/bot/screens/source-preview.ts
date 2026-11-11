@@ -25,7 +25,7 @@ export interface S4View {
   photoUrl: string | null;
 }
 
-export function s4View(data: S4Data): S4View {
+export function sourcePreviewView(data: S4Data): S4View {
   const text = s4Text({ platform: data.platform, author: data.author, items: data.items, section: data.section, tz: data.tz, lang: data.lang });
   return {
     // A caption is capped at 1024; this is a preview, so trimming beats a second message.

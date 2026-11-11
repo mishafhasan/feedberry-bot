@@ -9,7 +9,7 @@ import { Coded, E, isCoded } from '../../src/platform/errors.ts';
 import { fetchNativeFeed } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
 import type { SourceRef } from '../../src/platform/registry.ts';
-import { fetchSourceFeed } from '../../src/pipeline/s2-feed.ts';
+import { fetchSourceFeed } from '../../src/pipeline/fetch-feed.ts';
 
 const RSSHUB = 'http://rsshub.test';
 const FEED = 'https://www.youtube.com/feeds/videos.xml?channel_id=UCTEST000000000000000000';

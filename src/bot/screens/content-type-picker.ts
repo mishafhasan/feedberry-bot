@@ -17,7 +17,7 @@ export interface TypePickerView {
  * Three chips share one row and carry their own state (a check plus the accent style), so the screen
  * is one row of choices plus one row of actions instead of six stacked buttons.
  */
-export function s18View(params: { handle: string; selected: ContentKind[]; lang?: Lang }): TypePickerView {
+export function contentTypePickerView(params: { handle: string; selected: ContentKind[]; lang?: Lang }): TypePickerView {
   const lang = params.lang ?? 'en';
   const on = (kind: ContentKind): boolean => params.selected.includes(kind);
   const name = (kind: ContentKind): string => t(lang, `types.${kind}`);

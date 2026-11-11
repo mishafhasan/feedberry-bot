@@ -12,7 +12,7 @@ import { parseConfig } from '../../src/config.ts';
 import { runOnce } from '../../src/jobs/worker.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import { getSource } from '../../src/db/repos/sources.ts';
-import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { deliverPending, runFetchSource } from '../../src/pipeline/run.ts';
 import { tick } from '../../src/scheduler/tick.ts';

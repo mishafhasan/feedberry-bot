@@ -5,9 +5,9 @@
 import type { ErrorCode } from '../platform/errors.ts';
 import { parseContentTypes } from '../platform/content-types.ts';
 import type { Platform } from '../platform/registry.ts';
-import { formatKeywords, parseKeywords } from '../pipeline/filter.ts';
+import { formatKeywords, parseKeywords } from '../pipeline/keyword-filter.ts';
 import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
-import { esc } from '../render/plan.ts';
+import { esc } from '../render/message-plan.ts';
 import { t, type Lang } from './i18n/index.ts';
 
 export { esc, mmddhhmm };

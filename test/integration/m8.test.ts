@@ -19,7 +19,7 @@ import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
 import { runOnce } from '../../src/jobs/worker.ts';
 import { enqueue, PRIORITY } from '../../src/jobs/queue.ts';
-import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Notifier } from '../../src/obs/alerts.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';

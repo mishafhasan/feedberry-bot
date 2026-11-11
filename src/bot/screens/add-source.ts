@@ -8,6 +8,6 @@ export interface S2View {
   keyboard: InlineKeyboard;
 }
 
-export function s2View(telegramBeta: boolean, lang: Lang = 'en'): S2View {
+export function addSourceView(telegramBeta: boolean, lang: Lang = 'en'): S2View {
   return { text: s2Text(telegramBeta, lang), keyboard: backKeyboard(lang) };
 }

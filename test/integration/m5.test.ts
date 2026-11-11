@@ -19,7 +19,7 @@ import { insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
-import type { MediaEngine, MediaItem } from '../../src/media/cobalt.ts';
+import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
@@ -107,13 +107,13 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
     const groups = calls.filter((c) => c.method === 'sendMediaGroup');
     const videos = calls.filter((c) => c.method === 'sendVideo');
 
-    assert.equal(photos.length, 2, 'single photo + the long-caption photo');
+    assert.equal(photos.length, 3, 'single photo + the long-caption photo + the 11-album tail');
     assert.equal(videos.length, 1, 'the video goes out as sendVideo (R9, size ≤ 50 MB)');
 
-    // album of 3 → one group of 3; album of 11 → 10 + 1 (R3/R4)
-    assert.equal(groups.length, 3, 'one group for the 3-album, two for the 11-album');
+    // album of 3 → one group of 3; album of 11 → 10 + a lone tail (§8.3: a group needs 2–10)
+    assert.equal(groups.length, 2, 'one group for the 3-album, one for the first 10 of the 11-album');
     const groupSizes = groups.map((call) => (call.body.media as unknown[]).length).sort((a, b) => a - b);
-    assert.deepEqual(groupSizes, [1, 3, 10], 'the 11-item album is chunked 10 + 1, never 11');
+    assert.deepEqual(groupSizes, [3, 10], 'the 11-item album never asks sendMediaGroup for a single item');
 
     // B1: the header rides on the media caption, and on the first item of an album.
     assert.match(String(photos[0]?.body.caption ?? ''), /🌐 <a href="[^"]+">Blog<\/a>/);

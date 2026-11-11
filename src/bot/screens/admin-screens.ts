@@ -3,7 +3,7 @@ import type { AccessRequest } from '../../db/repos/events.ts';
 import type { UserListItem, UserRow } from '../../db/repos/users.ts';
 import { t, type Lang } from '../i18n/index.ts';
 import { CHIPS, esc } from '../texts.ts';
-import { PAGE_SIZE } from './s7.ts';
+import { PAGE_SIZE } from './my-sources.ts';
 
 /** callback_data for the admin panel; `adm:` is routed before every other prefix. */
 export const ADM = {

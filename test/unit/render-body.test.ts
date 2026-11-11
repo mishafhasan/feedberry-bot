@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PostRow } from '../../src/db/repos/posts.ts';
 import { parseFeed } from '../../src/platform/feed/native.ts';
-import { renderPost } from '../../src/pipeline/s6-render.ts';
+import { renderPost } from '../../src/pipeline/render-post.ts';
 
 const FULL =
   '💻🤖 OpenAI CEO Sam Altman is facing backlash after calling it “terrible” for people to have RAM in their own computers when it could be used in AI data centers instead.\n\nWhat are your thoughts on this? 🤔💬';

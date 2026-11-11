@@ -19,7 +19,7 @@ import { insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
-import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { parseFeed } from '../../src/platform/feed/native.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';

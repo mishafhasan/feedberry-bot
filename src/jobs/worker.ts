@@ -2,7 +2,7 @@ import { log } from '../obs/log.ts';
 import { alerts } from '../obs/alerts.ts';
 import { E, isCoded } from '../platform/errors.ts';
 import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts';
-import { runRetention } from '../pipeline/s9-cleanup.ts';
+import { runRetention } from '../pipeline/cleanup.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { tick } from '../scheduler/tick.ts';
 import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, type JobRow } from './queue.ts';

@@ -1,6 +1,6 @@
 import { download, resolve, type EngineResult } from 'cobalt-engine';
 import { Coded, E, isCoded, type ErrorCode } from '../platform/errors.ts';
-import type { MediaKind } from '../render/plan.ts';
+import type { MediaKind } from '../render/message-plan.ts';
 
 export interface MediaItem {
   kind: MediaKind;
