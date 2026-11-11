@@ -4,7 +4,7 @@ import { platformLabel } from '../../render/caption.ts';
 import { t, type Lang } from '../i18n/index.ts';
 import { backKeyboard } from '../keyboards.ts';
 import { esc, keywordsLabel, platformIcon, s7PagerRow, S7_DIVIDER } from '../texts.ts';
-import { PAGE_SIZE } from './s7.ts';
+import { PAGE_SIZE } from './my-sources.ts';
 
 /** Rich message body (Bot API 10.3) plus the only keyboard: Back. */
 export interface FilterView {
@@ -16,7 +16,7 @@ export interface FilterView {
  * `/filter` (ADR-020): the fallback first, then one card per source it covers. Each card owns its own
  * pills, so a button never has to repeat a source name; a card with nothing to clear gets no 🗑.
  */
-export function s19View(params: { cards: SourceCard[]; offset: number; total: number; page: number; defaults: string | null; lang?: Lang }): FilterView {
+export function keywordFilterView(params: { cards: SourceCard[]; offset: number; total: number; page: number; defaults: string | null; lang?: Lang }): FilterView {
   const lang = params.lang ?? 'en';
   const pages = Math.max(1, Math.ceil(params.total / PAGE_SIZE));
 

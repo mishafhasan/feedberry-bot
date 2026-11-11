@@ -9,6 +9,6 @@ export interface S10View {
 }
 
 /** S10/S11: the confirm is its own message; S11 is the answerCallbackQuery toast. */
-export function s10View(title: string, sourceId: number, lang: Lang = 'en'): S10View {
+export function deleteConfirmView(title: string, sourceId: number, lang: Lang = 'en'): S10View {
   return { text: s10Text(title, lang), keyboard: s10Keyboard(sourceId, lang) };
 }

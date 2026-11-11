@@ -9,6 +9,6 @@ export interface SupportedView {
 }
 
 /** S12 — Supported Sites (menu:supported, /supported_sites). */
-export function s12View(lang: Lang = 'en'): SupportedView {
+export function supportedSitesView(lang: Lang = 'en'): SupportedView {
   return { text: supportedSitesText(lang), keyboard: menuKeyboard(lang) };
 }

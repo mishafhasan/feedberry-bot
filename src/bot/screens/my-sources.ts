@@ -13,7 +13,7 @@ export interface S7View {
   keyboard: InlineKeyboard;
 }
 
-export function s7View(params: {
+export function mySourcesView(params: {
   cards: SourceCard[];
   offset: number;
   total: number;

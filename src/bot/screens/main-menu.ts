@@ -10,7 +10,7 @@ export interface S1View {
 }
 
 /** S1 is pure: counts come from the caller so the renderer stays testable. */
-export function s1View(params: { userId: number; sourceCount: number; limit: number; trialEnabled: boolean; lang?: Lang }): S1View {
+export function mainMenuView(params: { userId: number; sourceCount: number; limit: number; trialEnabled: boolean; lang?: Lang }): S1View {
   const lang = params.lang ?? 'en';
   return { html: s1Text(params), keyboard: s1Keyboard(lang) };
 }

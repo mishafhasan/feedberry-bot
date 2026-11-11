@@ -9,16 +9,16 @@ export interface InfoView {
 }
 
 /** S13 — Help (menu:help). */
-export function s13View(lang: Lang = 'en'): InfoView {
+export function helpView(lang: Lang = 'en'): InfoView {
   return { text: helpText(lang), keyboard: menuKeyboard(lang) };
 }
 
 /** S14 — About (/about). */
-export function s14View(userId: number, lang: Lang = 'en'): InfoView {
+export function aboutView(userId: number, lang: Lang = 'en'): InfoView {
   return { text: aboutText(userId, lang), keyboard: menuKeyboard(lang) };
 }
 
 /** S15 — Interface language (/language, menu:language). */
-export function s15View(lang: Lang = 'en'): InfoView {
+export function languageView(lang: Lang = 'en'): InfoView {
   return { text: t(lang, 'language.title'), keyboard: languageKeyboard() };
 }
