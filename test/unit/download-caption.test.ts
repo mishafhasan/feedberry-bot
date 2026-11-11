@@ -31,3 +31,14 @@ test('Download caption: without an author the title stays the source and is not 
   assert.match(caption, />Big Buck Bunny<\/a> \| YouTube/);
   assert.doesNotMatch(caption, /\n\nBig Buck Bunny/, 'no duplicated title');
 });
+
+test('Download caption: a words-only post keeps its text and its link', () => {
+  const link = 'https://jacobwren.tumblr.com/post/802858401532116992';
+  const plan = renderDownload([], { title: 'But AI can’t do your job.', artist: 'jacobwren', platform: 'tumblr' }, link);
+  const text = plan.kind === 'link_only' ? plan.text : '';
+
+  assert.equal(plan.kind, 'link_only', 'no media does not mean no post');
+  assert.match(text, /🌐 <a href="[^"]+">jacobwren<\/a> \| Tumblr/);
+  assert.ok(text.includes('But AI can’t do your job.'), 'the words survive');
+  assert.ok(text.endsWith(link), 'and the post is one tap away');
+});

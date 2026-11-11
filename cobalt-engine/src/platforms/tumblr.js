@@ -139,5 +139,10 @@ export default async function(input) {
         }
     }
 
+    // A words-only post is still a post: hand its text up instead of refusing the link.
+    if (text) {
+        return { urls: [], fileMetadata: { title: text, artist: element.blog_name } };
+    }
+
     return { error: "link.unsupported" }
 }

@@ -54,6 +54,8 @@ export const cobaltEngine: MediaEngine = {
 
     const kind = (res.type && KIND[res.type]) || undefined;
     const first = res.urls?.[0];
+    // A words-only post (a Tumblr text post) resolves with no media but with its text: keep the words.
+    if (!first && res.metadata?.title) return { items: [], title: res.metadata.title, artist: res.metadata.artist ?? null };
     if (!kind || !first) throw new Coded(E.NO_MEDIA, `type ${res.type ?? 'unknown'}`);
     return { items: [{ kind, url: first, picker: false, headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
   },
