@@ -1,9 +1,10 @@
 import { GrammyError, InputFile, type Api } from 'grammy';
+import type { InputRichMessage } from 'grammy/types';
 import { log } from '../obs/log.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import { chunk } from '../render/albums.ts';
 import { splitMessage } from '../render/caption.ts';
-import type { MessagePlan } from '../render/message-plan.ts';
+import type { MediaKind, MessagePlan } from '../render/message-plan.ts';
 import { RateLimiter, sharedLimiter } from './ratelimit.ts';
 import type { Target } from './target.ts';
 
@@ -32,6 +33,8 @@ export class TelegramSender {
         return this.sendTextParts(target, plan.text);
       case 'album':
         return this.sendAlbum(target, plan.items, plan.caption);
+      case 'rich':
+        return this.sendRich(target, plan.html, plan.media);
       case 'thumbnail':
         return this.sendThumbnail(target, plan.file, plan.caption, plan.link, plan.remote === true);
       default:
@@ -87,6 +90,25 @@ export class TelegramSender {
       replyTo = next.message_id;
     }
     return ids;
+  }
+
+  /** ADR-023: one rich message per post — the whole text rides inside, media uploaded by grammY. */
+  private async sendRich(target: Target, html: string, media: Array<{ id: string; file: string; kind: MediaKind }>): Promise<number[]> {
+    const rich: InputRichMessage = {
+      html,
+      // Source captions are full of bare URLs/@handles/#tags; only our own <a href> may become a link.
+      skip_entity_detection: true,
+      ...(media.length > 0 ? { media: media.map((m) => ({ id: m.id, media: { type: m.kind, media: new InputFile(m.file) } })) } : {}),
+    };
+    try {
+      const message = await this.run(target, 1, () => this.api.sendRichMessage(target.chatId, rich, { message_thread_id: target.messageThreadId ?? undefined }));
+      return [message.message_id];
+    } catch (err) {
+      // §8.2 rule 5: a post that cannot be parsed is resent as plain text, never dropped.
+      if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
+      log('warn', 'tg_parse_fallback', { chat: target.chatId });
+      return this.sendParts(target, plainText(html), false);
+    }
   }
 
   /** R7/R8: the preview image carries the caption, the link follows as its own message. */

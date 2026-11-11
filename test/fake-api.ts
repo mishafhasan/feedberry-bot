@@ -32,7 +32,7 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
   let parsePending = options.failParseOnce === true;
 
   const resultFor = (method: string, body: Record<string, any>): unknown | { __error: string } => {
-    if (method === 'sendMessage' && parsePending) {
+    if ((method === 'sendMessage' || method === 'sendRichMessage') && parsePending) {
       parsePending = false;
       return { __error: "Bad Request: can't parse entities: Unsupported start tag" } as never;
     }
@@ -138,7 +138,7 @@ function parseMultipart(raw: string, contentType: string): Record<string, any> {
       fields[name] = [{ file: /filename="([^"]*)"/i.exec(headers)?.[1] ?? 'file' }];
       continue;
     }
-    if (name === 'media' || name === 'reply_markup' || name === 'reply_parameters') {
+    if (name === 'media' || name === 'rich_message' || name === 'reply_markup' || name === 'reply_parameters') {
       try {
         fields[name] = JSON.parse(value);
         continue;
