@@ -31,9 +31,9 @@ test('rich: header logo + day-first time, slideshow ref, and the body in one mes
   assert.deepEqual(plan.media, [{ id: 'm0', file: 'a.jpg', kind: 'photo' }]);
 });
 
-test('rich: original line breaks become <br/>, source values are escaped', () => {
+test('rich: original line breaks become <br/>, paragraphs stay blocks, source values are escaped', () => {
   const plan = rich('line one\nline two\n\na < b & c > d', []);
-  assert.match(plan.html, /<p>line one<br\/>line two<br\/><br\/>a &lt; b &amp; c &gt; d<\/p>/);
+  assert.match(plan.html, /<p>line one<br\/>line two<\/p><p>a &lt; b &amp; c &gt; d<\/p>/);
 });
 
 test('rich: no media still ships header + time + text, no slideshow', () => {

@@ -70,7 +70,7 @@ the Telegram rich HTML tags. Every other character is escaped; nothing is auto-d
 | ` ``` ` fence (optional language) | `<pre>` / `<pre><code class="language-x">`, content escaped, never styled |
 | `- `, `* `, `• ` | `<ul><li>`, deeper indent nests inside the item above |
 | `1. `, `1) ` | `<ol><li>`; the client prints the numbers, deeper indent nests |
-| blank line between prose lines | `<br/><br/>` inside the one `<p>` (paragraph break) |
+| blank line between prose lines | a new `<p>` per paragraph (line breaks inside one stay `<br/>`) |
 | `**b**`, `__b__` | `<b>` |
 | `*i*`, `_i_` | `<i>` (the `_` form only outside words) |
 | `++u++` | `<u>` (Telegram markdown has no underline; this is the house marker) |

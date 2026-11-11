@@ -26,10 +26,17 @@ export function richBody(text: string): string {
   const out: string[] = [];
   let prose: string[] = [];
   const flush = (): void => {
-    while (prose.length > 0 && (prose[0] ?? '').trim() === '') prose.shift();
-    while (prose.length > 0 && (prose[prose.length - 1] ?? '').trim() === '') prose.pop();
-    if (prose.length === 0) return;
-    out.push(`<p>${prose.map((line) => (line.trim() === '' ? '' : inline(line))).join('<br/>')}</p>`);
+    // A blank line ends a paragraph: each one becomes its own <p>, blanks never print.
+    const paragraphs: string[][] = [];
+    let current: string[] = [];
+    for (const line of prose) {
+      if (line.trim() === '') {
+        if (current.length > 0) paragraphs.push(current);
+        current = [];
+      } else current.push(line);
+    }
+    if (current.length > 0) paragraphs.push(current);
+    for (const lines of paragraphs) out.push(`<p>${lines.map((line) => inline(line)).join('<br/>')}</p>`);
     prose = [];
   };
 

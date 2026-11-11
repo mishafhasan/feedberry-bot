@@ -59,8 +59,9 @@ test('rich text: unsafe links and raw HTML stay literal text', () => {
   assert.match(injected, /%22|&quot;/, 'and survives only as an encoded character');
 });
 
-test('rich text: blank lines keep paragraph structure, prose line breaks stay', () => {
-  assert.equal(richBody('one\ntwo\n\nthree'), '<p>one<br/>two<br/><br/>three</p>');
+test('rich text: a blank line starts a new paragraph, prose line breaks stay', () => {
+  assert.equal(richBody('one\ntwo\n\nthree'), '<p>one<br/>two</p><p>three</p>');
+  assert.equal(richBody('one\n\n\n\ntwo'), '<p>one</p><p>two</p>', 'runs of blank lines collapse');
   assert.equal(richBody('a < b & c > d'), '<p>a &lt; b &amp; c &gt; d</p>');
 });
 

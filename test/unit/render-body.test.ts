@@ -82,5 +82,5 @@ test('delivery: a parsed multi-paragraph post is printed once, with its paragrap
   const caption = plan.kind === 'rich' ? plan.html : '';
 
   assert.equal(caption.match(/Altman on RAM/g)?.length, 1, 'the title is a copy of the body');
-  assert.ok(caption.includes(['Altman on RAM.', 'Then the podcast.'].join('<br/><br/>')), 'paragraphs survive');
+  assert.ok(caption.includes(['Altman on RAM.', 'Then the podcast.'].join('</p><p>')), 'paragraphs survive');
 });
