@@ -2,7 +2,7 @@ import type { PostRow } from '../db/repos/posts.ts';
 import type { Article } from '../article/readability.ts';
 import { leadOf } from '../article/readability.ts';
 import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/message-plan.ts';
-import { postHeader } from '../render/caption.ts';
+import { breakNumberedList, postHeader } from '../render/caption.ts';
 import { renderAlbum, renderVideo } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
@@ -72,7 +72,7 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
   const artist = meta.artist ?? null;
   const title = meta.title ?? null;
   const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform });
-  const caption = artist !== null && title !== null ? `${header}\n\n${esc(title)}` : header;
+  const caption = artist !== null && title !== null ? `${header}\n\n${esc(breakNumberedList(title))}` : header;
   // No media (a words-only post, or an extraction that found nothing): the words and the link still ship.
   if (files.length === 0) return { kind: 'link_only', text: `${clampMessage(caption, 4000)}\n\n${esc(link)}` };
 
@@ -93,7 +93,7 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz });
-  return [header, ...bodyParts(post, extras).map((part) => esc(part))].filter((part) => part !== '').join('\n\n');
+  return [header, ...bodyParts(post, extras).map((part) => esc(breakNumberedList(part)))].filter((part) => part !== '').join('\n\n');
 }
 
 /** The post's own words — title and body, de-duplicated — without the source header. */

@@ -68,6 +68,17 @@ function openTagIndex(slice: string): number {
 }
 
 /**
+ * TikTok hands its caption back with the line breaks flattened, so a numbered list arrives as
+ * "1. … 2. … 3. …" on one line. Put the breaks back when the pattern repeats.
+ * shortcut: the marker alone decides (three or more `n. ` mid-sentence); a prose sentence numbered
+ * that often would be split too.
+ */
+export function breakNumberedList(text: string): string {
+  const markers = text.match(/(?<=\S) (?=\d{1,3}\. )/g);
+  return markers !== null && markers.length >= 3 ? text.replace(/(?<=\S) (?=\d{1,3}\. )/g, '\n') : text;
+}
+
+/**
  * Every delivered post opens with where it came from and when the site published it, so a
  * forwarded post is traceable without opening it. The platform is what the *source* is, not what
  * its URL spells: a blog on a custom domain is still RSS.
