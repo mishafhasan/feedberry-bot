@@ -12,7 +12,7 @@ import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import { runOnce } from '../../src/jobs/worker.ts';
-import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';

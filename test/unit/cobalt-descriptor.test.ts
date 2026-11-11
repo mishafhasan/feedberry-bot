@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cobaltEngine, downloadInput, type MediaItem } from '../../src/media/cobalt.ts';
+import { cobaltEngine, downloadInput, type MediaItem } from '../../src/media/media-engine.ts';
 import { isCoded } from '../../src/platform/errors.ts';
 
 const headers = { 'user-agent': 'Mozilla/5.0', referer: 'https://www.tiktok.com/' };

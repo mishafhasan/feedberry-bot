@@ -5,8 +5,8 @@ import { captureTopic, demoteChat, ensurePrivateChat } from '../db/repos/chats.t
 import { ensureUser } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import { statusText } from '../obs/status.ts';
-import { cobaltEngine, type MediaEngine } from '../media/cobalt.ts';
-import { ffmpegThumbnail, type Thumbnailer } from '../media/thumb.ts';
+import { cobaltEngine, type MediaEngine } from '../media/media-engine.ts';
+import { ffmpegThumbnail, type Thumbnailer } from '../media/thumbnail.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
@@ -15,11 +15,11 @@ import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, main
 import { handleKeywordInput, openFilterFor } from './keywords.ts';
 import { deny, gate, isAdmin } from './access.ts';
 import { handleAdminInput, openAdminPanel } from './admin.ts';
-import { getSession, resetSession, setSession } from './fsm.ts';
+import { getSession, resetSession, setSession } from './session.ts';
 import { langFor } from './i18n/index.ts';
-import { s2View } from './screens/s2.ts';
-import { s12View } from './screens/s12.ts';
-import { s13View, s14View, s15View } from './screens/s13.ts';
+import { addSourceView } from './screens/add-source.ts';
+import { supportedSitesView } from './screens/supported-sites.ts';
+import { helpView, aboutView, languageView } from './screens/static-screens.ts';
 
 export interface CreateBotOptions {
   cfg: Config;
@@ -87,7 +87,7 @@ export function createBot({ cfg, db, apiRoot, http, media, thumbnail, telegraph 
     if (userId === undefined) return;
     resetSession(userId);
     setSession(userId, { state: 'awaiting_source_link' });
-    await replyWith(ctx, s2View(cfg.telegramBeta, langFor(ensureUser(db, userId).locale)));
+    await replyWith(ctx, addSourceView(cfg.telegramBeta, langFor(ensureUser(db, userId).locale)));
   });
 
   bot.command('download', async (ctx) => {
@@ -117,16 +117,16 @@ export function createBot({ cfg, db, apiRoot, http, media, thumbnail, telegraph 
     await openFilterFor(ctx, deps, userId);
   });
 
-  bot.command('supported_sites', async (ctx) => replyWith(ctx, s12View()));
-  bot.command('language', async (ctx) => replyWith(ctx, s15View()));
+  bot.command('supported_sites', async (ctx) => replyWith(ctx, supportedSitesView()));
+  bot.command('language', async (ctx) => replyWith(ctx, languageView()));
   bot.command('about', async (ctx) => {
     const userId = ctx.from?.id;
     if (userId === undefined) return;
-    await replyWith(ctx, s14View(userId));
+    await replyWith(ctx, aboutView(userId));
   });
 
   // A command Telegram shows in the menu but the bot does not handle would be a dead entry.
-  bot.command('help', async (ctx) => replyWith(ctx, s13View()));
+  bot.command('help', async (ctx) => replyWith(ctx, helpView()));
 
   // §13.1: the operator's only command, and only the operator's.
   bot.command('status', async (ctx) => {

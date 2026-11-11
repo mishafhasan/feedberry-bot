@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FeedItem } from '../../src/platform/feed/native.ts';
-import { normalizeGuid, uniqueItems } from '../../src/pipeline/s4-dedupe.ts';
+import { normalizeGuid, uniqueItems } from '../../src/pipeline/dedupe.ts';
 
 function item(guid: string, link = `https://blog.test/${guid.replace(/\W+/g, '-')}`): FeedItem {
   return { guid, link, title: guid, summary: null, publishedAt: 1_700_000_000_000, media: [], categories: [] };

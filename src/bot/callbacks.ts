@@ -7,8 +7,8 @@ import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, set
 import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
-import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
-import { standInFrames, type Thumbnailer } from '../media/thumb.ts';
+import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
+import { standInFrames, type Thumbnailer } from '../media/thumbnail.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
@@ -20,42 +20,42 @@ import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageMeta } from '../platform/page-text.ts';
 import { youtubeChannelOf } from '../platform/youtube-channel.ts';
 import { xFullText } from '../platform/x-text.ts';
-import { resolveProfile } from '../pipeline/s1-resolve.ts';
-import { fetchPageSource, fetchSourceFeed } from '../pipeline/s2-feed.ts';
-import { addSource, assertWithinSourceLimit } from '../pipeline/s4-dedupe.ts';
-import { mediaSignal, prepareMedia } from '../pipeline/s5-media.ts';
-import { formatKeywords } from '../pipeline/filter.ts';
-import { renderDownload } from '../pipeline/s6-render.ts';
+import { resolveProfile } from '../pipeline/resolve-source.ts';
+import { fetchPageSource, fetchSourceFeed } from '../pipeline/fetch-feed.ts';
+import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
+import { mediaSignal, prepareMedia } from '../pipeline/prepare-media.ts';
+import { formatKeywords } from '../pipeline/keyword-filter.ts';
+import { renderDownload } from '../pipeline/render-post.ts';
 import { withReadMore, type ReadMorePage } from '../pipeline/read-more.ts';
 import { postHeader } from '../render/caption.ts';
-import { type MediaFile, type MessagePlan } from '../render/plan.ts';
+import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import { menuLabels, replyMenu } from './reply-menu.ts';
-import { recordDelivery } from '../pipeline/s8-record.ts';
-import { cleanupWorkDir, workDirFor } from '../pipeline/s9-cleanup.ts';
+import { recordDelivery } from '../pipeline/record-delivery.ts';
+import { cleanupWorkDir, workDirFor } from '../pipeline/cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import { slotAfter } from '../scheduler/slots.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
-import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './fsm.ts';
+import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './session.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
 import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
 import { handleAdminCallback } from './admin.ts';
 import { askDefaultKeywords, askPendingKeywords, askSourceKeywords, clearDefaultKeywords, clearKeywords, openFilterFor } from './keywords.ts';
-import { s1View } from './screens/s1.ts';
-import { s10View } from './screens/s10.ts';
-import { s2View } from './screens/s2.ts';
-import { s3View } from './screens/s3.ts';
-import { s4View } from './screens/s4.ts';
-import { s5View } from './screens/s5.ts';
-import { s6View } from './screens/s6.ts';
-import { s7View, PAGE_SIZE } from './screens/s7.ts';
-import { s12View } from './screens/s12.ts';
-import { s13View, s14View, s15View } from './screens/s13.ts';
-import { s16List, s16Picker, SCHEDULE_OPTIONS } from './screens/s16.ts';
-import { s18View } from './screens/s18.ts';
-import { ADM } from './screens/s17.ts';
+import { mainMenuView } from './screens/main-menu.ts';
+import { deleteConfirmView } from './screens/delete-confirm.ts';
+import { addSourceView } from './screens/add-source.ts';
+import { checkingView } from './screens/checking.ts';
+import { sourcePreviewView } from './screens/source-preview.ts';
+import { deliveryOptionsView } from './screens/delivery-options.ts';
+import { sourceAddedView } from './screens/source-added.ts';
+import { mySourcesView, PAGE_SIZE } from './screens/my-sources.ts';
+import { supportedSitesView } from './screens/supported-sites.ts';
+import { helpView, aboutView, languageView } from './screens/static-screens.ts';
+import { scheduleListView, schedulePickerView, SCHEDULE_OPTIONS } from './screens/schedule.ts';
+import { contentTypePickerView } from './screens/content-type-picker.ts';
+import { ADM } from './screens/admin-screens.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
 import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody, sourceTitle } from './texts.ts';
 
@@ -159,7 +159,7 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
 
   if (data.startsWith(cb.schedOpen)) return schedulePicker(ctx, deps, userId, idOf(data, cb.schedOpen));
   if (data.startsWith(cb.schedPage)) return renderSchedule(ctx, deps, userId, idOf(data, cb.schedPage));
-  if (data === cb.schedAll) return paint(ctx, s16Picker(null, lang));
+  if (data === cb.schedAll) return paint(ctx, schedulePickerView(null, lang));
 
   if (data.startsWith(cb.lang)) return setLanguage(ctx, deps, userId, data.slice(cb.lang.length));
 
@@ -192,7 +192,7 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   switch (data) {
     case cb.add:
       setSession(userId, { state: 'awaiting_source_link', mode: undefined, error: undefined });
-      return paint(ctx, s2View(deps.cfg.telegramBeta, lang));
+      return paint(ctx, addSourceView(deps.cfg.telegramBeta, lang));
     case cb.save:
       return save(ctx, deps, userId, true);
     case cb.saveSilent:
@@ -200,13 +200,13 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
     case cb.sources:
       return openSources(ctx, deps, userId);
     case cb.supported:
-      return paint(ctx, s12View(lang));
+      return paint(ctx, supportedSitesView(lang));
     case cb.filterMenu:
       return openFilterFor(ctx, deps, userId);
     case cb.help:
-      return paint(ctx, s13View(lang));
+      return paint(ctx, helpView(lang));
     case cb.language:
-      return paint(ctx, s15View(lang));
+      return paint(ctx, languageView(lang));
     case cb.schedule:
       return renderSchedule(ctx, deps, userId, getSession(userId).s16?.page ?? 0);
     case cb.back:
@@ -246,7 +246,7 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
   switch (action) {
     case 'add': {
       setSession(userId, { state: 'awaiting_source_link', mode: undefined, error: undefined });
-      const view = s2View(deps.cfg.telegramBeta, lang);
+      const view = addSourceView(deps.cfg.telegramBeta, lang);
       await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
       return true;
     }
@@ -257,12 +257,12 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
       await openFilterFor(ctx, deps, userId);
       return true;
     case 'supported': {
-      const view = s12View(lang);
+      const view = supportedSitesView(lang);
       await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
       return true;
     }
     case 'help': {
-      const view = s13View(lang);
+      const view = helpView(lang);
       await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
       return true;
     }
@@ -444,7 +444,7 @@ async function openTypePicker(ctx: Context, deps: BotDeps, userId: number, ref: 
   const selected: ContentKind[] = [...CONTENT_KINDS];
   const handle = channelLabel(ref);
   setSession(userId, { state: 'choosing_types', typePicker: { link, handle, selected } });
-  await paintRich(ctx, s18View({ handle, selected, lang: langOf(deps, userId) }));
+  await paintRich(ctx, contentTypePickerView({ handle, selected, lang: langOf(deps, userId) }));
 }
 
 /** S18 for a card in My Sources: a new message, so the list underneath keeps its place. */
@@ -454,7 +454,7 @@ async function openTypesForSource(ctx: Context, deps: BotDeps, userId: number, s
   const selected = parseContentTypes(card.content_types) ?? [...CONTENT_KINDS];
   const handle = card.title ?? card.canonical_url;
   setSession(userId, { state: 'choosing_types', typePicker: { subscriptionId, handle, selected } });
-  const view = s18View({ handle, selected, lang });
+  const view = contentTypePickerView({ handle, selected, lang });
   const chatId = ctx.chat?.id;
   // A new message: the list underneath keeps its place, and the picker gets deleted when it closes.
   if (chatId !== undefined) await ctx.api.sendRichMessage(chatId, { html: view.html }, { reply_markup: view.keyboard });
@@ -469,7 +469,7 @@ async function toggleType(ctx: Context, deps: BotDeps, userId: number, kind: str
   if (off && picker.selected.length === 1) return;
   const selected = off ? picker.selected.filter((other) => other !== name) : [...picker.selected, name];
   setSession(userId, { typePicker: { ...picker, selected } });
-  await paintRich(ctx, s18View({ handle: picker.handle, selected, lang }));
+  await paintRich(ctx, contentTypePickerView({ handle: picker.handle, selected, lang }));
 }
 
 /** `ct:all`: the requested "All content" preset, which leaves the toggles free for a mix. */
@@ -478,7 +478,7 @@ async function selectAllTypes(ctx: Context, deps: BotDeps, userId: number, lang:
   if (!picker) return;
   const selected: ContentKind[] = [...CONTENT_KINDS];
   setSession(userId, { typePicker: { ...picker, selected } });
-  await paintRich(ctx, s18View({ handle: picker.handle, selected, lang }));
+  await paintRich(ctx, contentTypePickerView({ handle: picker.handle, selected, lang }));
 }
 
 /** `ct:done`: the add flow continues into stage 1, the My Sources flow writes the row and repaints. */
@@ -512,7 +512,7 @@ async function backFromTypes(ctx: Context, deps: BotDeps, userId: number, lang: 
     return renderS7(ctx, deps, userId, state?.page ?? 0, state?.platform ?? null, state?.headerId ?? null);
   }
   setSession(userId, { state: 'awaiting_source_link' });
-  await paint(ctx, s2View(deps.cfg.telegramBeta, lang));
+  await paint(ctx, addSourceView(deps.cfg.telegramBeta, lang));
 }
 
 /** `/download` and the S1 button do the same work; only the delivery differs (reply vs edit). */
@@ -559,7 +559,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     }
 
     setSession(userId, { state: 'checking', error: undefined });
-    working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
+    working = (await ctx.reply(checkingView(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
     // A website page may be a category listing: its own feed decides, and a page with none is the site.
     let feed: ParsedFeed;
@@ -605,7 +605,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
 
 /** Returns whether the preview went out as a photo (S5/S6 then edit a caption). */
 async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang, section: string | null): Promise<boolean> {
-  const view = s4View({
+  const view = sourcePreviewView({
     platform: ref.platform,
     author: sourceTitle(feed.title ?? ref.externalId, section),
     section,
@@ -639,7 +639,7 @@ async function pickDest(ctx: Context, deps: BotDeps, userId: number, chatId: num
   if (!chat) return showError(ctx, deps, userId, new Coded(E.BOT_NOT_ADMIN, 'destination not verified'), { kind: 'source', link: pending.link });
 
   setSession(userId, { state: 'add_mode', destChatId: chatId });
-  const view = s5View(pending.bodyText, langOf(deps, userId), pending.keywords ?? [], ensureUser(deps.db, userId).default_keywords);
+  const view = deliveryOptionsView(pending.bodyText, langOf(deps, userId), pending.keywords ?? [], ensureUser(deps.db, userId).default_keywords);
   await editSourceMessage(ctx, pending.photo, view);
 }
 
@@ -677,7 +677,7 @@ async function save(ctx: Context, deps: BotDeps, userId: number, deliverLatest: 
 
     log('info', 'source_added', { source: result.sourceId, pending: result.pending });
     setSession(userId, { state: 'done', pending: undefined, destChatId: undefined, typePicker: undefined });
-    const view = s6View(pending.author, langOf(deps, userId));
+    const view = sourceAddedView(pending.author, langOf(deps, userId));
     await editSourceMessage(ctx, pending.photo, view);
   } catch (err) {
     await showError(ctx, deps, userId, err, { kind: 'source', link: pending.link });
@@ -708,7 +708,7 @@ async function renderS7(ctx: Context, deps: BotDeps, userId: number, page: numbe
     ({ rows, total } = listSourceCards(deps.db, user.id, platform, PAGE_SIZE, pageIndex * PAGE_SIZE));
   }
 
-  const view = s7View({
+  const view = mySourcesView({
     cards: rows,
     offset: pageIndex * PAGE_SIZE,
     total,
@@ -777,14 +777,14 @@ async function renderSchedule(ctx: Context, deps: BotDeps, userId: number, page:
   }
 
   setSession(userId, { state: 'idle', s16: { page: pageIndex } });
-  const view = s16List({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, lang: langOf(deps, userId) });
+  const view = scheduleListView({ cards: rows, offset: pageIndex * PAGE_SIZE, total, page: pageIndex, lang: langOf(deps, userId) });
   await paintOrReply(ctx, view);
 }
 
 async function schedulePicker(ctx: Context, deps: BotDeps, userId: number, sourceId: number): Promise<void> {
   const card = getSourceCard(deps.db, ensureUser(deps.db, userId).id, sourceId);
   if (!card) return;
-  await paint(ctx, s16Picker(card, langOf(deps, userId)));
+  await paint(ctx, schedulePickerView(card, langOf(deps, userId)));
 }
 
 /** `sched:set:<source>:<minutes>` for one source, `sched:setall:<minutes>` for the whole list; 0 is the default. */
@@ -816,9 +816,9 @@ async function applySchedule(ctx: Context, deps: BotDeps, userId: number, data: 
   });
   log('info', 'schedule_set', { sources: targets.length, minutes });
 
-  if (all) return paint(ctx, s16Picker(null, lang));
+  if (all) return paint(ctx, schedulePickerView(null, lang));
   const card = sourceId === null ? undefined : getSourceCard(deps.db, user.id, sourceId);
-  if (card) await paint(ctx, s16Picker(card, lang));
+  if (card) await paint(ctx, schedulePickerView(card, lang));
 }
 
 /** S10: the confirm is a separate message, so a mis-tap cannot delete anything (ADR-016). */
@@ -826,7 +826,7 @@ async function askDelete(ctx: Context, deps: BotDeps, userId: number, sourceId: 
   const user = ensureUser(deps.db, userId);
   if (!ownsSource(deps.db, user.id, sourceId)) return;
   const source = getSource(deps.db, sourceId);
-  const view = s10View(source?.title ?? `#${sourceId}`, sourceId, langOf(deps, userId));
+  const view = deleteConfirmView(source?.title ?? `#${sourceId}`, sourceId, langOf(deps, userId));
   await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
 }
 
@@ -855,7 +855,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
   if ((session.state === 'add_mode' || session.state === 'awaiting_keywords') && session.pending) {
     setSession(userId, { state: 'preview', destChatId: undefined });
     const owner = ensureUser(deps.db, userId);
-    const view = s4View({
+    const view = sourcePreviewView({
       platform: session.pending.platform,
       author: session.pending.author,
       section: sectionOf(session.pending.canonicalUrl),
@@ -870,7 +870,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
   }
   if (session.state === 'preview') {
     setSession(userId, { state: 'awaiting_source_link', pending: undefined, typePicker: undefined });
-    return paint(ctx, s2View(deps.cfg.telegramBeta, langOf(deps, userId)));
+    return paint(ctx, addSourceView(deps.cfg.telegramBeta, langOf(deps, userId)));
   }
   resetSession(userId);
   return paintRich(ctx, mainMenu(userId, deps));
@@ -915,7 +915,7 @@ async function retry(ctx: Context, deps: BotDeps, userId: number): Promise<void>
   if (last?.kind === 'download') return runDownload(ctx, deps, userId, last.link);
   if (last?.kind === 'chat') return verifyAndStoreChat(ctx, deps, last.tgChatId);
   setSession(userId, { state: 'awaiting_source_link' });
-  return paint(ctx, s2View(deps.cfg.telegramBeta, langOf(deps, userId)));
+  return paint(ctx, addSourceView(deps.cfg.telegramBeta, langOf(deps, userId)));
 }
 
 /**
@@ -940,7 +940,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     }
 
     setSession(userId, { state: 'checking', error: undefined });
-    working = (await ctx.reply(s3View(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
+    working = (await ctx.reply(checkingView(ref.canonicalUrl, langOf(deps, userId)).text, { parse_mode: 'HTML' })).message_id;
 
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
 
@@ -1191,7 +1191,7 @@ function toastFor(data: string, lang: Lang): string | undefined {
 
 export function mainMenu(userId: number, deps: BotDeps): RichView {
   const user = ensureUser(deps.db, userId);
-  return s1View({
+  return mainMenuView({
     userId,
     sourceCount: countSubscriptionsForUser(deps.db, user.id),
     limit: deps.cfg.limits.maxSourcesPerUser,

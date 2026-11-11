@@ -3,7 +3,7 @@ import type { Config } from '../config.ts';
 import type { Db } from '../db/index.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { log } from '../obs/log.ts';
-import { resetSession } from './fsm.ts';
+import { resetSession } from './session.ts';
 import { t } from './i18n/index.ts';
 
 /** Users already told they are waiting; a restart re-sends once, which is harmless. */

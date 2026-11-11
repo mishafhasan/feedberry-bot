@@ -15,7 +15,7 @@ import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
-import type { MediaEngine } from '../../src/media/cobalt.ts';
+import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { callbackUpdate, fakeBotApi, startUpdate, textUpdate, type Call } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';

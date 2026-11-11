@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import type { Update } from 'grammy/types';
 import { createBot } from '../../src/bot/index.ts';
-import { getSession, setSession } from '../../src/bot/fsm.ts';
+import { getSession, setSession } from '../../src/bot/session.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb, SCHEMA_VERSION, schemaVersion, type Db } from '../../src/db/index.ts';
 import { allowUser } from '../seed.ts';
