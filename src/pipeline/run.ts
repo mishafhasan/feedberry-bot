@@ -278,7 +278,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   if (!video) return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback });
 
   // §8.6: ffprobe, then the feed's hint, then unknown (R9 keeps the size rule).
-  const durationSec = (await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
+  const durationSec = (video.path === '' ? null : await probeDuration(video.path)) ?? items[0]?.durationSec ?? null;
 
   // Only a clip that cannot be uploaded needs a preview; anything else stays a plain video.
   const needsPreview = video.size > MAX_UPLOAD_BYTES || (durationSec !== null && durationSec >= LONG_VIDEO_SEC);

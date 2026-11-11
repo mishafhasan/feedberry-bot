@@ -3,6 +3,7 @@ export type MediaKind = 'photo' | 'video' | 'audio' | 'animation';
 
 /** One downloaded file, ready to upload. */
 export interface MediaFile {
+  /** '' when the download failed: there are no bytes, only a link to keep (R15). */
   path: string;
   kind: MediaKind;
   size: number;
