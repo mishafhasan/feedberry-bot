@@ -4,7 +4,7 @@ import { leadOf } from '../article/readability.ts';
 import { log } from '../obs/log.ts';
 import { clampMessage, esc, payloadOf, RICH_TEXT_LIMIT, type MediaFile, type MediaKind, type MessagePlan } from '../render/message-plan.ts';
 import { breakNumberedList, postHeader } from '../render/caption.ts';
-import { richBody } from '../render/rich-text.ts';
+import { richBody, truncateParagraphs } from '../render/rich-text.ts';
 import { renderAlbum, renderVideo, unsendable, withVideoLinks } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
@@ -112,14 +112,18 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
     links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
   ].filter((block) => block !== '').join('');
 
-  let html = compose(parts.map((part) => richBody(part)).join(''));
+  let bodyPlain = parts.join('\n\n');
+  let html = compose(richBody(bodyPlain));
   if (html.length > RICH_TEXT_LIMIT) {
     // shortcut: >32,768-char posts are clamped, upgrade when a real source exceeds it.
     log('warn', 'rich_clamped', { chars: html.length });
-    const plain = parts.join('\n\n');
-    html = compose(richBody(clampMessage(plain, plain.length - (html.length - RICH_TEXT_LIMIT))));
+    bodyPlain = clampMessage(bodyPlain, bodyPlain.length - (html.length - RICH_TEXT_LIMIT));
+    html = compose(richBody(bodyPlain));
   }
-  return { kind: 'rich', html, media };
+  // ADR-024: a long post opens as its first paragraphs; the button edits the same message in place.
+  const preview = truncateParagraphs(bodyPlain);
+  if (preview === bodyPlain) return { kind: 'rich', html, media };
+  return { kind: 'rich_more', html: compose(richBody(preview)), fullHtml: html, media };
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

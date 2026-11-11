@@ -92,3 +92,22 @@ test('rich: an RSS post keeps the classic layout, never rich', () => {
   const plan = renderPost(post('body'), 'photo', [photo()], { platform: 'rss', sourceTitle: 'My Blog' });
   assert.equal(plan.kind, 'photo');
 });
+
+test('rich: a long multi-paragraph post opens truncated, with the full body kept for the button', () => {
+  const paragraphs = [1, 2, 3, 4, 5, 6].map((n) => `Para ${n}: ${'word '.repeat(20).trim()}`);
+  const plan = renderPost(post(paragraphs.join('\n\n')), 'album', [], extras);
+
+  assert.equal(plan.kind, 'rich_more');
+  if (plan.kind !== 'rich_more') return;
+  assert.match(plan.html, /<p>Para 1:[\s\S]*<\/p><p>Para 4:/);
+  assert.doesNotMatch(plan.html, /Para 5/);
+  assert.match(plan.fullHtml, /Para 6:/, 'the full body waits behind the button');
+  assert.deepEqual(plan.media, []);
+});
+
+test('rich: a short post, or one paragraph that is long, never gets the button', () => {
+  const short = renderPost(post('one\n\ntwo'), 'album', [], extras);
+  assert.equal(short.kind, 'rich');
+  const single = renderPost(post('word '.repeat(200).trim()), 'album', [], extras);
+  assert.equal(single.kind, 'rich', 'a paragraph is never cut');
+});

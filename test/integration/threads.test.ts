@@ -22,7 +22,7 @@ import { parseThreadDocument } from '../../src/platform/feed/threads.ts';
 import { runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { esc } from '../../src/render/message-plan.ts';
-import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
@@ -140,7 +140,12 @@ test('threads: one post link delivers the whole thread, its words and its media'
     
     // Both posts' words reach the message whole: root and the 3,779-char sub-post.
     assert.equal(pages.length, 0, 'no Instant View page on the rich path');
-    assert.ok(html.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post text is not lost');
+    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'a long thread opens with a Show more button');
+    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, `more:${token}`));
+    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
+    assert.ok(expanded.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post text arrives on expand');
+    assert.match(expanded, /<tg-slideshow>/, 'the slideshow survives the edit');
 
     const row = db.prepare('SELECT post_id, status FROM deliveries ORDER BY id DESC LIMIT 1').get() as { post_id: number | null; status: string };
     assert.equal(row.post_id, null, 'Download mode has no posts row');
@@ -296,7 +301,11 @@ test('threads: a scheduled source prints the whole thread, not the feed preview 
     
     // The whole thread — root and the 3,779-char sub-post — reaches the message, once.
     assert.equal(pages.length, 0, 'no Instant View page on the rich path');
-    assert.ok(html.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail is not lost');
+    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'the scheduled thread opens with a Show more button');
+    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
+    await bot.handleUpdate(callbackUpdate(10, USER_ID, `more:${token}`));
+    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
+    assert.ok(expanded.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail arrives on expand');
     assert.doesNotMatch(html, /feed preview/, 'the message carries the thread, not the RSS preview');
   } finally {
     db.close();

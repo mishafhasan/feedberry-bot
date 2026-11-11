@@ -1,7 +1,7 @@
 /** ADR-023: source text → Telegram rich HTML (blocks line by line, styles inline). */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { richBody } from '../../src/render/rich-text.ts';
+import { richBody, truncateParagraphs } from '../../src/render/rich-text.ts';
 
 test('rich text: headings H1–H6 and subheadings', () => {
   assert.equal(richBody('# Title'), '<h1>Title</h1>');
@@ -82,6 +82,21 @@ test('rich text: blocks between paragraphs keep the paragraph order', () => {
   assert.equal(richBody('a\n\n- x\n- y\n\nb'), '<p>a</p><ul><li>x</li><li>y</li></ul><p>b</p>');
   assert.equal(richBody('a\n\n> q\n\nb'), '<p>a</p><blockquote>q</blockquote><p>b</p>');
   assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
+});
+
+test('rich text: the preview keeps whole paragraphs, four or about 500 chars', () => {
+  const text = [1, 2, 3, 4, 5, 6].map((n) => `Paragraph ${n}. ${'word '.repeat(20).trim()}`).join('\n\n');
+  const preview = truncateParagraphs(text);
+
+  assert.equal(preview.split('\n\n').length, 4, 'four paragraphs fit the preview');
+  assert.match(preview, /Paragraph 4\./);
+  assert.doesNotMatch(preview, /Paragraph 5/, 'the cut lands on a paragraph boundary');
+  assert.ok(preview.length <= 500, `preview is ${preview.length} chars`);
+  assert.equal(truncateParagraphs('one\n\ntwo'), 'one\n\ntwo', 'a short post is untouched');
+  assert.equal(truncateParagraphs(`long `.repeat(300).trim()), `long `.repeat(300).trim(), 'one long paragraph is never cut');
+  assert.equal(truncateParagraphs('a\nb\n\nc\n\nd'), 'a\nb\n\nc\n\nd', 'line breaks inside a kept paragraph stay');
+  const titleAndBody = `Title\n\n${'word '.repeat(300).trim()}`;
+  assert.equal(truncateParagraphs(titleAndBody), titleAndBody, 'a title never stands alone as the preview');
 });
 
 test('rich text: a flattened numbered list is split by the caller, then rendered as an ol', () => {

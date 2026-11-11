@@ -151,6 +151,28 @@ function quote(run: Array<{ depth: number; text: string }>): string {
   return `<blockquote>${walk(1)}</blockquote>`;
 }
 
+/** The "Show more" preview: the first four paragraphs, about 500 characters. */
+export const PREVIEW_PARAGRAPHS = 4;
+export const PREVIEW_CHARS = 500;
+
+/**
+ * The preview for a long post: whole paragraphs only, so a cut never lands mid-sentence.
+ * It keeps at least one paragraph and the one that crosses the budget; a title followed by one
+ * huge body paragraph therefore shows both (the body counts as the post's first paragraph).
+ */
+export function truncateParagraphs(text: string, maxParagraphs = PREVIEW_PARAGRAPHS, maxChars = PREVIEW_CHARS): string {
+  const paragraphs = text.split(/\n{2,}/).filter((paragraph) => paragraph.trim() !== '');
+  const kept: string[] = [];
+  let chars = 0;
+  for (const paragraph of paragraphs) {
+    if (kept.length >= maxParagraphs) break;
+    kept.push(paragraph);
+    chars += paragraph.length;
+    if (chars >= maxChars) break;
+  }
+  return kept.join('\n\n');
+}
+
 /** Inline styles and links; everything that is not a recognised token is escaped text. */
 function inline(raw: string): string {
   const stash: string[] = [];
