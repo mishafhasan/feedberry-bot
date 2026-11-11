@@ -22,7 +22,8 @@ const TIME = /!\[([^\]]*)\]\((tg:\/\/time\?[^)\s]+)\)/g;
 const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
 export function richBody(text: string): string {
-  const lines = text.split('\n');
+  // Source text can arrive with CRLF (feeds, page meta); a stray \r would print inside the line.
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const out: string[] = [];
   let prose: string[] = [];
   const flush = (): void => {

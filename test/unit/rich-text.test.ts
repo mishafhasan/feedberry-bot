@@ -65,6 +65,25 @@ test('rich text: a blank line starts a new paragraph, prose line breaks stay', (
   assert.equal(richBody('a < b & c > d'), '<p>a &lt; b &amp; c &gt; d</p>');
 });
 
+test('rich text: leading, trailing and whitespace-only lines never print', () => {
+  assert.equal(richBody('\n\na\n\n'), '<p>a</p>');
+  assert.equal(richBody('a\n   \nb'), '<p>a</p><p>b</p>', 'a spaces-only line is a paragraph break');
+  assert.equal(richBody('\n\n- x\n\n'), '<ul><li>x</li></ul>', 'blanks around a block stay out');
+});
+
+test('rich text: CRLF and CR line endings behave like LF', () => {
+  assert.equal(richBody('a\r\nb'), '<p>a<br/>b</p>');
+  assert.equal(richBody('a\r\n\r\nb'), '<p>a</p><p>b</p>');
+  assert.equal(richBody('a\rb'), '<p>a<br/>b</p>');
+});
+
+test('rich text: blocks between paragraphs keep the paragraph order', () => {
+  assert.equal(richBody('a\n\n# H\n\nb'), '<p>a</p><h1>H</h1><p>b</p>');
+  assert.equal(richBody('a\n\n- x\n- y\n\nb'), '<p>a</p><ul><li>x</li><li>y</li></ul><p>b</p>');
+  assert.equal(richBody('a\n\n> q\n\nb'), '<p>a</p><blockquote>q</blockquote><p>b</p>');
+  assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
+});
+
 test('rich text: a flattened numbered list is split by the caller, then rendered as an ol', () => {
   // breakNumberedList runs before richBody on the rich path; a bare ol is what it feeds.
   assert.equal(richBody('1. http://site.test — one\n2. http://two.test — two'), '<ol><li><a href="http://site.test">http://site.test</a> — one</li><li><a href="http://two.test">http://two.test</a> — two</li></ol>');
