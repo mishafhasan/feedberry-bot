@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { hasFFmpeg } from 'cobalt-engine';
 import { log } from '../obs/log.ts';
-import type { MediaFile } from '../render/plan.ts';
+import type { MediaFile } from '../render/message-plan.ts';
 import { overCeiling } from '../render/video.ts';
 
 const run = promisify(execFile);
