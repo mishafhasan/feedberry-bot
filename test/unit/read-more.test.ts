@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { TelegraphPage } from '../../src/article/telegraph.ts';
 import type { PostRow } from '../../src/db/repos/posts.ts';
 import { pageOfPost, withReadMore, type ReadMoreCtx } from '../../src/pipeline/read-more.ts';
-import { renderPost } from '../../src/pipeline/render-post.ts';
+import { renderPost, renderDownload } from '../../src/pipeline/render-post.ts';
 import { cutCaption } from '../../src/render/caption.ts';
 import type { MediaFile, MessagePlan } from '../../src/render/message-plan.ts';
 
@@ -138,6 +138,22 @@ test('Read more: the 🎬 links outlive the cut that drops the rest of the tail'
   assert.ok(caption.includes(LINK), 'the only way to reach the clip survives the cut');
   assert.match(caption, /🎬 <a href="https:\/\/video\.twimg\.com\S+">Video 1<\/a>\n\n<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/);
   assert.equal(pages.length, 1);
+});
+
+test('Read more: a flattened numbered list becomes one Instant View paragraph per item', async () => {
+  const items = Array.from({ length: 30 }, (_, i) => `${i + 1}. http://site-${i + 1}.test — thing number ${i + 1}`);
+  const flat = `50 websites that feel like the internet’s hidden toolbox ${items.join(' ')}`;
+  const link = 'https://www.tiktok.com/@amanyahd/video/7706970288738635016';
+  const plan = renderDownload([photo], { title: flat, artist: 'amanyahd', platform: 'tiktok' }, link);
+  const page = { id: 0, url: link, publishedAt: null, title: null, parts: [flat], images: [] };
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, page, ctx(client), new Map());
+
+  assert.ok('caption' in out && out.caption.includes('Read more'), 'the caption trades its tail for the page');
+  assert.equal(pages.length, 1);
+  assert.match(pages[0]?.content ?? '', /"children":\["1\. http:\/\/site-1\.test/, 'item 1 is its own paragraph');
+  assert.match(pages[0]?.content ?? '', /"children":\["2\. http:\/\/site-2\.test/, 'and so does item 2');
 });
 
 test('Read more: an album keeps its items and gets the same caption tail', async () => {

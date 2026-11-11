@@ -1,7 +1,7 @@
 import { publishArticle, type TelegraphClient } from '../article/telegraph.ts';
 import type { PostRow } from '../db/repos/posts.ts';
 import { log } from '../obs/log.ts';
-import { cutCaption } from '../render/caption.ts';
+import { breakNumberedList, cutCaption } from '../render/caption.ts';
 import { esc, payloadOf, type MessagePlan } from '../render/message-plan.ts';
 import { VIDEO_LINK_PREFIX } from '../render/video.ts';
 import { CAPTION_LIMIT } from '../telegram/api.ts';
@@ -82,8 +82,9 @@ export async function withReadMore(
 /** The post's own text and pictures, published as one page; null when Telegraph says no. */
 async function pageUrl(client: TelegraphClient, ctx: ReadMoreCtx, page: ReadMorePage): Promise<string | null> {
   try {
-    // Telegraph flattens newlines inside a node, so every source line becomes its own paragraph.
-    const paragraphs = page.parts.flatMap((part) => part.split(/\n+/).map((line) => line.trim()).filter((line) => line !== ''));
+    // Telegraph flattens newlines inside a node, so every source line becomes its own paragraph --
+    // including a numbered list a platform handed over flattened (TikTok).
+    const paragraphs = page.parts.flatMap((part) => breakNumberedList(part).split(/\n+/).map((line) => line.trim()).filter((line) => line !== ''));
     const title = (page.title || paragraphs[0] || 'Post').slice(0, MAX_TITLE);
     // A headline borrowed from the body must not print the same sentence twice.
     const body = page.title !== null || title !== paragraphs[0] ? paragraphs : paragraphs.slice(1);
