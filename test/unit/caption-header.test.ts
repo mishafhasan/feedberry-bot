@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { detectSource } from '../../src/platform/registry.ts';
-import { postHeader, sourceName } from '../../src/render/caption.ts';
+import { postHeader, sourceName, ddmmhhmm } from '../../src/render/caption.ts';
+import { platformIcon } from '../../src/platform/icons.ts';
+import { platformIcon as platformIconViaTexts } from '../../src/bot/texts.ts';
 
 /** ARCHITECTURE §8.2: one label per source type, spelled the way the platform itself spells it. */
 const LABELS: Array<[string, string]> = [
@@ -90,4 +92,22 @@ test('caption header: the label is the source type, not the domain, and the time
     '🌐 X | constructor',
     'a value the map does not own prints as itself, never as Object.prototype’s',
   );
+});
+
+test('rich header: the platform logo leads and the time is day-first in the reader zone (ADR-023)', () => {
+  const header = postHeader({
+    sourceTitle: 'WIRED',
+    url: 'https://www.wired.com/story/x/',
+    publishedAt: Date.UTC(2026, 10, 1, 4, 1),
+    platform: 'instagram',
+    tz: 'Asia/Dhaka',
+    rich: true,
+  });
+  assert.equal(header, `${platformIcon('instagram')} <a href="https://www.wired.com/story/x/">WIRED</a> | Instagram\n⏱️ Time: 01/11 10:01`);
+  assert.equal(ddmmhhmm(Date.UTC(2026, 10, 1, 4, 1)), '01/11 04:01', 'UTC stays the default zone');
+});
+
+test('icons: the bot layer re-exports the one producer in platform/icons', () => {
+  assert.equal(platformIconViaTexts('x'), platformIcon('x'));
+  assert.match(platformIcon('x'), /^<tg-emoji emoji-id="\d+">✖️<\/tg-emoji>$/);
 });

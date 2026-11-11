@@ -1,4 +1,5 @@
 import type { Platform } from '../platform/registry.ts';
+import { platformIcon } from '../platform/icons.ts';
 import { esc } from './message-plan.ts';
 
 /**
@@ -83,11 +84,13 @@ export function breakNumberedList(text: string): string {
  * forwarded post is traceable without opening it. The platform is what the *source* is, not what
  * its URL spells: a blog on a custom domain is still RSS.
  */
-export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string }): string {
+export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string; rich?: boolean }): string {
   const name = esc(sourceName(params.sourceTitle ?? 'Source', params.platform));
   const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
-  const when = params.publishedAt === null ? null : mmddhhmm(params.publishedAt, params.tz);
-  return [`🌐 ${title} | ${esc(platformLabel(params.platform))}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+  // The rich post layout leads with the platform logo and prints the day first (ADR-023).
+  const lead = params.rich === true ? platformIcon(params.platform) : '🌐';
+  const when = params.publishedAt === null ? null : params.rich === true ? ddmmhhmm(params.publishedAt, params.tz) : mmddhhmm(params.publishedAt, params.tz);
+  return [`${lead} ${title} | ${esc(platformLabel(params.platform))}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
 }
 
 /** The display name of a source platform, for every screen that names one: post header, source list. */
@@ -127,6 +130,15 @@ const PLATFORM_LABEL: Record<Platform, string> = {
 
 /** `MM/DD HH:MM` in the given timezone (UTC until a user timezone is stored). */
 export function mmddhhmm(ms: number, tz = 'UTC'): string {
+  return timeLine(ms, tz, false);
+}
+
+/** `DD/MM HH:MM` — the rich post header's day-first order (ADR-023). */
+export function ddmmhhmm(ms: number, tz = 'UTC'): string {
+  return timeLine(ms, tz, true);
+}
+
+function timeLine(ms: number, tz: string, dayFirst: boolean): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: tz,
     month: '2-digit',
@@ -136,5 +148,6 @@ export function mmddhhmm(ms: number, tz = 'UTC'): string {
     hour12: false,
   }).formatToParts(ms);
   const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '--';
-  return `${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
+  const date = dayFirst ? `${get('day')}/${get('month')}` : `${get('month')}/${get('day')}`;
+  return `${date} ${get('hour')}:${get('minute')}`;
 }
