@@ -168,11 +168,11 @@ test('M12 Download: an extractor without metadata keeps the page description as 
     assert.match(api.last('sendMessage')?.body.text ?? '', /post link/i, 'a pasted post link is offered as a download');
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'dl:post'));
 
-    const photo = api.last('sendPhoto');
-    const caption = String(photo?.body.caption ?? '');
-    assert.match(caption, /Hello from the post/, 'the post text is kept, not dropped');
-    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/blue\/status\/123">@blue<\/a> \| X/, 'the account the link names is the source, and the platform follows it');
-    assert.equal(photo?.body.parse_mode, 'HTML');
+    const rich = api.last('sendRichMessage');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.match(html, /Hello from the post/, 'the post text is kept, not dropped');
+    assert.match(html, /<a href="https:\/\/x\.com\/blue\/status\/123">@blue<\/a> \| X/, 'the account the link names is the source, and the platform follows it');
+    assert.equal(rich?.body.rich_message?.skip_entity_detection, true);
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE post_id IS NULL AND status = 'sent'"), 1);
     assert.doesNotMatch(JSON.stringify(api.last('sendMessage')?.body ?? {}), /add:post/, 'no profile is invented for a post-only platform');
   } finally {
@@ -221,12 +221,13 @@ test('M12 Download: the page names the account and dates the post, like a schedu
     await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/blue/status/123'));
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
-    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
-      caption,
-      /^🌐 <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X\n⏱️ Time: 08\/10 16:55\n\nBro turned the whole resort up!/,
-      `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
+      html,
+      /^<p><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<br\/>⏱️ Time: 10\/08 16:55<\/p>/,
+      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
     );
+    assert.match(html, /<p>Bro turned the whole resort up!<\/p>/);
   } finally {
     db.close();
     await api.close();
@@ -278,12 +279,14 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
     assert.deepEqual(downloaded, ['https://bolt-gcdn.sc-cdn.net/y/clip.mp4?mo=1'], 'the card video is the download');
-    const caption = String(api.last('sendVideo')?.body.caption ?? '');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
-      caption,
-      /^🌐 <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat\n⏱️ Time: 08\/23 18:34\n\nWatch as Funny Vidz captures another unsuspecting victim\./,
-      `one linked source line, then the time (saw ${caption.slice(0, 120)}…)`,
+      html,
+      /^<p><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<br\/>⏱️ Time: 23\/08 18:34<\/p>/,
+      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
     );
+    assert.match(html, /<p>Watch as Funny Vidz captures another unsuspecting victim\.<\/p>/);
+    assert.match(html, /<tg-slideshow><video src="tg:\/\/video\?id=m0"><\/video><\/tg-slideshow>/);
   } finally {
     db.close();
     await api.close();
@@ -291,7 +294,7 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
   }
 });
 
-test('M12 Download: an engine caption above 1024 chars goes to Instant View with Read more', async () => {
+test('M12 Download: an engine caption above 1024 chars rides whole in one rich message', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-long-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
@@ -327,13 +330,11 @@ test('M12 Download: an engine caption above 1024 chars goes to Instant View with
     await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/MissDelulu9/status/2116793013774975408'));
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
-    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
-    assert.ok(caption.length <= 1024, `the caption stays inside Telegram's limit (got ${caption.length})`);
-    assert.match(caption, /👉🏻 Read more/, 'the tail moves behind the Instant View link');
-    assert.match(caption, /https:\/\/telegra\.ph\/long-1/);
-    assert.equal(pages.length, 1, 'one page per download');
-    assert.match(pages[0]?.content ?? '', /word word word/, 'the page carries the whole text');
-    assert.doesNotMatch(pages[0]?.content ?? '', /🌐/, 'the page holds the post, not the bot header');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.ok(html.includes(long), 'the whole caption rides inside the rich message');
+    assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
+    assert.doesNotMatch(html, /Read more/, 'no Instant View link on the rich path');
+    assert.equal(pages.length, 0, 'Download Mode never publishes a Telegraph page (ADR-023)');
   } finally {
     db.close();
     await api.close();
@@ -341,7 +342,7 @@ test('M12 Download: an engine caption above 1024 chars goes to Instant View with
   }
 });
 
-test('M12 Download: X long-form text comes from the full-text mirror, not the 280 cut', async () => {
+test('M12 Download: X long-form text comes from the full-text mirror, whole in the rich message', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m12-xlong-'));
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
@@ -380,11 +381,11 @@ test('M12 Download: X long-form text comes from the full-text mirror, not the 28
     await bot.handleUpdate(textUpdate(2, USER_ID, 'https://x.com/blue/status/123'));
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
-    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
-    assert.doesNotMatch(caption, /Short 280-char cut/, 'the engine cut is replaced by the full post');
-    assert.match(caption, /Read more/, 'a caption past 1024 keeps the media and links the rest');
-    assert.match(pages[0]?.content ?? '', /END-OF-POST/, 'the page carries the whole text');
-    assert.match(pages[0]?.content ?? '', /word word word/);
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.doesNotMatch(html, /Short 280-char cut/, 'the engine cut is replaced by the full post');
+    assert.ok(html.includes('END-OF-POST'), 'the full mirror text rides inside the rich message');
+    assert.ok(html.includes('word word word'));
+    assert.equal(pages.length, 0, 'no Telegraph page on the rich path (ADR-023)');
   } finally {
     db.close();
     await api.close();
@@ -425,9 +426,9 @@ test('M12 Scheduled: a media-only feed item falls back to the page description',
     tick(db, Date.now());
     assert.equal(await runOnce(deps, Date.now()), true, 'the fetch job is claimed');
 
-    const text = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? '')).join('\n');
+    const text = api.calls.filter((call) => call.method === 'sendRichMessage').map((call) => String(call.body.rich_message?.html ?? '')).join('\n');
     assert.match(text, /Video caption from the page/, 'the caption comes from the page, not the link only');
-    assert.match(text, /🌐 <a href="https:\/\/tiktok\.com\/@demo\/video\/1">TikTok Demo<\/a> \| TikTok/);
+    assert.match(text, /<a href="https:\/\/tiktok\.com\/@demo\/video\/1">TikTok Demo<\/a> \| TikTok/);
   } finally {
     db.close();
     await api.close();

@@ -21,6 +21,7 @@ import type { Http } from '../../src/platform/http.ts';
 import { parseThreadDocument } from '../../src/platform/feed/threads.ts';
 import { runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
+import { esc } from '../../src/render/message-plan.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
 
@@ -76,23 +77,24 @@ function mediaEngine(photoCalls: { resolve: number; download: number }): MediaEn
   };
 }
 
-/** The layout both modes must print: one linked source line with its platform, one time line, then the post's words. */
-function assertHeaderBlock(caption: string, hrefPattern: string, name: string, platform: string): void {
+/** The layout both modes must print: one linked source line with its platform, one day-first time line. */
+function assertHeaderBlock(html: string, hrefPattern: string, name: string, platform: string): void {
   assert.match(
-    caption,
-    new RegExp(`^🌐 <a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}\\n⏱️ Time: \\d{2}\\/\\d{2} \\d{2}:\\d{2}\\n\\n`),
-    `header block (saw ${caption.slice(0, 120)}…)`,
+    html,
+    new RegExp(`<a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}<br/>⏱️ Time: \\d{2}\\/\\d{2} \\d{2}:\\d{2}`),
+    `header block (saw ${html.slice(0, 120)}…)`,
   );
-  assert.equal((caption.match(/🌐/g) ?? []).length, 1, 'one header only');
-  assert.equal((caption.match(/⏱️ Time:/g) ?? []).length, 1, 'one time line');
-  assert.ok(caption.length <= 1024, `caption stays inside Telegram's limit (got ${caption.length})`);
+  assert.equal((html.match(/⏱️ Time:/g) ?? []).length, 1, 'one time line');
 }
 
-/** A caption over the limit trades its tail for the Instant View link, never a `(1/2)` split. */
-function assertReadMoreTail(caption: string): void {
-  assert.match(caption, /\.\.\.\n\n<a href="https:\/\/[^"]+">👉🏻 Read more<\/a>$/, 'the tail is `...`, air, then the link');
-  assert.doesNotMatch(caption, /\(\d+\/\d+\)/, 'nothing is split into numbered parts');
+/** A rich post carries its whole text: no `(1/2)` split and no Instant View tail (ADR-023). */
+function assertNoSplit(html: string): void {
+  assert.doesNotMatch(html, /\(\d+\/\d+\)/, 'nothing is split into numbered parts');
+  assert.doesNotMatch(html, /Read more/, 'no Instant View link on the rich path');
 }
+
+/** The renderer escapes source text and turns each newline into <br/>; match a tail the same way. */
+const richTail = (text: string): string => esc(text).replace(/\n/g, '<br/>');
 
 test('threads: one post link delivers the whole thread, its words and its media', async () => {
   const api = await fakeBotApi();
@@ -126,22 +128,19 @@ test('threads: one post link delivers the whole thread, its words and its media'
     assert.match(seen[0]?.accept ?? '', /text\/html/);
     assert.equal(calls.resolve, 0, 'cobalt resolve is skipped for a Threads post');
 
-    const photo = api.last('sendPhoto');
-    assert.ok(photo, `the thread photo is sent (saw ${api.calls.map((call) => call.method).join(',')})`);
+    const rich = api.last('sendRichMessage');
+    assert.ok(rich, `the thread is sent as one rich message (saw ${api.calls.map((call) => call.method).join(',')})`);
     assert.equal(calls.download, 1, 'the one photo of the thread is downloaded');
-    const caption = String(photo.body.caption ?? '');
-    assert.ok(caption.length <= 1024, 'the caption stays inside Telegram\'s limit');
-    assert.match(caption, /👉🏻 Read more/, 'the thread tail moves to Instant View');
-    assert.match(caption, /threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv/);
+    const html = String(rich.body.rich_message?.html ?? '');
+    assert.match(html, /threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv/);
     // The same header block a scheduled delivery prints.
-    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB', 'Threads');
-    assertReadMoreTail(caption);
-
-    // Both posts' words reach the page: root (455) and the 3,779-char sub-post.
-    assert.equal(pages.length, 1, 'one Instant View page per thread');
-    const page = pages[0]?.content ?? '';
-    assert.match(page, new RegExp(escapeRegExp(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post text is not lost');
-    assert.match(page, /cdn\.test|cdninstagram|scontent/i, 'the photo rides along');
+    assertHeaderBlock(html, 'https:\/\/(?:www\.)?threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv', 'PROMPT HUB', 'Threads');
+    assertNoSplit(html);
+    assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
+    
+    // Both posts' words reach the message whole: root and the 3,779-char sub-post.
+    assert.equal(pages.length, 0, 'no Instant View page on the rich path');
+    assert.ok(html.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post text is not lost');
 
     const row = db.prepare('SELECT post_id, status FROM deliveries ORDER BY id DESC LIMIT 1').get() as { post_id: number | null; status: string };
     assert.equal(row.post_id, null, 'Download mode has no posts row');
@@ -172,9 +171,9 @@ test('threads: a text-only thread is delivered as text, not as a failure', async
     assert.equal(calls.resolve, 0);
     assert.equal(calls.download, 0, 'nothing to download');
     assert.equal(api.last('sendPhoto'), undefined, 'no media message for a text thread');
-    const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
-    assert.ok(texts.some((text) => text.includes('The root of a text-only thread.')), 'the root text arrives');
-    assert.ok(texts.some((text) => text.includes('The continuation that cobalt never saw.')), 'so does the sub-post');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.ok(html.includes('The root of a text-only thread.'), 'the root text arrives');
+    assert.ok(html.includes('The continuation that cobalt never saw.'), 'so does the sub-post');
   } finally {
     db.close();
     await api.close();
@@ -285,22 +284,20 @@ test('threads: a scheduled source prints the whole thread, not the feed preview 
     await bot.init();
     await runFetchSource({ db, http, cfg, media, thumbnail: async () => null, sender: new TelegramSender(bot.api), telegraph }, source.id);
 
-    const album = api.last('sendMediaGroup');
-    const items = (album?.body.media ?? []) as Array<{ caption?: string }>;
-    assert.equal(items.length, 2, 'both photos ride in one album');
+    const rich = api.last('sendRichMessage');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    const richMedia = (rich?.body.rich_message?.media ?? []) as Array<unknown>;
+    assert.equal(richMedia.length, 2, 'both photos ride in one slideshow');
     assert.equal(calls.download, 2, 'every photo of the post is downloaded');
-    const caption = String(items[0]?.caption ?? '');
     // The layout Download Mode prints, with the source the feed named.
-    assertHeaderBlock(caption, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
-    assert.doesNotMatch(caption, /feed preview|@prompt\.__hub :/, 'the feed preview is not printed as a body of its own');
-    assert.match(caption, /👉🏻 Read more/, 'the thread tail moves to Instant View');
-    assertReadMoreTail(caption);
-
-    // The whole thread — root and the 3,779-char sub-post — reaches the page, once.
-    assert.equal(pages.length, 1, 'one page per post');
-    const page = pages[0]?.content ?? '';
-    assert.match(page, new RegExp(escapeRegExp(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail is not lost');
-    assert.doesNotMatch(page, /feed preview/, 'the page carries the thread, not the RSS preview');
+    assertHeaderBlock(html, 'https:\/\/(?:www\.)?threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
+    assert.doesNotMatch(html, /feed preview|@prompt\.__hub :/, 'the feed preview is not printed as a body of its own');
+    assertNoSplit(html);
+    
+    // The whole thread — root and the 3,779-char sub-post — reaches the message, once.
+    assert.equal(pages.length, 0, 'no Instant View page on the rich path');
+    assert.ok(html.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail is not lost');
+    assert.doesNotMatch(html, /feed preview/, 'the message carries the thread, not the RSS preview');
   } finally {
     db.close();
     await api.close();
@@ -349,9 +346,9 @@ test('threads: a blocked permalink keeps the feed text instead of losing the pos
     await bot.init();
     await runFetchSource({ db, http, cfg, media, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
 
-    const text = String(api.last('sendMessage')?.body.text ?? '');
-    assert.match(text, /feed preview/, 'the feed text ships when the permalink says no');
-    assertHeaderBlock(text, 'https:\\/\\/(?:www\\.)?threads\\.com\\/@prompt\\.__hub\\/post\\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.match(html, /feed preview/, 'the feed text ships when the permalink says no');
+    assertHeaderBlock(html, 'https:\/\/(?:www\.)?threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number }).n, 1, 'one delivery, not two');
   } finally {
     db.close();

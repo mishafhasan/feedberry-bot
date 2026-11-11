@@ -1,9 +1,10 @@
 import type { PostRow } from '../db/repos/posts.ts';
 import type { Article } from '../article/readability.ts';
 import { leadOf } from '../article/readability.ts';
-import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/message-plan.ts';
+import { log } from '../obs/log.ts';
+import { clampMessage, esc, payloadOf, RICH_TEXT_LIMIT, type MediaFile, type MediaKind, type MessagePlan } from '../render/message-plan.ts';
 import { breakNumberedList, postHeader } from '../render/caption.ts';
-import { renderAlbum, renderVideo } from '../render/video.ts';
+import { renderAlbum, renderVideo, unsendable, withVideoLinks } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
 /** R9/R7/R8 need facts about the downloaded video; other rows ignore them. */
@@ -24,6 +25,8 @@ export interface RenderExtras {
 
 /** Stage 6 (R1/R2/R3/R5/R6-R9/R10/R11/R14/R15). Stage 7 owns splitting and the reply chain. */
 export function renderPost(post: PostRow, kind: PostKind, files: MediaFile[], extras: RenderExtras): MessagePlan {
+  // ADR-023: every non-RSS post is one rich message; the rows below are the RSS/blog layout.
+  if (extras.platform !== 'rss') return renderRichPost(post, files, extras);
   const caption = bodyOf(post, extras);
 
   switch (kind) {
@@ -67,28 +70,54 @@ export function renderArticle(article: Article, ivUrl: string, header: string): 
 }
 
 /** Download mode has no `posts` row, so the engine supplies the text and the link is the input. */
-export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null; publishedAt?: number | null; platform: string }, link: string): MessagePlan {
+export function renderDownload(files: MediaFile[], meta: { title: string | null; artist: string | null; publishedAt?: number | null; platform: string; tz?: string }, link: string): MessagePlan {
   // The account names the source; its caption is the post's own words underneath.
   const artist = meta.artist ?? null;
   const title = meta.title ?? null;
-  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform });
-  const caption = artist !== null && title !== null ? `${header}\n\n${esc(breakNumberedList(title))}` : header;
-  // No media (a words-only post, or an extraction that found nothing): the words and the link still ship.
-  if (files.length === 0) return { kind: 'link_only', text: `${clampMessage(caption, 4000)}\n\n${esc(link)}` };
+  const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform, tz: meta.tz, rich: true });
+  // A title that IS the source name must not print again as the body (the scheduled de-dup rule).
+  const body = artist !== null && title !== null ? esc(breakNumberedList(title)) : '';
+  return richPlan(header, body, files);
+}
 
-  const kinds = new Set(files.map((file) => file.kind));
-  if (kinds.has('audio') && files.length === 1) return { kind: 'audio', file: files[0]?.path ?? '', caption };
-  if (files.length === 1) {
-    const only = files[0];
-    if (!only) return { kind: 'link_only', text: esc(link) };
-    // A link the user asked for is uploaded when it fits; the duration rule is for scheduled posts.
-    if (only.kind === 'video') return renderVideo(only, caption, { durationSec: null, thumbnail: null, link });
-    return { kind: only.kind === 'animation' ? 'animation' : 'photo', file: only.path, caption };
+/** ADR-023: the scheduled half of the rich layout — same header, the feed's de-duplicated words. */
+function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras): MessagePlan {
+  const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz, rich: true });
+  const body = bodyParts(post, extras).map((part) => esc(breakNumberedList(part))).join('\n\n');
+  return richPlan(header, body, files);
+}
+
+/**
+ * One rich message: header + time, a slideshow of the post's own media, the full text, then one
+ * labelled link per video that cannot upload. Telegram collapses a raw newline inside <p>, so every
+ * source line break becomes <br/> (spike evidence, ADR-023).
+ */
+function richPlan(header: string, body: string, files: MediaFile[]): MessagePlan {
+  // shortcut: media past the 50-attachment ceiling is dropped, upgrade when a real source exceeds it.
+  const sendable = files.filter((file) => !unsendable(file)).slice(0, 50);
+  const media = sendable.map((file, index) => ({ id: `m${index}`, file: file.path, kind: file.kind }));
+  const ref = (index: number, kind: MediaKind): string =>
+    kind === 'photo' ? `<img src="tg://photo?id=m${index}"/>` : kind === 'audio' ? `<audio src="tg://audio?id=m${index}"></audio>` : `<video src="tg://video?id=m${index}"></video>`;
+  const indexed = sendable.map((file, index) => ({ file, index }));
+  const visual = indexed.filter((x) => x.file.kind !== 'audio');
+  // Audio cannot ride in a slideshow (Telegram hoists it out), so it stands as its own block.
+  const audio = indexed.filter((x) => x.file.kind === 'audio');
+  const links = withVideoLinks('', files).trim();
+  const compose = (text: string): string => [
+    `<p>${header.replace(/\n/g, '<br/>')}</p>`,
+    visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
+    ...audio.map((x) => ref(x.index, x.file.kind)),
+    text === '' ? '' : `<p>${text.replace(/\n/g, '<br/>')}</p>`,
+    links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
+  ].filter((block) => block !== '').join('');
+
+  let html = compose(body);
+  if (html.length > RICH_TEXT_LIMIT) {
+    // shortcut: >32,768-char posts are clamped, upgrade when a real source exceeds it.
+    log('warn', 'rich_clamped', { chars: html.length });
+    html = compose(clampMessage(body, body.length - (html.length - RICH_TEXT_LIMIT)));
   }
-
-  // R15: the same rule as a scheduled album — the frame plus the link stands in for a video too big to send.
-  const album = renderAlbum(files, caption);
-  return album.kind === 'text' ? { kind: 'link_only', text: `${clampMessage(album.text, 4000)}\n\n${esc(link)}` } : album;
+  return { kind: 'rich', html, media };
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

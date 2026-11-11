@@ -78,13 +78,13 @@ test('youtube: one post link delivers its channel, its words and its photo', asy
     assert.equal(calls.resolve, 0, 'cobalt resolve is skipped for a community post');
     assert.equal(calls.download, 1, 'the post photo is downloaded');
 
-    const photo = api.last('sendPhoto');
-    assert.ok(photo, `the post photo is sent (saw ${api.calls.map((call) => call.method).join(',')})`);
-    const caption = String(photo.body.caption ?? '');
-    assert.ok(caption.length <= 1024, 'the caption stays inside Telegram\'s limit');
-    assert.match(caption, /Ceylon Focus News/, 'the channel title heads the caption');
-    assert.match(caption, /youtube\.com\/post\/UgkxGuBM_v4CJugE7V-Dns33VhSMVB0_UL_F/, 'the post is one tap away');
-    assert.match(caption, /உலகெங்கிலும்/, 'the post\'s own words are the body');
+    const rich = api.last('sendRichMessage');
+    assert.ok(rich, `the post is sent as one rich message (saw ${api.calls.map((call) => call.method).join(',')})`);
+    const html = String(rich.body.rich_message?.html ?? '');
+    assert.match(html, /Ceylon Focus News/, 'the channel title heads the message');
+    assert.match(html, /youtube\.com\/post\/UgkxGuBM_v4CJugE7V-Dns33VhSMVB0_UL_F/, 'the post is one tap away');
+    assert.match(html, /உலகெங்கிலும்/, 'the post\'s own words are the body');
+    assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
 
     // The channel the post names becomes the source to offer, on its keyless native feed route.
     const keyboard = JSON.stringify(api.last('sendMessage')?.body.reply_markup ?? {});
@@ -102,7 +102,7 @@ test('youtube: one post link delivers its channel, its words and its photo', asy
   }
 });
 
-test('youtube: an album post ships every photo in one media group', async () => {
+test('youtube: an album post ships every photo in one slideshow', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-album-'));
   const db = openDb(join(dir, 'bot.db'));
@@ -118,14 +118,14 @@ test('youtube: an album post ships every photo in one media group', async () => 
     await bot.handleUpdate(commandUpdate(2, USER_ID, 'download'));
     await bot.handleUpdate(textUpdate(3, USER_ID, ALBUM));
 
-    const group = api.last('sendMediaGroup');
-    assert.ok(group, `the album is sent (saw ${api.calls.map((call) => call.method).join(',')})`);
-    const media = group.body.media as Array<{ caption?: string }>;
+    const rich = api.last('sendRichMessage');
+    assert.ok(rich, `the album is sent as one rich message (saw ${api.calls.map((call) => call.method).join(',')})`);
+    const media = rich.body.rich_message?.media as Array<unknown>;
     assert.equal(media.length, 2, 'both images, in post order');
     assert.equal(calls.download, 2);
-    // R3/R4: an album carries its caption on the first item, never on the group.
-    assert.match(media[0]?.caption ?? '', /MrBeast/);
-    assert.match(media[0]?.caption ?? '', /themostdangerousgames\.com/);
+    const html = String(rich.body.rich_message?.html ?? '');
+    assert.match(html, /MrBeast/);
+    assert.match(html, /themostdangerousgames\.com/);
   } finally {
     db.close();
     await api.close();
@@ -152,8 +152,8 @@ test('youtube: a post that attaches a video ships it as a link, not as a downloa
     assert.equal(calls.download, 0, 'nothing to upload');
     assert.equal(api.last('sendPhoto'), undefined, 'no media message for a text post');
     assert.equal(api.last('sendMediaGroup'), undefined);
-    const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
-    assert.ok(texts.some((text) => text.includes('https://youtu.be/tycyv2eoOaU')), 'the attached video ships as a link');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.ok(html.includes('https://youtu.be/tycyv2eoOaU'), 'the attached video ships as a link');
   } finally {
     db.close();
     await api.close();

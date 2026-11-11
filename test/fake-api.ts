@@ -36,7 +36,7 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       parsePending = false;
       return { __error: "Bad Request: can't parse entities: Unsupported start tag" } as never;
     }
-    if (method === 'sendMessage' && floodPending) {
+    if ((method === 'sendMessage' || method === 'sendRichMessage') && floodPending) {
       // §9.2 fixture: the first send is flood-limited, retry_after is in seconds.
       floodPending = false;
       return { __error: `Too Many Requests: retry after ${options.fail429Once}`, __retryAfter: options.fail429Once } as never;

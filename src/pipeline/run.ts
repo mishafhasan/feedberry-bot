@@ -268,6 +268,10 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
     return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback, tz });
   }
 
+  // ADR-023: a non-RSS post ships as one rich message — the duration rule and stand-in frames below
+  // are the RSS/blog album layout, and a frame must never leak into the rich slideshow.
+  if (platform !== 'rss') return renderPost(post, kind, files, { platform, sourceTitle, titleFallback, tz });
+
   if (kind !== 'video') {
     // R15: an oversized video cannot ride in the album, so a frame rides in its place.
     if (kind === 'album') files.push(...(await standInFrames(files, dir, deps.thumbnail)));

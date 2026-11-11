@@ -56,7 +56,8 @@ export async function withReadMore(
   ctx: ReadMoreCtx,
   pages: Map<number, string | null>,
 ): Promise<MessagePlan> {
-  if (!('caption' in plan) || plan.caption.length <= CAPTION_LIMIT || !ctx.telegraph) return plan;
+  // ADR-023: a rich post carries its whole text; Telegraph stays the RSS/blog path.
+  if (plan.kind === 'rich' || !('caption' in plan) || plan.caption.length <= CAPTION_LIMIT || !ctx.telegraph) return plan;
 
   let url = pages.get(page.id);
   if (url === undefined) {

@@ -185,7 +185,7 @@ test('a long post body reaches Telegram whole, not cut at 400 characters', async
     await bot.init();
     await runFetchSource({ db, http: httpFeed, cfg: cfgFor(), media: engine, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
 
-    const sent = [...api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text)), ...api.calls.filter((call) => call.method === 'sendPhoto').map((call) => String(call.body.caption))].join('\n');
+    const sent = [...api.calls.filter((call) => call.method === 'sendRichMessage').map((call) => String(call.body.rich_message?.html ?? '')), ...api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text)), ...api.calls.filter((call) => call.method === 'sendPhoto').map((call) => String(call.body.caption))].join('\n');
     assert.ok(sent.includes(marker), `the whole body arrived, not the 400-character preview (saw ${sent.slice(0, 120)}…)`);
   } finally {
     db.close();

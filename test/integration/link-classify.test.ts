@@ -89,7 +89,7 @@ test('M17: one IG post link is a post in every screen', async () => {
     // Download Mode: the same link downloads, and the success offers the account and the next one.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:download'));
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
-    assert.ok(api.calls.some((call) => call.method === 'sendPhoto'), 'the media arrives');
+    assert.ok(api.calls.some((call) => call.method === 'sendRichMessage'), 'the media arrives');
     const done = api.last('sendMessage');
     assert.match(String(done?.body.text), /Delivered/);
     assert.ok(buttons(done).includes('add:post'), 'the account the engine named is offered as a source');
@@ -141,7 +141,7 @@ test('M17: a followed profile is "already a source", and a profile is never a do
 
     // The screen is still Download Mode: the next post link downloads.
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
-    assert.ok(api.calls.some((call) => call.method === 'sendPhoto'), 'a post link still downloads');
+    assert.ok(api.calls.some((call) => call.method === 'sendRichMessage'), 'a post link still downloads');
   } finally {
     db.close();
     await api.close();
@@ -265,8 +265,8 @@ test('M18: with a Twitter token, an X post offers its account before and after d
     assert.ok(buttons(chooser).includes('add:post'), 'the account the link names is offered before download');
 
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
-    const caption = String(api.last('sendPhoto')?.body.caption ?? '');
-    assert.match(caption, /🌐 <a href="https:\/\/x\.com\/QAiStudio\/status\/2117256134616818159">@QAiStudio<\/a>/, 'the account names the source, not the bare host');
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.match(html, /<a href="https:\/\/x\.com\/QAiStudio\/status\/2117256134616818159">@QAiStudio<\/a>/, 'the account names the source, not the bare host');
     assert.ok(buttons(api.last('sendMessage')).includes('add:post'), 'and the result offers it too');
 
     await bot.handleUpdate(callbackUpdate(4, USER_ID, 'add:post'));
