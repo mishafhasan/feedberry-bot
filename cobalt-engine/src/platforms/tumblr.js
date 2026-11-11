@@ -59,6 +59,14 @@ export default async function(input) {
         .map(c => c.text.trim())
         .join('\n\n');
 
+    // The account and the publish date travel with every result, so a download wears the same
+    // header (name + time) as the scheduled feed, which gets both from RSS.
+    const postMeta = {
+        ...(text && { title: text }),
+        artist: element.blog_name,
+        ...(element.timestamp && { publishedAt: element.timestamp * 1000 })
+    };
+
     const audio = contents.find(c => c.type === 'audio');
     if (audio && audio.provider === 'tumblr') {
         const fileMetadata = {
@@ -109,7 +117,7 @@ export default async function(input) {
                 urls: item.url,
                 filename: `tumblr_${input.id}.mp4`,
                 audioFilename: `tumblr_${input.id}_audio`,
-                ...(text && { fileMetadata: { title: text } })
+                fileMetadata: postMeta
             }
         }
 
@@ -117,7 +125,7 @@ export default async function(input) {
             urls: item.url,
             isPhoto: true,
             filename: `tumblr_${input.id}.${item.ext}`,
-            ...(text && { fileMetadata: { title: text } })
+            fileMetadata: postMeta
         }
     }
 
@@ -135,13 +143,13 @@ export default async function(input) {
                     })
                 })
             })),
-            ...(text && { fileMetadata: { title: text } })
+            fileMetadata: postMeta
         }
     }
 
     // A words-only post is still a post: hand its text up instead of refusing the link.
     if (text) {
-        return { urls: [], fileMetadata: { title: text, artist: element.blog_name } };
+        return { urls: [], fileMetadata: postMeta };
     }
 
     return { error: "link.unsupported" }

@@ -34,11 +34,11 @@ test('Download caption: without an author the title stays the source and is not 
 
 test('Download caption: a words-only post keeps its text and its link', () => {
   const link = 'https://jacobwren.tumblr.com/post/802858401532116992';
-  const plan = renderDownload([], { title: 'But AI can’t do your job.', artist: 'jacobwren', platform: 'tumblr' }, link);
+  const plan = renderDownload([], { title: 'But AI can’t do your job.', artist: 'jacobwren', publishedAt: Date.UTC(2025, 11, 13, 22, 37), platform: 'tumblr' }, link);
   const text = plan.kind === 'link_only' ? plan.text : '';
 
   assert.equal(plan.kind, 'link_only', 'no media does not mean no post');
-  assert.match(text, /🌐 <a href="[^"]+">jacobwren<\/a> \| Tumblr/);
+  assert.match(text, /🌐 <a href="[^"]+">jacobwren<\/a> \| Tumblr\n⏱️ Time: 12\/13 22:37/, 'same header + time as every other source');
   assert.ok(text.includes('But AI can’t do your job.'), 'the words survive');
   assert.ok(text.endsWith(link), 'and the post is one tap away');
 });

@@ -18,6 +18,8 @@ export interface ResolvedMedia {
   title: string | null;
   /** Who posted it (account or channel), when the extractor names one. */
   artist: string | null;
+  /** When it went out (epoch ms), when the platform states it; the page may know it otherwise. */
+  publishedAt?: number | null;
 }
 
 /** The pipeline's only door to cobalt (ADR-005); tests swap in a fixture-backed fake. */
@@ -49,15 +51,15 @@ export const cobaltEngine: MediaEngine = {
         return kind && pick.url ? [{ kind, url: pick.url, picker: true, headers: res.headers }] : [];
       });
       if (items.length === 0) throw new Coded(E.NO_MEDIA, 'picker without playable items');
-      return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
+      return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
     }
 
     const kind = (res.type && KIND[res.type]) || undefined;
     const first = res.urls?.[0];
     // A words-only post (a Tumblr text post) resolves with no media but with its text: keep the words.
-    if (!first && res.metadata?.title) return { items: [], title: res.metadata.title, artist: res.metadata.artist ?? null };
+    if (!first && res.metadata?.title) return { items: [], title: res.metadata.title, artist: res.metadata.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
     if (!kind || !first) throw new Coded(E.NO_MEDIA, `type ${res.type ?? 'unknown'}`);
-    return { items: [{ kind, url: first, picker: false, headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null };
+    return { items: [{ kind, url: first, picker: false, headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
   },
 
   async download(item, dir, signal) {

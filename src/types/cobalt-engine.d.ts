@@ -16,7 +16,7 @@ declare module 'cobalt-engine' {
     urls?: string[];
     picker?: PickItem[];
     headers?: Record<string, string>;
-    metadata?: { title?: string; artist?: string };
+    metadata?: { title?: string; artist?: string; publishedAt?: number };
     error?: { code: string };
   }
 

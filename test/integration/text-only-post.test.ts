@@ -22,7 +22,7 @@ const WORDS = 'But AI can’t do your job. It can help you do your job.';
 
 const engine: MediaEngine = {
   async resolve() {
-    return { items: [], title: WORDS, artist: 'jacobwren' };
+    return { items: [], title: WORDS, artist: 'jacobwren', publishedAt: Date.UTC(2025, 11, 13, 22, 37) };
   },
   async download() {
     throw new Error('a words-only post has nothing to download');
@@ -51,6 +51,7 @@ test('Download Mode: a words-only post arrives as its text and its link', async 
     const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
     const post = texts.find((text) => text.includes(WORDS));
     assert.ok(post, `the words are delivered, saw: ${texts.map((t) => t.slice(0, 40)).join(' | ')}`);
+    assert.match(post, /⏱️ Time: 12\/13 22:37/, 'the publish date wears the same line as every other source');
     assert.ok(post.endsWith('https://jacobwren.tumblr.com/post/802858401532116992'), 'the canonical post link closes it');
     assert.ok(!texts.some((text) => text.includes('Couldn’t extract media') || text.includes("Couldn't extract media")), 'no extraction error notice');
   } finally {

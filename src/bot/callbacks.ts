@@ -988,6 +988,8 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const engineText = resolved.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
+        // The page states the date first; the extractor is the fallback for pages that hide it (Tumblr).
+        const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? null;
         // The page names the account as it prints it; then the extractor, then the account the link names.
         const owner = profileOfPost(ref.canonicalUrl);
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
@@ -998,13 +1000,13 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const page: ReadMorePage = {
           id: 0,
           url: ref.canonicalUrl,
-          publishedAt: meta.publishedAt,
+          publishedAt,
           // The post's own words are the body; a title here would print its first line twice.
           title: null,
           parts: text === null ? [] : [text],
           images: resolved.items.filter((item) => item.kind === 'photo').map((item) => item.url),
         };
-        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt: meta.publishedAt, platform: ref.platform }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
+        plan = await withReadMore(renderDownload(files, { title: text, artist: source, publishedAt, platform: ref.platform }, ref.canonicalUrl), page, { telegraph: deps.telegraph, sourceTitle: source }, new Map());
       }
       const ids = await deps.sender.send(plan, target);
       recordDelivery(deps.db, { postId: null, chatId: chat.id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null });
