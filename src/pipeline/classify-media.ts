@@ -1,4 +1,4 @@
-import type { MediaItem } from '../media/cobalt.ts';
+import type { MediaItem } from '../media/media-engine.ts';
 
 /** §5.6 plus the M5 media rows. A photo+video post is still one album: Telegram groups accept both. */
 export type PostKind = 'text' | 'link_only' | 'photo' | 'album' | 'video' | 'animation' | 'audio';

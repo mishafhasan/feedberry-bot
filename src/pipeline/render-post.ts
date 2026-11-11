@@ -1,10 +1,10 @@
 import type { PostRow } from '../db/repos/posts.ts';
 import type { Article } from '../article/readability.ts';
 import { leadOf } from '../article/readability.ts';
-import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/plan.ts';
+import { clampMessage, esc, payloadOf, type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import { postHeader } from '../render/caption.ts';
 import { renderAlbum, renderVideo } from '../render/video.ts';
-import type { PostKind } from './s3-classify.ts';
+import type { PostKind } from './classify-media.ts';
 
 /** R9/R7/R8 need facts about the downloaded video; other rows ignore them. */
 export interface RenderExtras {

@@ -1,4 +1,4 @@
-import type { MessagePlan } from '../render/plan.ts';
+import type { MessagePlan } from '../render/message-plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import type { Target } from '../telegram/target.ts';
 

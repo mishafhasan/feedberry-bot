@@ -1,8 +1,8 @@
 import { stat } from 'node:fs/promises';
-import type { MediaEngine, MediaItem } from '../media/cobalt.ts';
+import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
 import { log } from '../obs/log.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
-import type { MediaFile } from '../render/plan.ts';
+import type { MediaFile } from '../render/message-plan.ts';
 import { overCeiling } from '../render/video.ts';
 
 export interface PrepareOptions {
