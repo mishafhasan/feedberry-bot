@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { test } from 'node:test';
 import { parseFeed } from '../../src/platform/feed/native.ts';
-import { effectiveKeywords, formatKeywords, parseKeywords, passesFilter, type FilterText } from '../../src/pipeline/filter.ts';
+import { effectiveKeywords, formatKeywords, parseKeywords, passesFilter, type FilterText } from '../../src/pipeline/keyword-filter.ts';
 
 const fixture = readFileSync(new URL('../fixtures/keyword-feed.rss', import.meta.url), 'utf8');
 const post = (over: Partial<FilterText> = {}): FilterText => ({ title: '', summary: null, categories: [], ...over });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { SourceCard } from '../../src/db/repos/subscriptions.ts';
-import { PAGE_SIZE, s7View } from '../../src/bot/screens/s7.ts';
+import { PAGE_SIZE, mySourcesView } from '../../src/bot/screens/my-sources.ts';
 
 const NOW = Date.UTC(2026, 0, 1, 12);
 
@@ -36,7 +36,7 @@ const godly = card({
 });
 
 test('S7 rich message: a rule, then each card with its pills directly under it', () => {
-  const view = s7View({ cards: [cristiano, godly], offset: 0, total: 2, platforms: ['instagram', 'x'], active: null, page: 0, now: NOW });
+  const view = mySourcesView({ cards: [cristiano, godly], offset: 0, total: 2, platforms: ['instagram', 'x'], active: null, page: 0, now: NOW });
 
   assert.equal(
     view.html,
@@ -55,7 +55,7 @@ test('S7 rich message: a rule, then each card with its pills directly under it',
 });
 
 test('S7 keeps Back — and nothing else — in the keyboard', () => {
-  const view = s7View({ cards: [cristiano], offset: 0, total: 1, platforms: ['instagram'], active: null, page: 0, now: NOW });
+  const view = mySourcesView({ cards: [cristiano], offset: 0, total: 1, platforms: ['instagram'], active: null, page: 0, now: NOW });
 
   assert.deepEqual(view.keyboard.inline_keyboard, [[{ text: '← Back', callback_data: 'nav:back' }]]);
   assert.doesNotMatch(view.html, /nav:back/, 'Back is not repeated inside the message');
@@ -63,7 +63,7 @@ test('S7 keeps Back — and nothing else — in the keyboard', () => {
 
 test('S7 filters wrap four per row and drop no platform', () => {
   const platforms = ['bluesky', 'facebook', 'instagram', 'pinterest', 'rss', 'threads', 'x'];
-  const view = s7View({ cards: [cristiano], offset: 0, total: 1, platforms, active: null, page: 0, now: NOW });
+  const view = mySourcesView({ cards: [cristiano], offset: 0, total: 1, platforms, active: null, page: 0, now: NOW });
   const chipRows = view.html.split('<hr/>').at(-1) ?? '';
 
   assert.equal(chipRows.match(/<tg-button-row align="left">/g)?.length, 2, 'All plus seven platforms fill two rows of four');
@@ -71,7 +71,7 @@ test('S7 filters wrap four per row and drop no platform', () => {
 });
 
 test('S7 marks the active filter and puts the pager after the chips', () => {
-  const view = s7View({
+  const view = mySourcesView({
     cards: [cristiano],
     offset: PAGE_SIZE,
     total: PAGE_SIZE * 3,

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { s18View } from '../../src/bot/screens/s18.ts';
+import { contentTypePickerView } from '../../src/bot/screens/content-type-picker.ts';
 
 /** S18 is one rich body: three stateful chips, the honest summary, two actions, and Back below. */
 test('S18 picker: the chips carry the state, not a second checklist', () => {
-  const view = s18View({ handle: '@crocodilecrisis', selected: ['post'] });
+  const view = contentTypePickerView({ handle: '@crocodilecrisis', selected: ['post'] });
 
   assert.match(view.html, /What should @crocodilecrisis send here\?/);
   assert.match(view.html, /data="ct:t:video">Videos<\/tg-button>/, 'an unselected chip carries no check');
@@ -20,8 +20,8 @@ test('S18 picker: the chips carry the state, not a second checklist', () => {
 });
 
 test('S18 picker: the summary follows the selection, and the handle is escaped', () => {
-  assert.match(s18View({ handle: 'a&b', selected: ['video', 'short'] }).html, /Sends: Videos, Shorts/);
-  assert.match(s18View({ handle: 'a&b', selected: ['video', 'short'] }).html, /a&amp;b/, 'a handle is HTML-escaped');
-  assert.match(s18View({ handle: '@x', selected: ['video', 'short', 'post'] }).html, /Sends: Videos, Shorts, Posts/);
-  assert.equal(s18View({ handle: '@x', selected: ['short'] }).html.match(/style="primary" data="ct:t:/g)?.length, 1, 'one accent per selection');
+  assert.match(contentTypePickerView({ handle: 'a&b', selected: ['video', 'short'] }).html, /Sends: Videos, Shorts/);
+  assert.match(contentTypePickerView({ handle: 'a&b', selected: ['video', 'short'] }).html, /a&amp;b/, 'a handle is HTML-escaped');
+  assert.match(contentTypePickerView({ handle: '@x', selected: ['video', 'short', 'post'] }).html, /Sends: Videos, Shorts, Posts/);
+  assert.equal(contentTypePickerView({ handle: '@x', selected: ['short'] }).html.match(/style="primary" data="ct:t:/g)?.length, 1, 'one accent per selection');
 });
