@@ -58,8 +58,9 @@ the watch page itself. No per-platform branch lives in the renderer.
   revisit if a source regularly ships 500 MB carousels.
 - The frame is only as good as ffmpeg: without it installed, the album keeps every uploadable item, the
   caption keeps the link, and only the preview image is missing.
-- A caption long enough to trigger the Instant View "Read more" cut loses the trailing `🎬` lines, as it
-  already lost every other tail. ADR-012's single-video path is unaffected.
+- A caption long enough to trigger the Instant View "Read more" cut keeps its `🎬` lines: they are the
+  only route to the clip, so the cut truncates the body around them. ADR-012's single-video path is
+  unaffected.
 - Photos are subject to the same ceiling; a photo over 50 MB is left out without a `🎬` line, because a
   photo has no player to link to.
 
