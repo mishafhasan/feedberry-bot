@@ -66,9 +66,13 @@ export function renderVideo(file: MediaFile, caption: string, facts: VideoFacts)
   // R6: short enough and small enough → real video. R9: unknown duration, size decides.
   if (!long && !tooBig) return { kind: 'video', file: file.path, caption };
 
-  // R7/R8: thumbnail + caption + link, or just the link when no thumbnail can be made.
+  // R7/R8: the caption names the media file itself (🎬), so the reader can play what we cannot upload;
+  // the post link stays the last resort when the engine gave us no media URL.
+  const linked = withVideoLinks(caption, [file]);
+  const text = linked === caption ? `${caption}\n\n${esc(facts.link)}` : linked;
+
   if (facts.thumbnail) {
-    return { kind: 'thumbnail', file: facts.thumbnail, caption, link: facts.link, remote: facts.thumbnailRemote === true };
+    return { kind: 'thumbnail', file: facts.thumbnail, caption: text, link: facts.link, remote: facts.thumbnailRemote === true };
   }
-  return { kind: 'link_only', text: `${clampMessage(caption, 4000)}\n\n${esc(facts.link)}` };
+  return { kind: 'link_only', text: clampMessage(text, 4000) };
 }

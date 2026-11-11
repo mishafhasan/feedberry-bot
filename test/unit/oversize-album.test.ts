@@ -15,6 +15,7 @@ import { prepareMedia } from '../../src/pipeline/prepare-media.ts';
 import { renderDownload, renderPost } from '../../src/pipeline/render-post.ts';
 import { Coded, E, isCoded } from '../../src/platform/errors.ts';
 import type { MediaFile } from '../../src/render/message-plan.ts';
+import { renderVideo } from '../../src/render/video.ts';
 
 const PHOTO = fileURLToPath(new URL('../fixtures/media/photo.jpg', import.meta.url));
 const OVER = 51 * 1024 * 1024;
@@ -170,6 +171,30 @@ test('R15: a download that fails is a link, not a lost post', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
+});
+
+test('R15: a lone oversized video links its own media file, not the post page', () => {
+  const plan = renderVideo({ path: 'v.mp4', kind: 'video', size: OVER, url: BIG }, 'body', { durationSec: null, thumbnail: null, link: 'https://x.com/Royal/status/1' });
+
+  assert.equal(plan.kind, 'link_only');
+  assert.ok(plan.kind === 'link_only' && plan.text.endsWith(`🎬 ${BIG}`), 'the reader can play what we could not upload');
+  assert.ok(plan.kind === 'link_only' && !plan.text.includes('https://x.com/Royal/status/1'), 'the post page is already the header link');
+});
+
+test('R15: the preview caption names the file, and the post link stays the follow-up message', () => {
+  const plan = renderVideo({ path: 'v.mp4', kind: 'video', size: OVER, url: BIG }, 'body', { durationSec: null, thumbnail: 'thumb.jpg', link: 'https://x.com/Royal/status/1' });
+
+  assert.equal(plan.kind, 'thumbnail');
+  assert.ok(plan.kind === 'thumbnail' && plan.caption.endsWith(`🎬 ${BIG}`));
+  assert.ok(plan.kind === 'thumbnail' && plan.link === 'https://x.com/Royal/status/1');
+});
+
+test('R8: a long clip that fits still links the post, because the file is playable at the source', () => {
+  const plan = renderVideo({ path: 'v.mp4', kind: 'video', size: 1024, url: BIG }, 'body', { durationSec: 250, thumbnail: null, link: 'https://x.com/Royal/status/1' });
+
+  assert.equal(plan.kind, 'link_only');
+  assert.ok(plan.kind === 'link_only' && plan.text.endsWith('https://x.com/Royal/status/1'));
+  assert.doesNotMatch(plan.kind === 'link_only' ? plan.text : '', /🎬/);
 });
 
 test('R15: the upload budget still refuses a batch that only just fits nothing', async () => {

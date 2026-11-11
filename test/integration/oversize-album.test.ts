@@ -158,3 +158,45 @@ test('R15: Download Mode delivers the same carousel, frame included', async () =
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('R15: a lone oversized video in Download Mode ends on its media file, not the post page', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-r15-single-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+
+  // The reported case: one clip, past the ceiling, no album and no frame.
+  const single: MediaEngine = {
+    async resolve() {
+      return { items: [{ kind: 'video', url: BIG, picker: false }], title: 'Claude FULL COURSE 1 HOUR', artist: 'Dhruv kumar' };
+    },
+    async download(_item, into) {
+      mkdirSync(into, { recursive: true });
+      const path = join(into, 'clip.mp4');
+      const fd = openSync(path, 'w');
+      ftruncateSync(fd, OVER_50MB);
+      closeSync(fd);
+      return path;
+    },
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: single, thumbnail });
+    await bot.init();
+
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(callbackUpdate(2, USER_ID, 'menu:download'));
+    await bot.handleUpdate(textUpdate(3, USER_ID, POST));
+
+    // The pasted link alone delivers: there is no second button to press.
+    const text = String(api.calls.filter((call) => call.method === 'sendMessage' && String(call.body.text ?? '').includes('🎬')).at(-1)?.body.text ?? '');
+    assert.ok(text.endsWith(`🎬 ${BIG}`), `the last line is the media file:\n${text}`);
+    assert.ok(!text.trimEnd().endsWith(POST), 'the post page is not the last thing the reader sees');
+    assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 0, 'the clip never starts an upload');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});

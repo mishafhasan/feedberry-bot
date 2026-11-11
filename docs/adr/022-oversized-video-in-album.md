@@ -30,6 +30,9 @@ makes the stand-in frame, needs those bytes anyway.
   Mode. The rule lives in the renderer (`render/video.ts`), next to R7/R8, so no caller can forget it.
 - Each oversized video contributes one ffmpeg frame (`Thumbnailer`) as a `photo` item at the end of the
   group, and one caption line `🎬 <direct media URL>`, escaped like every other caption value.
+- A single video takes the same line through R7/R8: the caption ends on `🎬 <direct URL>`, so the post
+  page is never the last thing a reader sees. The post link still rides along as its own message when
+  a frame is shown.
 - The `MAX_DOWNLOAD_MB` total counts only files that will be withheld: an oversized video is the only
   file guaranteed to stay home, so every other byte still spends the budget that guards the upload.
 - `MediaFile.url` carries where the file came from, which is what the caption line links.
