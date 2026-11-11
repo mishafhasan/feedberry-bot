@@ -538,6 +538,7 @@ The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source che
 | R12 | article / website | `sendMessage` with IV link | headline + 1-line lead, then `👇🏼👇🏼👇🏼` links the IV | §8.5 | 2,3,4,6,7 |
 | R13 | article too thin (< 400 chars readable text) | `sendMessage` | title + link, no IV | — | fallback of R12 |
 | R14 | unknown / unsupported | `sendMessage` | text + original link | — | 2,3,4,6,7 |
+| R15 | album holding a video > 50 MB | `sendMediaGroup` of the rest, plus one frame per oversized video | caption + one `🎬` line per oversized video | the oversized video is never uploaded, never dropped | 2–7 |
 
 Every row goes through stage 9 (cleanup). Every row sends to `chat_id` + `message_thread_id` when set.
 
@@ -558,8 +559,11 @@ Telegram captions are 1024 and messages 4096 `[TG-MSG]`. Rule:
 
 - 2–10 items → one `sendMediaGroup` `[TG-MG]`; caption on the first item only (Telegram ignores the rest).
 - More than 10 → groups of 10, caption on the first of the first group; groups are replies to each other.
+- A trailing group of one travels as its own media message: `sendMediaGroup` takes 2–10 items.
 - Mixed kinds are not allowed in one album (documents/audio only group with the same type
   `[TG-MG]`), hence R5.
+- A video past the upload ceiling never enters the group (R15): an ffmpeg frame takes its slot and
+  the caption ends with `🎬 <direct video URL>`, one line per oversized video.
 
 ### 8.4 Over-50 MB handling
 
@@ -567,6 +571,8 @@ Order of attempts, first that works wins:
 
 1. ≤ 50 MB → upload normally `[TG-FILES]`.
 2. > 50 MB → **thumbnail + caption + link** (R7/R8). Thumbnail = platform poster, else ffmpeg frame at 1 s.
+   Inside an album the same rule keeps the other items and turns the big one into a frame plus a
+   `🎬` caption line (R15, ADR-022).
 3. Local Bot API server (`--local`, 2000 MB) is **not** in MVP: it needs `api_id/api_hash` from a
    Telegram app, a second binary and a TLS proxy `[TG-LOCAL]`, which contradicts C1/C2 (ADR-012).
 4. Public URL handoff is not a workaround: URL-based sends are capped at 20 MB `[TG-FILES]`.

@@ -15,7 +15,7 @@ Nothing in this guide changes the code. The server runs the same `Dockerfile` an
 |---|---|---|---|
 | 1 | A computer that stays on 24/7 | The bot uses **long polling**: it asks Telegram "any new messages?" every 25 seconds (`getUpdates`). There is no webhook and no inbound port (ADR-003). | A host that "sleeps" or stops after a while stops asking. The bot goes silent even though the process may look alive. |
 | 2 | A disk that survives restarts | The database `bot.db` holds sources, chats and the job queue. `docker-compose.yml` mounts `./data` to `/data`, and the `Dockerfile` sets `DB_PATH=/data/bot.db`. | On a host with a temporary disk, every restart or redeploy wipes every source the user added. |
-| 3 | **ffmpeg** inside the container | YouTube audio+video muxing, and the 1-second thumbnail frame for long videos (`Dockerfile` line 13, `src/media/thumb.ts`). | Long videos fall back to a plain link card; no thumbnail. |
+| 3 | **ffmpeg** inside the container | YouTube audio+video muxing, and the 1-second thumbnail frame for long videos (`Dockerfile` line 13, `src/media/thumbnail.ts`). | Long videos fall back to a plain link card; no thumbnail. |
 | 4 | Outbound internet | `api.telegram.org` (delivery), `http://rsshub:1200` (feeds), the source sites and media CDNs (cobalt downloads). | Nothing can be fetched or delivered. |
 | 5 | **2 GB RAM** minimum | Peak is about 1 GB (section 2). | A 1 GB machine swaps or kills Node/ffmpeg at the worst moment. |
 | 6 | **10 GB disk** minimum | Two Docker images = 1.14 GB, build cache ≈ 1.2 GB while building, database grows with posts and a 30-day retention. | `docker build` dies with "no space left on device". |
@@ -154,7 +154,7 @@ When it is running, note the **Public IP address**.
 ### 5.3 Connect to it
 
 ```bash
-ssh ubuntu@<PUBLIC_IP>
+ssh -i PATH_TO_KEY ubuntu@<PUBLIC_IP>
 ```
 
 The default user on Oracle's Ubuntu image is `ubuntu`. Type `yes` at the fingerprint question.
