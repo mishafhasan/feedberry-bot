@@ -20,6 +20,7 @@ import { renderVideo } from '../../src/render/video.ts';
 const PHOTO = fileURLToPath(new URL('../fixtures/media/photo.jpg', import.meta.url));
 const OVER = 51 * 1024 * 1024;
 const BIG = 'https://video.twimg.com/amplify_video/2120186300917542912/vid/avc1/848x464/M_Hex2T7T_vKTl70.mp4?tag=29';
+const LINK = `🎬 <a href="${BIG}">Video 1</a>`;
 
 const post: PostRow = {
   id: 7,
@@ -53,7 +54,7 @@ test('R15: a video past the ceiling links from the caption and never enters the 
     'the 51 MB clip is left out; its frame takes the last slot',
   );
   assert.match(plan.caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/1">@Royal<\/a> \| X\n⏱️ Time: 11\/10 16:07/);
-  assert.ok(plan.caption.endsWith(`🎬 ${BIG}`), `the caption ends with the direct link:\n${plan.caption}`);
+  assert.ok(plan.caption.endsWith(LINK), `the caption ends with the direct link:\n${plan.caption}`);
   assert.equal(plan.caption.match(/🎬/g)?.length, 1, 'one line per oversized video');
 });
 
@@ -61,7 +62,7 @@ test('R15: an album with nothing left to upload still ships its words and every 
   const plan = renderPost(post, 'album', [{ path: 'v3.mp4', kind: 'video', size: OVER, url: BIG }], { platform: 'x', sourceTitle: '@Royal' });
 
   assert.equal(plan.kind, 'text', 'no empty sendMediaGroup is ever attempted');
-  assert.ok(plan.kind === 'text' && plan.text.endsWith(`🎬 ${BIG}`));
+  assert.ok(plan.kind === 'text' && plan.text.endsWith(LINK));
 });
 
 test('R15: one survivor travels as a single video, never a one-item group', () => {
@@ -72,7 +73,7 @@ test('R15: one survivor travels as a single video, never a one-item group', () =
   const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
 
   assert.equal(plan.kind, 'video', 'sendMediaGroup refuses fewer than two items');
-  assert.ok(plan.kind === 'video' && plan.caption.endsWith(`🎬 ${BIG}`));
+  assert.ok(plan.kind === 'video' && plan.caption.endsWith(LINK));
 });
 
 test('R15: Download Mode applies the same rule to a carousel', () => {
@@ -81,7 +82,7 @@ test('R15: Download Mode applies the same rule to a carousel', () => {
   assert.equal(plan.kind, 'album');
   if (plan.kind !== 'album') return;
   assert.deepEqual(plan.items.map((item) => item.file), ['v1.mp4', 'v2.mp4', 'i1.jpg', 'i2.jpg', 'thumb-1.jpg']);
-  assert.ok(plan.caption.endsWith(`🎬 ${BIG}`));
+  assert.ok(plan.caption.endsWith(LINK));
 });
 
 /** A fake engine whose files land as sparse bytes of the requested size. */
@@ -167,7 +168,7 @@ test('R15: a download that fails is a link, not a lost post', async () => {
 
     const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
     assert.equal(plan.kind, 'photo', 'the photo is not dragged into a one-item group');
-    assert.ok(plan.kind === 'photo' && plan.caption.endsWith(`🎬 ${BIG}`), 'and the caption still links the clip');
+    assert.ok(plan.kind === 'photo' && plan.caption.endsWith(LINK), 'and the caption still links the clip');
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
@@ -177,7 +178,7 @@ test('R15: a lone oversized video links its own media file, not the post page', 
   const plan = renderVideo({ path: 'v.mp4', kind: 'video', size: OVER, url: BIG }, 'body', { durationSec: null, thumbnail: null, link: 'https://x.com/Royal/status/1' });
 
   assert.equal(plan.kind, 'link_only');
-  assert.ok(plan.kind === 'link_only' && plan.text.endsWith(`🎬 ${BIG}`), 'the reader can play what we could not upload');
+  assert.ok(plan.kind === 'link_only' && plan.text.endsWith(LINK), 'the reader can play what we could not upload');
   assert.ok(plan.kind === 'link_only' && !plan.text.includes('https://x.com/Royal/status/1'), 'the post page is already the header link');
 });
 
@@ -185,7 +186,7 @@ test('R15: the preview caption names the file, and the post link stays the follo
   const plan = renderVideo({ path: 'v.mp4', kind: 'video', size: OVER, url: BIG }, 'body', { durationSec: null, thumbnail: 'thumb.jpg', link: 'https://x.com/Royal/status/1' });
 
   assert.equal(plan.kind, 'thumbnail');
-  assert.ok(plan.kind === 'thumbnail' && plan.caption.endsWith(`🎬 ${BIG}`));
+  assert.ok(plan.kind === 'thumbnail' && plan.caption.endsWith(LINK));
   assert.ok(plan.kind === 'thumbnail' && plan.link === 'https://x.com/Royal/status/1');
 });
 
@@ -195,6 +196,18 @@ test('R8: a long clip that fits still links the post, because the file is playab
   assert.equal(plan.kind, 'link_only');
   assert.ok(plan.kind === 'link_only' && plan.text.endsWith('https://x.com/Royal/status/1'));
   assert.doesNotMatch(plan.kind === 'link_only' ? plan.text : '', /🎬/);
+});
+
+test('R15: two oversized clips get their own numbers', () => {
+  const files: MediaFile[] = [
+    { path: 'v1.mp4', kind: 'video', size: OVER, url: BIG },
+    { path: 'v2.mp4', kind: 'video', size: OVER, url: 'https://cdn.test/v2.mp4' },
+    { path: 'i1.jpg', kind: 'photo', size: 1024 },
+    { path: 'i2.jpg', kind: 'photo', size: 1024 },
+  ];
+  const plan = renderPost(post, 'album', files, { platform: 'x', sourceTitle: '@Royal' });
+
+  assert.ok(plan.kind === 'album' && plan.caption.endsWith(`🎬 <a href="${BIG}">Video 1</a>\n🎬 <a href="https://cdn.test/v2.mp4">Video 2</a>`), 'each clip keeps its own link and number');
 });
 
 test('R15: the upload budget still refuses a batch that only just fits nothing', async () => {

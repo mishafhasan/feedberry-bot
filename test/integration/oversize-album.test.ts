@@ -30,6 +30,7 @@ const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
 const USER_ID = 555;
 const POST = 'https://x.com/Royal/status/2120186300917542912';
 const BIG = 'https://video.twimg.com/amplify_video/2120186300917542912/vid/avc1/848x464/M_Hex2T7T_vKTl70.mp4?tag=29';
+const LINK = `🎬 <a href="${BIG}">Video 1</a>`;
 const VIDEO = fileURLToPath(new URL('../fixtures/media/video.mp4', import.meta.url));
 const PHOTO = fileURLToPath(new URL('../fixtures/media/photo.jpg', import.meta.url));
 const OVER_50MB = 51 * 1024 * 1024;
@@ -118,7 +119,7 @@ test('R15: an album with one 51 MB clip ships as a frame plus a caption link', a
     assert.match(caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/2120186300917542912">@Royal<\/a> \| X/);
     assert.match(caption, /⏱️ Time: 11\/10 16:07/);
     assert.ok(caption.includes('Three clips'), 'the post text sits between the header and the links');
-    assert.ok(caption.endsWith(`🎬 ${BIG}`), `the caption links the clip it could not send:\n${caption}`);
+    assert.ok(caption.endsWith(LINK), `the caption links the clip it could not send:\n${caption}`);
 
     assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 0, 'the 51 MB clip never starts an upload');
 
@@ -151,7 +152,7 @@ test('R15: Download Mode delivers the same carousel, frame included', async () =
     assert.equal(groups.length, 1, 'the carousel ships as one group');
     const media = groups[0]?.body.media as Array<{ type: string; caption?: string }>;
     assert.deepEqual(media.map((item) => item.type), ['video', 'video', 'photo', 'photo', 'photo'], 'the 51 MB clip is replaced by its frame');
-    assert.ok(String(media[0]?.caption ?? '').endsWith(`🎬 ${BIG}`), 'the caption still links the clip');
+    assert.ok(String(media[0]?.caption ?? '').endsWith(LINK), 'the caption still links the clip');
   } finally {
     db.close();
     await api.close();
@@ -191,7 +192,7 @@ test('R15: a lone oversized video in Download Mode ends on its media file, not t
 
     // The pasted link alone delivers: there is no second button to press.
     const text = String(api.calls.filter((call) => call.method === 'sendMessage' && String(call.body.text ?? '').includes('🎬')).at(-1)?.body.text ?? '');
-    assert.ok(text.endsWith(`🎬 ${BIG}`), `the last line is the media file:\n${text}`);
+    assert.ok(text.endsWith(LINK), `the last line is the media file:\n${text}`);
     assert.ok(!text.trimEnd().endsWith(POST), 'the post page is not the last thing the reader sees');
     assert.equal(api.calls.filter((call) => call.method === 'sendVideo').length, 0, 'the clip never starts an upload');
   } finally {

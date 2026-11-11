@@ -8,6 +8,7 @@ import { cutCaption } from '../../src/render/caption.ts';
 import type { MediaFile, MessagePlan } from '../../src/render/message-plan.ts';
 
 const BIG = 'https://video.twimg.com/amplify_video/2120186300917542912/vid/avc1/848x464/M_Hex2T7T_vKTl70.mp4?tag=29';
+const LINK = `🎬 <a href="${BIG}">Video 1</a>`;
 
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
 const LONG = 'word '.repeat(600).trim();
@@ -134,8 +135,8 @@ test('Read more: the 🎬 links outlive the cut that drops the rest of the tail'
   const caption = captionOf(out);
 
   assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
-  assert.ok(caption.includes(`🎬 ${BIG}`), 'the only way to reach the clip survives the cut');
-  assert.match(caption, /🎬 https:\/\/video\.twimg\.com\S+\n\n<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/);
+  assert.ok(caption.includes(LINK), 'the only way to reach the clip survives the cut');
+  assert.match(caption, /🎬 <a href="https:\/\/video\.twimg\.com\S+">Video 1<\/a>\n\n<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/);
   assert.equal(pages.length, 1);
 });
 

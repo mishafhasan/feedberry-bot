@@ -29,8 +29,9 @@ makes the stand-in frame, needs those bytes anyway.
 - A file over `MAX_UPLOAD_BYTES` never enters `sendMediaGroup`, on either scheduled posts or Download
   Mode. The rule lives in the renderer (`render/video.ts`), next to R7/R8, so no caller can forget it.
 - Each oversized video contributes one ffmpeg frame (`Thumbnailer`) as a `photo` item at the end of the
-  group, and one caption line `🎬 <direct media URL>`, escaped like every other caption value.
-- A single video takes the same line through R7/R8: the caption ends on `🎬 <direct URL>`, so the post
+  group, and one caption line `🎬 Video n` — a short label whose anchor carries the direct media URL, so a
+  hundred-character CDN address never fills the caption.
+- A single video takes the same line through R7/R8: the caption ends on `🎬 Video n`, so the post
   page is never the last thing a reader sees. The post link still rides along as its own message when
   a frame is shown.
 - The `MAX_DOWNLOAD_MB` total counts only files that will be withheld: an oversized video is the only

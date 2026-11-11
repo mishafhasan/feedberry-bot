@@ -32,11 +32,12 @@ export function albumMedia(files: MediaFile[]): Array<{ file: string; kind: 'pho
 /** R15: the caption line that links a video the bot cannot upload. */
 export const VIDEO_LINK_PREFIX = '🎬 ';
 
-/** R15: the caption ends with one clickable line per video that could not be uploaded. */
+/** R15: the caption ends with one labelled link per video that could not be uploaded. */
 export function withVideoLinks(caption: string, files: MediaFile[]): string {
   const lines: string[] = [];
   for (const file of files) {
-    if (file.kind === 'video' && unsendable(file) && file.url) lines.push(`${VIDEO_LINK_PREFIX}${esc(file.url)}`);
+    // A CDN URL runs to hundreds of characters; the label carries it as a link instead.
+    if (file.kind === 'video' && unsendable(file) && file.url) lines.push(`${VIDEO_LINK_PREFIX}<a href="${esc(file.url)}">Video ${lines.length + 1}</a>`);
   }
   return lines.length === 0 ? caption : `${caption}\n\n${lines.join('\n')}`;
 }

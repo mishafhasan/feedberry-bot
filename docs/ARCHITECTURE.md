@@ -563,7 +563,7 @@ Telegram captions are 1024 and messages 4096 `[TG-MSG]`. Rule:
 - Mixed kinds are not allowed in one album (documents/audio only group with the same type
   `[TG-MG]`), hence R5.
 - A video past the upload ceiling never enters the group (R15): an ffmpeg frame takes its slot and
-  the caption ends with `🎬 <direct video URL>`, one line per oversized video.
+  the caption ends with `🎬 Video n`, one labelled link per oversized video.
 
 ### 8.4 Over-50 MB handling
 
