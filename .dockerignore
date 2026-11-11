@@ -4,6 +4,7 @@ data
 tmp
 test
 docs
+.worktrees
 UI-Refference
 .agent
 .zcode

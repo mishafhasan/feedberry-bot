@@ -71,12 +71,29 @@ function openTagIndex(slice: string): number {
 /**
  * TikTok hands its caption back with the line breaks flattened, so a numbered list arrives as
  * "1. … 2. … 3. …" on one line. Put the breaks back when the pattern repeats.
- * shortcut: the marker alone decides (three or more `n. ` mid-sentence); a prose sentence numbered
- * that often would be split too.
+ * The same flattening glues the closing CTA and hashtags to the last item ("… — Temporary email
+ * Save this. … 🔖 #ai …"); give those their own lines so the final paragraphs survive.
+ * shortcut: the marker alone decides (three or more `n. ` mid-sentence); the CTA list is the
+ * common social verbs and only a lowercase→Capital glue splits — a footer worded differently
+ * stays on the last item.
  */
 export function breakNumberedList(text: string): string {
   const markers = text.match(/(?<=\S) (?=\d{1,3}\. )/g);
-  return markers !== null && markers.length >= 3 ? text.replace(/(?<=\S) (?=\d{1,3}\. )/g, '\n') : text;
+  if (markers === null || markers.length < 3) return text;
+  const lines = text.replace(/(?<=\S) (?=\d{1,3}\. )/g, '\n').split('\n');
+  const last = lines.length - 1;
+  if (last >= 0) lines[last] = splitFlattenedTail(lines[last] ?? '');
+  return lines.join('\n');
+}
+
+// "Temporary email Save this." — the CTA is glued to the last description by a space.
+const CTA_TAIL = /(?<=[a-z]) (?=(?:Save|Follow|Like|Share|Comment|Bookmark|Subscribe|Remember|Keep|Tap|Click)\b)/;
+// "… later. 🔖 #ai #tools" — a trailing hashtag block (optional emoji marker) gets its own line.
+const HASHTAG_TAIL = / (?=(?:[\p{Extended_Pictographic}\uFE0F]+\s*)?(?:#[\p{L}\p{N}_]+\s*)+$)/u;
+
+function splitFlattenedTail(line: string): string {
+  // The hashtag block was its own line (blank line before it), so it becomes its own paragraph.
+  return line.replace(CTA_TAIL, '\n').replace(HASHTAG_TAIL, '\n\n');
 }
 
 /**

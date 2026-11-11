@@ -164,7 +164,7 @@ test('Read more: a rich post never enters the Telegraph path (ADR-023)', async (
   const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
 
   assert.equal(out, plan, 'the rich plan comes back untouched');
-  assert.equal(plan.kind, 'rich');
+  assert.ok(plan.kind === 'rich' || plan.kind === 'rich_more', 'never a caption plan');
   assert.equal(pages.length, 0, 'no Instant View page for a rich post');
 });
 

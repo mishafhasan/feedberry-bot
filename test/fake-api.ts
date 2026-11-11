@@ -60,10 +60,20 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
       case 'deleteMessage':
         return true;
       case 'sendMessage':
-      case 'sendRichMessage':
       case 'editMessageText':
       case 'sendPhoto':
         return { message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' } };
+      case 'sendRichMessage': {
+        // The real API echoes the blocks it stored; the "Show more" edit needs their file_ids.
+        const media = Array.isArray(body.rich_message?.media) ? (body.rich_message.media as Array<{ id: string; media?: { type?: string } }>) : [];
+        const visual = media.filter((item) => item.media?.type !== 'audio');
+        const audio = media.filter((item) => item.media?.type === 'audio');
+        const blocks = [
+          ...(visual.length === 0 ? [] : [{ type: 'slideshow', blocks: visual.map((item) => mediaBlock(item.id, item.media?.type)) }]),
+          ...audio.map((item) => mediaBlock(item.id, 'audio')),
+        ];
+        return { message_id: ++messageId, date: 0, chat: { id: Number(body.chat_id), type: 'private' }, rich_message: { blocks } };
+      }
       case 'sendMediaGroup': {
         // The API answers with one Message per media item.
         const count = Array.isArray(body.media) ? body.media.length : 1;
@@ -114,6 +124,14 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
         server.close(() => resolve());
       }),
   };
+}
+
+/** One received media block with a synthetic file_id, shaped like the API's echo. */
+function mediaBlock(id: string, type: string | undefined): Record<string, unknown> {
+  if (type === 'video') return { type: 'video', video: { file_id: `fid-${id}` } };
+  if (type === 'audio') return { type: 'audio', audio: { file_id: `fid-${id}` } };
+  if (type === 'animation') return { type: 'animation', animation: { file_id: `fid-${id}` } };
+  return { type: 'photo', photo: [{ file_id: `fid-${id}` }] };
 }
 
 /**

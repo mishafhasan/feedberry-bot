@@ -540,12 +540,15 @@ The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source che
 | R14 | unknown / unsupported | `sendMessage` | text + original link | — | 2,3,4,6,7 |
 | R15 | album holding a video > 50 MB | `sendMediaGroup` of the rest, plus one frame per oversized video | caption + one `🎬` line per oversized video | the oversized video is never uploaded, never dropped | 2–7 |
 | R16 | any non-RSS (social) post | one `sendRichMessage` | header + time + in-message slideshow + full text (≤32,768), one `🎬` link per video > 50 MB | ADR-023; supersedes R1–R11/R15 for non-RSS | 2,3,4,5,6,7 |
+| R17 | a non-RSS post longer than the preview | one `sendRichMessage` (preview + Show more), then `editMessageText` on tap | first paragraphs + button; the edit carries the full body and reuses media `file_id`s | ADR-024 | 2,3,4,5,6,7 |
 
 Every row goes through stage 9 (cleanup). Every row sends to `chat_id` + `message_thread_id` when set.
 
 R16 (ADR-023) is the layout for every non-RSS source, scheduled and Download Mode alike: the whole post
 ships as one rich message with an in-message slideshow, no caption split and no Telegraph page. The classic
 rows R1–R11/R15 remain the RSS/blog layout (article extraction, the thin-page fallback, blog enclosures).
+R17 (ADR-024) refines R16 for long posts: the first paragraphs ship with a "Show more" button and the tap
+edits the same message, keeping the slideshow by `file_id`.
 
 ### 8.2 Caption vs message splitting with `(2/3)`
 

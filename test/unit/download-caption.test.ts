@@ -33,12 +33,13 @@ test('Download caption: without an author the title stays the source and is not 
   assert.doesNotMatch(htmlOf(plan), /<p>Big Buck Bunny<\/p>/, 'no duplicated title');
 });
 
-test('Download caption: a flattened numbered list gets its own lines back', () => {
+test('Download caption: a flattened numbered list becomes an ordered list', () => {
   // What TikTok hands over: every item on one line, numbers glued to the previous sentence.
   const flat = '50 websites that feel like the internet’s hidden toolbox 1. http://unpaywall.org — Free research papers 2. http://openlibrary.org — Borrow books online 4. http://alternativeto.net — App alternatives';
   const plan = renderDownload([photo], { title: flat, artist: 'amanyahd', platform: 'tiktok' }, 'https://www.tiktok.com/@amanyahd/video/1');
 
-  assert.match(htmlOf(plan), /hidden toolbox<br\/>1\. http:\/\/unpaywall\.org — Free research papers<br\/>2\. http:\/\/openlibrary\.org/, 'one item per line, kept as <br/>');
+  assert.match(htmlOf(plan), /hidden toolbox<\/p><ol><li>/, 'the numbered entries start an ordered list');
+  assert.match(htmlOf(plan), /unpaywall\.org[\s\S]*<\/li><li>[\s\S]*openlibrary\.org/, 'one list item per entry');
   assert.doesNotMatch(htmlOf(plan), /papers 2\./, 'no number left glued to the previous item');
 });
 

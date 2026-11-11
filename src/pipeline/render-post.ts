@@ -4,6 +4,7 @@ import { leadOf } from '../article/readability.ts';
 import { log } from '../obs/log.ts';
 import { clampMessage, esc, payloadOf, RICH_TEXT_LIMIT, type MediaFile, type MediaKind, type MessagePlan } from '../render/message-plan.ts';
 import { breakNumberedList, postHeader } from '../render/caption.ts';
+import { richBody, truncateParagraphs } from '../render/rich-text.ts';
 import { renderAlbum, renderVideo, unsendable, withVideoLinks } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
@@ -76,23 +77,23 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
   const title = meta.title ?? null;
   const header = postHeader({ sourceTitle: artist ?? title, url: link, publishedAt: meta.publishedAt ?? null, platform: meta.platform, tz: meta.tz, rich: true });
   // A title that IS the source name must not print again as the body (the scheduled de-dup rule).
-  const body = artist !== null && title !== null ? esc(breakNumberedList(title)) : '';
-  return richPlan(header, body, files);
+  const parts = artist !== null && title !== null ? [breakNumberedList(title)] : [];
+  return richPlan(header, parts, files);
 }
 
 /** ADR-023: the scheduled half of the rich layout — same header, the feed's de-duplicated words. */
 function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras): MessagePlan {
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz, rich: true });
-  const body = bodyParts(post, extras).map((part) => esc(breakNumberedList(part))).join('\n\n');
-  return richPlan(header, body, files);
+  const parts = bodyParts(post, extras).map((part) => breakNumberedList(part));
+  return richPlan(header, parts, files);
 }
 
 /**
  * One rich message: header + time, a slideshow of the post's own media, the full text, then one
  * labelled link per video that cannot upload. Telegram collapses a raw newline inside <p>, so every
- * source line break becomes <br/> (spike evidence, ADR-023).
+ * source line break becomes <br/> (spike evidence, ADR-023); `richBody` keeps blocks and styles.
  */
-function richPlan(header: string, body: string, files: MediaFile[]): MessagePlan {
+function richPlan(header: string, parts: string[], files: MediaFile[]): MessagePlan {
   // shortcut: media past the 50-attachment ceiling is dropped, upgrade when a real source exceeds it.
   const sendable = files.filter((file) => !unsendable(file)).slice(0, 50);
   const media = sendable.map((file, index) => ({ id: `m${index}`, file: file.path, kind: file.kind }));
@@ -103,21 +104,26 @@ function richPlan(header: string, body: string, files: MediaFile[]): MessagePlan
   // Audio cannot ride in a slideshow (Telegram hoists it out), so it stands as its own block.
   const audio = indexed.filter((x) => x.file.kind === 'audio');
   const links = withVideoLinks('', files).trim();
-  const compose = (text: string): string => [
+  const compose = (bodyHtml: string): string => [
     `<p>${header.replace(/\n/g, '<br/>')}</p>`,
     visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
     ...audio.map((x) => ref(x.index, x.file.kind)),
-    text === '' ? '' : `<p>${text.replace(/\n/g, '<br/>')}</p>`,
+    bodyHtml,
     links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
   ].filter((block) => block !== '').join('');
 
-  let html = compose(body);
+  let bodyPlain = parts.join('\n\n');
+  let html = compose(richBody(bodyPlain));
   if (html.length > RICH_TEXT_LIMIT) {
     // shortcut: >32,768-char posts are clamped, upgrade when a real source exceeds it.
     log('warn', 'rich_clamped', { chars: html.length });
-    html = compose(clampMessage(body, body.length - (html.length - RICH_TEXT_LIMIT)));
+    bodyPlain = clampMessage(bodyPlain, bodyPlain.length - (html.length - RICH_TEXT_LIMIT));
+    html = compose(richBody(bodyPlain));
   }
-  return { kind: 'rich', html, media };
+  // ADR-024: a long post opens as its first paragraphs; the button edits the same message in place.
+  const preview = truncateParagraphs(bodyPlain);
+  if (preview === bodyPlain) return { kind: 'rich', html, media };
+  return { kind: 'rich_more', html: compose(richBody(preview)), fullHtml: html, media };
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

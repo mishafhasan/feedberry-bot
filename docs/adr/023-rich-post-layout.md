@@ -58,6 +58,34 @@ their classic layout is unchanged.
 - The `E.TG_PARSE` fallback still applies: a rich message Telegram cannot parse is resent as plain text
   (`parse_mode` removed), never dropped. `deliveries.parts` records the real message count (one).
 
+## Rich text (source → HTML)
+
+Social captions arrive as plain text, so `src/render/rich-text.ts` turns their own conventions into
+the Telegram rich HTML tags. Every other character is escaped; nothing is auto-detected.
+
+| Source | Output |
+|---|---|
+| `# ` … `###### ` at line start | `<h1>` … `<h6>` (h2–h6 read as subheadings) |
+| `> ` line / `>> ` deeper run | `<blockquote>`, nested by depth; consecutive lines join with `<br/>` |
+| ` ``` ` fence (optional language) | `<pre>` / `<pre><code class="language-x">`, content escaped, never styled |
+| `- `, `* `, `• ` | `<ul><li>`, deeper indent nests inside the item above |
+| `1. `, `1) ` | `<ol><li>`; the client prints the numbers, deeper indent nests |
+| blank line between prose lines | a new `<p>` per paragraph (line breaks inside one stay `<br/>`) |
+| `**b**`, `__b__` | `<b>` |
+| `*i*`, `_i_` | `<i>` (the `_` form only outside words) |
+| `++u++` | `<u>` (Telegram markdown has no underline; this is the house marker) |
+| `~~s~~`, `||spoiler||`, `==marked==` | `<s>`, `<tg-spoiler>`, `<mark>` |
+| `` `code` `` | `<code>` |
+| `[label](url)` | `<a href>` only for http(s), mailto and tel; the label stays literal text |
+| bare `https://…`, `a@b.com`, `+8801712345678` | our own `<a href>`, `mailto:`, `tel:` (trailing punctuation stays out) |
+| `![alt](tg://emoji?id=…)` | `<tg-emoji emoji-id>` |
+| `![text](tg://time?unix=…&format=…)` | `<tg-time unix format>` (client-local date/time) |
+
+Safety: the formatter never passes source HTML through — `<script>` and friends stay literal text —
+and an href is protocol-checked and quote-encoded before it is written. `skip_entity_detection`
+remains true, so Telegram adds no link of its own. `shortcut:` emphasis does not nest and a marker
+inside a link label prints literally; upgrade when a real source needs nested styling.
+
 ## Consequences
 
 - A social post is one forwardable message that keeps its whole text and its media together; forwarding
