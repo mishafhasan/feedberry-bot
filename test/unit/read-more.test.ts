@@ -3,9 +3,11 @@ import { test } from 'node:test';
 import type { TelegraphPage } from '../../src/article/telegraph.ts';
 import type { PostRow } from '../../src/db/repos/posts.ts';
 import { pageOfPost, withReadMore, type ReadMoreCtx } from '../../src/pipeline/read-more.ts';
-import { renderPost } from '../../src/pipeline/s6-render.ts';
+import { renderPost } from '../../src/pipeline/render-post.ts';
 import { cutCaption } from '../../src/render/caption.ts';
-import type { MessagePlan } from '../../src/render/plan.ts';
+import type { MediaFile, MessagePlan } from '../../src/render/message-plan.ts';
+
+const BIG = 'https://video.twimg.com/amplify_video/2120186300917542912/vid/avc1/848x464/M_Hex2T7T_vKTl70.mp4?tag=29';
 
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
 const LONG = 'word '.repeat(600).trim();
@@ -116,6 +118,25 @@ test('Read more: a cut inside a link still closes the tag', () => {
 
   assert.ok(cut.endsWith('</a>'), 'the anchor is closed before the ellipsis');
   assert.ok(cut.length <= 300, `the closed tag is paid for: cut lands at ${cut.length}`);
+});
+
+test('Read more: the 🎬 links outlive the cut that drops the rest of the tail', async () => {
+  const row = post(LONG);
+  const files: MediaFile[] = [
+    { path: 'a.jpg', kind: 'photo', size: 1024 },
+    { path: 'b.jpg', kind: 'photo', size: 1024 },
+    { path: 'v.mp4', kind: 'video', size: 51 * 1024 * 1024, url: BIG },
+  ];
+  const plan = renderPost(row, 'album', files, { platform: 'rss', sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
+  const caption = captionOf(out);
+
+  assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
+  assert.ok(caption.includes(`🎬 ${BIG}`), 'the only way to reach the clip survives the cut');
+  assert.match(caption, /🎬 https:\/\/video\.twimg\.com\S+\n\n<a href="https:\/\/telegra\.ph\/page-1">👉🏻 Read more<\/a>$/);
+  assert.equal(pages.length, 1);
 });
 
 test('Read more: an album keeps its items and gets the same caption tail', async () => {

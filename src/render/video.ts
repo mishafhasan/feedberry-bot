@@ -1,4 +1,4 @@
-import { clampMessage, esc, type MediaFile, type MessagePlan } from './plan.ts';
+import { clampMessage, esc, type MediaFile, type MessagePlan } from './message-plan.ts';
 
 /** Bot API upload ceiling for multipart sends [TG-FILES]. */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -29,11 +29,14 @@ export function albumMedia(files: MediaFile[]): Array<{ file: string; kind: 'pho
     .map((file) => ({ file: file.path, kind: file.kind === 'video' ? 'video' : 'photo' }));
 }
 
+/** R15: the caption line that links a video the bot cannot upload. */
+export const VIDEO_LINK_PREFIX = '🎬 ';
+
 /** R15: the caption ends with one clickable line per video that could not be uploaded. */
 export function withVideoLinks(caption: string, files: MediaFile[]): string {
   const lines: string[] = [];
   for (const file of files) {
-    if (file.kind === 'video' && unsendable(file) && file.url) lines.push(`🎬 ${esc(file.url)}`);
+    if (file.kind === 'video' && unsendable(file) && file.url) lines.push(`${VIDEO_LINK_PREFIX}${esc(file.url)}`);
   }
   return lines.length === 0 ? caption : `${caption}\n\n${lines.join('\n')}`;
 }
