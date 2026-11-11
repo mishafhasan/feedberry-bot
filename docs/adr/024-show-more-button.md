@@ -42,12 +42,13 @@ Constraints that decided the design:
 ## Decision
 
 - Stage 6 returns `rich_more` when the body has more paragraphs than the preview: `{ html, fullHtml, media }`.
-  `truncateParagraphs` keeps whole paragraphs only — up to four or about 500 characters, always including
+  `truncateParagraphs` keeps whole paragraphs only — up to two or about 240 characters, always including
   the paragraph that crosses the budget — so a cut never lands mid-sentence. A post that fits stays `rich`
   and gets no button.
 - Stage 7 sends the preview plus one in-message button
-  `<tg-button-row><tg-button type="callback_data" data="more:<token>">Show more</tg-button></tg-button-row>`.
-  `more:` + 8 URL-safe characters is 13 bytes, far below the 64-byte cap.
+  `<tg-button-row><tg-button type="callback_data" style="primary" data="more:<token>">Show more</tg-button></tg-button-row>`.
+  A single-button row fills the message width and `style="primary"` paints it as the blue pill the product
+  asked for. `more:` + 8 URL-safe characters is 13 bytes, far below the 64-byte cap.
 - The send response carries the slideshow/audio blocks; the sender reads their `file_id`s (the largest photo
   size per item) and stores `{ fullHtml, media file_ids }` under the token. Stage 9 may then delete the files.
 - The callback handler (`more:<token>`) answers the query, looks the payload up, and edits the message in
