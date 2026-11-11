@@ -17,7 +17,8 @@ export type Thumbnailer = (videoFile: string, dir: string) => Promise<string | n
  * Returns null when ffmpeg is absent — the caller then falls back to a plain link card (R14).
  */
 export const ffmpegThumbnail: Thumbnailer = async (videoFile, dir) => {
-  if (!hasFFmpeg()) return null;
+  // '' is a download that failed (R15): there is nothing to read a frame from.
+  if (videoFile === '' || !hasFFmpeg()) return null;
   // One post can need a frame per oversized video (R15), so two calls must not share a name.
   const target = join(dir, `thumb-${++frameSeq}.jpg`);
   try {
