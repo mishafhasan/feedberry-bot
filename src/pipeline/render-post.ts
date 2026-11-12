@@ -4,7 +4,7 @@ import { leadOf } from '../article/readability.ts';
 import { log } from '../obs/log.ts';
 import { clampMessage, esc, payloadOf, RICH_TEXT_LIMIT, type MediaFile, type MediaKind, type MessagePlan } from '../render/message-plan.ts';
 import { breakNumberedList, postHeader } from '../render/caption.ts';
-import { richBody, truncateParagraphs } from '../render/rich-text.ts';
+import { expandableQuote, richBody, splitPreview } from '../render/rich-text.ts';
 import { renderAlbum, renderVideo, unsendable, withVideoLinks } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
@@ -89,9 +89,9 @@ function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras)
 }
 
 /**
- * One rich message: header + time, a slideshow of the post's own media, the full text, then one
- * labelled link per video that cannot upload. Telegram collapses a raw newline inside <p>, so every
- * source line break becomes <br/> (spike evidence, ADR-023); `richBody` keeps blocks and styles.
+ * One rich message: heading + time, a slideshow of the post's own media, the post's words, then one
+ * labelled link per video that cannot upload. A post past the preview budget folds its tail into an
+ * expandable quote, so the reader scrolls past a caption, not a wall of text (ADR-025).
  */
 function richPlan(header: string, parts: string[], files: MediaFile[]): MessagePlan {
   // shortcut: media past the 50-attachment ceiling is dropped, upgrade when a real source exceeds it.
@@ -104,26 +104,35 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
   // Audio cannot ride in a slideshow (Telegram hoists it out), so it stands as its own block.
   const audio = indexed.filter((x) => x.file.kind === 'audio');
   const links = withVideoLinks('', files).trim();
-  const compose = (bodyHtml: string): string => [
-    `<p>${header.replace(/\n/g, '<br/>')}</p>`,
+  const compose = (bodyPlain: string): string => [
+    header,
     visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
     ...audio.map((x) => ref(x.index, x.file.kind)),
-    bodyHtml,
+    bodyHtml(bodyPlain),
     links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
   ].filter((block) => block !== '').join('');
 
   let bodyPlain = parts.join('\n\n');
-  let html = compose(richBody(bodyPlain));
+  let html = compose(bodyPlain);
   if (html.length > RICH_TEXT_LIMIT) {
     // shortcut: >32,768-char posts are clamped, upgrade when a real source exceeds it.
     log('warn', 'rich_clamped', { chars: html.length });
     bodyPlain = clampMessage(bodyPlain, bodyPlain.length - (html.length - RICH_TEXT_LIMIT));
-    html = compose(richBody(bodyPlain));
+    html = compose(bodyPlain);
   }
-  // ADR-024: a long post opens as its first paragraphs; the button edits the same message in place.
-  const preview = truncateParagraphs(bodyPlain);
-  if (preview === bodyPlain) return { kind: 'rich', html, media };
-  return { kind: 'rich_more', html: compose(richBody(preview)), fullHtml: html, media };
+  return { kind: 'rich', html, media };
+}
+
+/**
+ * Under this the client renders the whole quote and shows no toggle — the tail is too short to fold
+ * (docs/expandable-quotes.md, pitfall 3) — so the post stays open instead of wearing a dead quote.
+ */
+const FOLD_MIN_CHARS = 240;
+
+/** The post's own words: the preview as blocks, the tail folded into the quote. */
+function bodyHtml(text: string): string {
+  const { preview, tail } = splitPreview(text);
+  return tail.length < FOLD_MIN_CHARS ? richBody(text) : `${richBody(preview)}${expandableQuote(tail)}`;
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

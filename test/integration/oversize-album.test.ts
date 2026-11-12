@@ -116,7 +116,7 @@ test('R15: a carousel with one 51 MB clip ships as one rich message, the clip li
 
     const html = String(rich?.body.rich_message?.html ?? '');
     assert.match(html, /<a href="https:\/\/x\.com\/Royal\/status\/2120186300917542912">@Royal<\/a> \| X/);
-    assert.match(html, /⏱️ Time: 10\/11 16:07/);
+    assert.match(html, /⏱️ <b>Time<\/b>: <tg-time unix="1794326820" format="r">/);
     assert.ok(html.includes('Three clips'), 'the post text sits between the header and the links');
     assert.ok(html.includes(`<p>${LINK}</p>`), `the message links the clip it could not send:\n${html}`);
 

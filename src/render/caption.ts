@@ -100,15 +100,44 @@ function splitFlattenedTail(line: string): string {
  * Every delivered post opens with where it came from and when the site published it, so a
  * forwarded post is traceable without opening it. The platform is what the *source* is, not what
  * its URL spells: a blog on a custom domain is still RSS.
+ *
+ * The rich layout (ADR-025) returns blocks: the source line is a heading, the time its own line.
+ * The classic layout returns `\n`-joined text, which its senders turn into `<br/>`.
  */
 export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string; rich?: boolean }): string {
   const name = esc(sourceName(params.sourceTitle ?? 'Source', params.platform));
   const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
-  // The rich post layout leads with the platform logo and prints the day first (ADR-023).
-  const lead = params.rich === true ? platformIcon(params.platform) : '🌐';
-  const when = params.publishedAt === null ? null : params.rich === true ? ddmmhhmm(params.publishedAt, params.tz) : mmddhhmm(params.publishedAt, params.tz);
-  return [`${lead} ${title} | ${esc(platformLabel(params.platform))}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+  const line = `${title} | ${esc(platformLabel(params.platform))}`;
+  const { publishedAt, tz } = params;
+
+  if (params.rich !== true) {
+    const when = publishedAt === null ? null : mmddhhmm(publishedAt, tz);
+    return [`🌐 ${line}`, when === null ? null : `⏱️ Time: ${when}`].filter((text) => text !== null).join('\n');
+  }
+
+  // `<tg-time>` keeps the label right as the message ages; the text inside is the fallback.
+  const time = publishedAt === null
+    ? ''
+    : `<p>⏱️ <b>Time</b>: <tg-time unix="${Math.floor(publishedAt / 1000)}" format="r">${relativeTime(publishedAt, tz)}</tg-time></p>`;
+  return `<h3>${platformIcon(params.platform)} ${line}</h3>${time}`;
 }
+
+/**
+ * The time in words while words are still true: "just now", "5 minutes ago", "2 days ago". Past a
+ * week the day-first date in the reader's zone is the only useful label left.
+ */
+export function relativeTime(ms: number, tz = 'UTC', now = Date.now()): string {
+  // A source may stamp a post in the future (its clock, not ours): the reader sees "just now".
+  const minutes = Math.floor((now - ms) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${count(minutes, 'minute')} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${count(hours, 'hour')} ago`;
+  const days = Math.floor(hours / 24);
+  return days < 7 ? `${count(days, 'day')} ago` : ddmmhhmm(ms, tz);
+}
+
+const count = (value: number, unit: string): string => `${value} ${unit}${value === 1 ? '' : 's'}`;
 
 /** The display name of a source platform, for every screen that names one: post header, source list. */
 export function platformLabel(platform: string): string {
@@ -150,7 +179,7 @@ export function mmddhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, false);
 }
 
-/** `DD/MM HH:MM` — the rich post header's day-first order (ADR-023). */
+/** `DD/MM HH:MM` — the day-first absolute time, the fallback once a post is older than a week. */
 export function ddmmhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, true);
 }

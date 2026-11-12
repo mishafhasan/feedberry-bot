@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { detectSource } from '../../src/platform/registry.ts';
-import { postHeader, sourceName, ddmmhhmm } from '../../src/render/caption.ts';
+import { postHeader, sourceName, ddmmhhmm, relativeTime } from '../../src/render/caption.ts';
 import { platformIcon } from '../../src/platform/icons.ts';
 import { platformIcon as platformIconViaTexts } from '../../src/bot/texts.ts';
 
@@ -94,7 +94,7 @@ test('caption header: the label is the source type, not the domain, and the time
   );
 });
 
-test('rich header: the platform logo leads and the time is day-first in the reader zone (ADR-023)', () => {
+test('rich header: a heading source line, the logo leading, and a bold relative time (ADR-025)', () => {
   const header = postHeader({
     sourceTitle: 'WIRED',
     url: 'https://www.wired.com/story/x/',
@@ -103,8 +103,34 @@ test('rich header: the platform logo leads and the time is day-first in the read
     tz: 'Asia/Dhaka',
     rich: true,
   });
-  assert.equal(header, `${platformIcon('instagram')} <a href="https://www.wired.com/story/x/">WIRED</a> | Instagram\n⏱️ Time: 01/11 10:01`);
+  assert.equal(
+    header,
+    `<h3>${platformIcon('instagram')} <a href="https://www.wired.com/story/x/">WIRED</a> | Instagram</h3>` +
+      `<p>⏱️ <b>Time</b>: <tg-time unix="1793505660" format="r">${relativeTime(Date.UTC(2026, 10, 1, 4, 1), 'Asia/Dhaka')}</tg-time></p>`,
+  );
   assert.equal(ddmmhhmm(Date.UTC(2026, 10, 1, 4, 1)), '01/11 04:01', 'UTC stays the default zone');
+});
+
+test('rich header: no publish date leaves the heading alone, never an empty time line', () => {
+  assert.equal(
+    postHeader({ sourceTitle: 'WIRED', url: null, publishedAt: null, platform: 'rss', rich: true }),
+    `<h3>${platformIcon('rss')} WIRED | RSS</h3>`,
+  );
+});
+
+test('relative time: words while words are true, the day-first date past a week', () => {
+  const at = Date.UTC(2026, 10, 1, 4, 1);
+  const after = (ms: number): string => relativeTime(at, 'UTC', at + ms);
+
+  assert.equal(after(30_000), 'just now');
+  assert.equal(after(-60_000), 'just now', 'a source clock ahead of ours is not “in 1 minute”');
+  assert.equal(after(60_000), '1 minute ago');
+  assert.equal(after(2 * 60_000), '2 minutes ago');
+  assert.equal(after(3 * 3_600_000), '3 hours ago');
+  assert.equal(after(26 * 3_600_000), '1 day ago');
+  assert.equal(after(2 * 24 * 3_600_000), '2 days ago');
+  assert.equal(after(8 * 24 * 3_600_000), '01/11 04:01', 'a week out the publish date reads better than “8 days ago”');
+  assert.equal(relativeTime(at, 'Asia/Dhaka', at + 8 * 24 * 3_600_000), '01/11 10:01', 'and it is the reader’s zone');
 });
 
 test('icons: the bot layer re-exports the one producer in platform/icons', () => {

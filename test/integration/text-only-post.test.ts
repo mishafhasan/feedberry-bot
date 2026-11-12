@@ -50,7 +50,7 @@ test('Download Mode: a words-only post arrives as its text and its link', async 
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.ok(html.includes(WORDS), `the words are delivered, saw: ${html.slice(0, 80)}`);
-    assert.match(html, /⏱️ Time: 13\/12 22:37/, 'the publish date wears the day-first line of every other source');
+    assert.match(html, /⏱️ <b>Time<\/b>: <tg-time unix="1765665420" format="r">/, 'the publish date wears the time line of every other source');
     assert.match(html, /<a href="https:\/\/jacobwren\.tumblr\.com\/post\/802858401532116992">jacobwren<\/a> \| Tumblr/, 'the canonical post link is the header');
     const texts = api.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.body.text ?? ''));
     assert.ok(!texts.some((text) => text.includes('Couldn’t extract media') || text.includes("Couldn't extract media")), 'no extraction error notice');

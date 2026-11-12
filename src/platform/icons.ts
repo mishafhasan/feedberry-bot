@@ -23,7 +23,8 @@ const PLATFORM_EMOJI: Partial<Record<Platform, string>> = {
 
 /** The plain emoji stays inside as the fallback for clients that ignore custom emoji. */
 export function platformIcon(platform: string): string {
-  const emoji = PLATFORM_ICON[platform as Platform] ?? '📡';
+  // A platform with no logo of its own still gets a globe, never a stray satellite dish.
+  const emoji = PLATFORM_ICON[platform as Platform] ?? '🌐';
   const id = PLATFORM_EMOJI[platform as Platform];
   return id === undefined ? emoji : `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`;
 }

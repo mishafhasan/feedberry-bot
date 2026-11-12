@@ -1,7 +1,7 @@
-/** ADR-023: source text → Telegram rich HTML (blocks line by line, styles inline). */
+/** ADR-025: source text → Telegram rich HTML (blocks line by line, styles inline, quote tail inline-only). */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { richBody, truncateParagraphs } from '../../src/render/rich-text.ts';
+import { expandableQuote, richBody, splitPreview } from '../../src/render/rich-text.ts';
 
 test('rich text: headings H1–H6 and subheadings', () => {
   assert.equal(richBody('# Title'), '<h1>Title</h1>');
@@ -84,19 +84,28 @@ test('rich text: blocks between paragraphs keep the paragraph order', () => {
   assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
 });
 
-test('rich text: the preview keeps whole paragraphs, two or about 240 chars', () => {
+test('rich text: the preview keeps whole paragraphs, two or about 240 chars, and the tail is the rest', () => {
   const text = [1, 2, 3, 4, 5, 6].map((n) => `Paragraph ${n}. ${'word '.repeat(20).trim()}`).join('\n\n');
-  const preview = truncateParagraphs(text);
+  const { preview, tail } = splitPreview(text);
 
   assert.equal(preview.split('\n\n').length, 2, 'two paragraphs fit the preview');
   assert.match(preview, /Paragraph 2\./);
   assert.doesNotMatch(preview, /Paragraph 3/, 'the cut lands on a paragraph boundary');
   assert.ok(preview.length <= 240, `preview is ${preview.length} chars`);
-  assert.equal(truncateParagraphs('one\n\ntwo'), 'one\n\ntwo', 'a short post is untouched');
-  assert.equal(truncateParagraphs(`long `.repeat(300).trim()), `long `.repeat(300).trim(), 'one long paragraph is never cut');
-  assert.equal(truncateParagraphs('a\nb\n\nc'), 'a\nb\n\nc', 'line breaks inside a kept paragraph stay');
+  assert.match(tail, /^Paragraph 3\./, 'the tail starts where the preview stopped');
+  assert.match(tail, /Paragraph 6\./, 'and keeps the end of the post');
+
+  assert.deepEqual(splitPreview('one\n\ntwo'), { preview: 'one\n\ntwo', tail: '' }, 'a short post is untouched');
+  const long = `long `.repeat(300).trim();
+  assert.deepEqual(splitPreview(long), { preview: long, tail: '' }, 'one long paragraph is never cut');
+  assert.deepEqual(splitPreview('a\nb\n\nc'), { preview: 'a\nb\n\nc', tail: '' }, 'line breaks inside a kept paragraph stay');
   const titleAndBody = `Title\n\n${'word '.repeat(300).trim()}`;
-  assert.equal(truncateParagraphs(titleAndBody), titleAndBody, 'a title never stands alone as the preview');
+  assert.deepEqual(splitPreview(titleAndBody), { preview: titleAndBody, tail: '' }, 'a title never stands alone as the preview');
+});
+
+test('rich text: the expandable quote escapes its content and keeps every line break', () => {
+  assert.equal(expandableQuote('a < b & c\n\nnext'), '<blockquote expandable>a &lt; b &amp; c<br/><br/>next</blockquote>');
+  assert.equal(expandableQuote('x\n\n\n\n\ny'), '<blockquote expandable>x<br/><br/>y</blockquote>', 'a run of blank lines is one gap');
 });
 
 test('rich text: a flattened numbered list is split by the caller, then rendered as an ol', () => {

@@ -151,16 +151,15 @@ function quote(run: Array<{ depth: number; text: string }>): string {
   return `<blockquote>${walk(1)}</blockquote>`;
 }
 
-/** The "Show more" preview: the first two paragraphs, about 240 characters. */
+/** The preview budget: the first two paragraphs, about 240 characters. */
 export const PREVIEW_PARAGRAPHS = 2;
 export const PREVIEW_CHARS = 240;
 
 /**
- * The preview for a long post: whole paragraphs only, so a cut never lands mid-sentence.
- * It keeps at least one paragraph and the one that crosses the budget; a title followed by one
- * huge body paragraph therefore shows both (the body counts as the post's first paragraph).
+ * The reader sees the preview, the rest folds into the expandable quote (ADR-025). Whole paragraphs
+ * only, so a cut never lands mid-sentence; `tail` is empty when the whole post fits.
  */
-export function truncateParagraphs(text: string, maxParagraphs = PREVIEW_PARAGRAPHS, maxChars = PREVIEW_CHARS): string {
+export function splitPreview(text: string, maxParagraphs = PREVIEW_PARAGRAPHS, maxChars = PREVIEW_CHARS): { preview: string; tail: string } {
   const paragraphs = text.split(/\n{2,}/).filter((paragraph) => paragraph.trim() !== '');
   const kept: string[] = [];
   let chars = 0;
@@ -170,7 +169,28 @@ export function truncateParagraphs(text: string, maxParagraphs = PREVIEW_PARAGRA
     chars += paragraph.length;
     if (chars >= maxChars) break;
   }
-  return kept.join('\n\n');
+  return { preview: kept.join('\n\n'), tail: paragraphs.slice(kept.length).join('\n\n') };
+}
+
+/**
+ * A `<blockquote expandable>` takes inline RichText only: one block child (a heading, a list, a
+ * `<pre>`) and the client silently drops the collapse toggle. So every block marker is flattened to
+ * its inline meaning rather than printed as punctuation.
+ * shortcut: a fenced block inside the tail keeps its text but loses its monospace block; upgrade
+ * when a real source posts code past the fold.
+ */
+export function expandableQuote(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n').map(tailLine);
+  // A blank line separates paragraphs, but a run of them must not open a growing gap.
+  return `<blockquote expandable>${lines.join('<br/>').replace(/(?:<br\/>){3,}/g, '<br/><br/>')}</blockquote>`;
+}
+
+function tailLine(line: string): string {
+  const heading = HEADING.exec(line);
+  if (heading) return `<b>${inline(heading[2] ?? '')}</b>`;
+  // The fence itself would print as ```; the code inside stays plain text.
+  if (FENCE.test(line)) return '';
+  return inline(line.replace(QUOTE, '$2').replace(UL, '$1• $2'));
 }
 
 /** Inline styles and links; everything that is not a recognised token is escaped text. */

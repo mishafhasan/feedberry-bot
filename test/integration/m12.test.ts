@@ -224,8 +224,8 @@ test('M12 Download: the page names the account and dates the post, like a schedu
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
       html,
-      /^<p><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<br\/>⏱️ Time: 10\/08 16:55<\/p>/,
-      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
+      /^<h3><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1754844947" format="r">/,
+      `one heading source line, then the bold live time (saw ${html.slice(0, 160)}…)`,
     );
     assert.match(html, /<p>Bro turned the whole resort up!<\/p>/);
   } finally {
@@ -282,8 +282,8 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
       html,
-      /^<p><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<br\/>⏱️ Time: 23\/08 18:34<\/p>/,
-      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
+      /^<h3><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1724438076" format="r">/,
+      `one heading source line, then the bold live time (saw ${html.slice(0, 160)}…)`,
     );
     assert.match(html, /<p>Watch as Funny Vidz captures another unsuspecting victim\.<\/p>/);
     assert.match(html, /<tg-slideshow><video src="tg:\/\/video\?id=m0"><\/video><\/tg-slideshow>/);
