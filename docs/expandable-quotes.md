@@ -114,10 +114,10 @@ Notes:
 
 ## 6. How this repo implements it
 
-- `src/render/rich-text.ts` — `splitPreview()` cuts a post's text into the visible preview (whole
-  paragraphs) and the hidden tail; `expandableQuote()` renders the tail. It emits inline tags only
-  and reuses the `inline()` escaper, so a heading, list or fence marker in the tail can never reach
-  Telegram as a block (pitfall 1).
+- `src/render/rich-text.ts` — `splitPreview()` cuts a post's text into the visible preview (the
+  first ~240 characters of whole lines) and the hidden tail; `expandableQuote()` renders the tail. It
+  emits inline tags only and reuses the `inline()` escaper, so a heading, list or fence marker in the
+  tail can never reach Telegram as a block (pitfall 1).
 - `src/pipeline/render-post.ts` — `bodyHtml()` decides whether to fold at all: a tail under 240
   characters is not folded, because it would draw a quote with no toggle (pitfall 3).
 - `src/render/caption.ts` — the rich header: the `<h3>` source line, and the bold time line whose

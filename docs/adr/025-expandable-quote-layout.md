@@ -31,10 +31,11 @@ Two facts decided the layout:
 
 ## Decision
 
-- Stage 6 always returns `rich`. The body is split at a paragraph boundary with
-  `splitPreview(text)`: the preview is the first two paragraphs or about 240 characters, and the tail
-  is everything else. A tail under 240 characters is not folded — a quote that fits the collapsed
-  height draws no toggle, so the post would wear a dead quote.
+- Stage 6 always returns `rich`. `splitPreview(text)` cuts the body at the last line break inside a
+  240-character budget (the last space when the body has no line break there), so the preview is the
+  first few whole lines — a numbered list stops between items — and the tail is everything else. A
+  tail under 240 characters is not folded: a quote that fits the collapsed height draws no toggle, so
+  the post would wear a dead quote.
 - `expandableQuote(tail)` renders the tail as inline RichText: one line per `<br/>`, every value
   escaped by the same `inline()` the open body uses, and block markers flattened to their inline
   meaning (`# heading` → `<b>`, `- item` → `• item`, `>` dropped, the fence dropped, the code kept
@@ -65,8 +66,16 @@ Two facts decided the layout:
 
 ## Evidence
 
-`test/unit/rich-render.test.ts` (preview + tail, inline-only guard, short-tail case),
-`test/unit/rich-text.test.ts` (`splitPreview`, `expandableQuote` escaping),
-`test/unit/caption-header.test.ts` (`<h3>`, `<tg-time>`, `relativeTime`),
-`test/integration/threads.test.ts` (the 3,779-char sub-post arrives inside the quote).
-Tag behaviour: `docs/expandable-quotes.md`.
+`test/unit/rich-render.test.ts` (preview + tail, the 50-item list, inline-only guard, short-tail
+case), `test/unit/rich-text.test.ts` (`splitPreview`, `expandableQuote` escaping),
+`test/unit/caption-header.test.ts` (`<h3>`, `<tg-time>`, `relativeTime`), `test/integration/threads.test.ts`
+(the 3,779-char sub-post arrives inside the quote). Tag behaviour: `docs/expandable-quotes.md`.
+
+Live, against the real Bot API with the spike bot: the two requested links rendered by the real
+pipeline and sent as they come out of stage 6 —
+`x.com/The_techAI/status/2120336134568087586` (4,726 chars, no media, message 1779) parsed to
+`heading, paragraph, paragraph, list, expandable_blockquote`, and `threads.com/t/Dfl9OZClIHt`
+(6,044 chars, one uploaded photo, message 1780) parsed to
+`heading, paragraph, slideshow, paragraph, expandable_blockquote`. The API returning
+`expandable_blockquote` is the server's own confirmation that the quote is collapsible rather than a
+plain quote.
