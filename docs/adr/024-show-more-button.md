@@ -1,6 +1,11 @@
 # ADR-024: "Show more" for long social posts
 
-**Status:** Accepted · 2026-11-12 · extends ADR-023
+**Status:** Superseded by ADR-025 · 2026-11-12 · extended ADR-023
+
+The button and its payload cache were retired one day later: a native `<blockquote expandable>` gives
+the same tap-to-expand with no callback, no stored payload and no edit (ADR-025). This record stays
+as the reasoning behind the preview budget (`truncateParagraphs`, now `splitPreview`) and the spike
+that proved `editMessageText` accepts a rich message.
 
 ## Context
 

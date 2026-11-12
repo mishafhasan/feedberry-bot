@@ -1,6 +1,6 @@
 # ADR-023: Non-RSS posts arrive as one rich message
 
-**Status:** Accepted · 2026-11-11 · amends ADR-008, ADR-012, ADR-022 for non-RSS sources
+**Status:** Accepted · 2026-11-11 · amends ADR-008, ADR-012, ADR-022 for non-RSS sources · header, time and long-body layout amended by ADR-025
 
 ## Context
 
