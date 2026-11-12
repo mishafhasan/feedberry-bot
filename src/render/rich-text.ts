@@ -1,18 +1,18 @@
 import { esc } from './message-plan.ts';
 
 /**
- * ADR-023: source text → Telegram rich HTML. Social captions are plain text with markdown-ish
- * habits, so blocks come from line prefixes and inline styles from the markdown set Telegram
- * renders; anything unrecognised stays escaped text. Every link is built here, never detected
- * by Telegram (`skip_entity_detection`).
- * shortcut: emphasis does not nest and markers inside a link label print literally — upgrade
- * when a real source needs nested styling.
+ * ADR-025: source text → the inline RichText of a post's expandable quote. Social captions are plain
+ * text with markdown-ish habits, so inline styles come from the markdown set Telegram renders, and
+ * every block marker is flattened to its inline meaning — a quote takes inline RichText only, and
+ * one block child (a heading, a list, a `<pre>`) silently costs the client's collapse control.
+ * Every link is built here, never detected by Telegram (`skip_entity_detection`).
+ * shortcut: emphasis does not nest and markers inside a link label print literally — upgrade when a
+ * real source needs nested styling.
  */
 const FENCE = /^```(\w*)\s*$/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const QUOTE = /^((?:>\s?)+)(.*)$/;
 const UL = /^(\s*)[-*•]\s+(.*)$/;
-const OL = /^(\s*)\d{1,3}[.)]\s+(.*)$/;
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -21,174 +21,26 @@ const EMOJI = /!\[([^\]]*)\]\((tg:\/\/emoji\?id=\d{1,32})\)/g;
 const TIME = /!\[([^\]]*)\]\((tg:\/\/time\?[^)\s]+)\)/g;
 const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
-export function richBody(text: string): string {
-  // Source text can arrive with CRLF (feeds, page meta); a stray \r would print inside the line.
-  const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  const out: string[] = [];
-  let prose: string[] = [];
-  const flush = (): void => {
-    // A blank line ends a paragraph: each one becomes its own <p>, blanks never print.
-    const paragraphs: string[][] = [];
-    let current: string[] = [];
-    for (const line of prose) {
-      if (line.trim() === '') {
-        if (current.length > 0) paragraphs.push(current);
-        current = [];
-      } else current.push(line);
-    }
-    if (current.length > 0) paragraphs.push(current);
-    for (const lines of paragraphs) out.push(`<p>${lines.map((line) => inline(line)).join('<br/>')}</p>`);
-    prose = [];
-  };
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i] ?? '';
-    const fence = FENCE.exec(line);
-    if (fence) {
-      flush();
-      const code: string[] = [];
-      i++;
-      while (i < lines.length && lines[i] !== '```') {
-        code.push(lines[i] ?? '');
-        i++;
-      }
-      i++;
-      const body = esc(code.join('\n'));
-      out.push(fence[1] ? `<pre><code class="language-${fence[1]}">${body}</code></pre>` : `<pre>${body}</pre>`);
-      continue;
-    }
-    const heading = HEADING.exec(line);
-    if (heading) {
-      flush();
-      const size = heading[1]?.length ?? 1;
-      out.push(`<h${size}>${inline(heading[2] ?? '')}</h${size}>`);
-      i++;
-      continue;
-    }
-    if (QUOTE.test(line)) {
-      flush();
-      const run: Array<{ depth: number; text: string }> = [];
-      while (i < lines.length) {
-        const match = QUOTE.exec(lines[i] ?? '');
-        if (!match) break;
-        run.push({ depth: (match[1] ?? '').replace(/\s/g, '').length, text: match[2] ?? '' });
-        i++;
-      }
-      out.push(quote(run));
-      continue;
-    }
-    if (UL.test(line) || OL.test(line)) {
-      flush();
-      const items: ListItem[] = [];
-      while (i < lines.length) {
-        const raw = lines[i] ?? '';
-        const ul = UL.exec(raw);
-        const ol = OL.exec(raw);
-        const match = ul ?? ol;
-        if (!match) break;
-        items.push({ indent: (match[1] ?? '').replace(/\t/g, '  ').length, tag: ul ? 'ul' : 'ol', text: match[2] ?? '' });
-        i++;
-      }
-      let cursor = 0;
-      while (cursor < items.length) {
-        const [html, next] = renderList(items, cursor);
-        out.push(html);
-        cursor = next;
-      }
-      continue;
-    }
-    prose.push(line);
-    i++;
-  }
-  flush();
-  return out.join('');
-}
-
-interface ListItem {
-  indent: number;
-  tag: 'ul' | 'ol';
-  text: string;
-}
-
-/** One list block; deeper indents nest inside the item above, a tag change starts a sibling list. */
-function renderList(items: ListItem[], start: number): [string, number] {
-  const first = items[start];
-  if (!first) return ['', start];
-  const { indent, tag } = first;
-  let html = `<${tag}>`;
-  let i = start;
-  while (i < items.length && items[i]?.indent === indent && items[i]?.tag === tag) {
-    html += `<li>${inline(items[i]?.text ?? '')}`;
-    i++;
-    while (i < items.length && (items[i]?.indent ?? 0) > indent) {
-      const [nested, next] = renderList(items, i);
-      html += nested;
-      i = next;
-    }
-    html += '</li>';
-  }
-  return [`${html}</${tag}>`, i];
-}
-
-/** Single and nested blockquotes: a deeper `>` run becomes a blockquote inside the current one. */
-function quote(run: Array<{ depth: number; text: string }>): string {
-  let i = 0;
-  const walk = (depth: number): string => {
-    const parts: string[] = [];
-    while (i < run.length && (run[i]?.depth ?? 0) >= depth) {
-      const item = run[i];
-      if (!item) break;
-      if (item.depth > depth) {
-        parts.push(`<blockquote>${walk(item.depth)}</blockquote>`);
-        continue;
-      }
-      parts.push(inline(item.text));
-      i++;
-    }
-    return parts.join('<br/>');
-  };
-  return `<blockquote>${walk(1)}</blockquote>`;
-}
-
-/** The preview budget: about this much of the post stays open above the fold. */
-export const PREVIEW_CHARS = 240;
-
 /**
- * The reader sees a preview, the rest folds into the expandable quote (ADR-025). The cut lands on
- * the last line break inside the budget, so a folded list stops between items; a post with no line
- * break in the budget is cut at a space, never mid-word. `tail` is empty when the post fits.
- */
-export function splitPreview(text: string, maxChars = PREVIEW_CHARS): { preview: string; tail: string } {
-  const body = text.replace(/\r\n?/g, '\n').trim();
-  if (body.length <= maxChars) return { preview: body, tail: '' };
-  const cut = foldIndex(body, maxChars);
-  return { preview: body.slice(0, cut).trimEnd(), tail: body.slice(cut).trimStart() };
-}
-
-/** The last line break inside the budget, else the last space, else the budget itself. */
-function foldIndex(body: string, maxChars: number): number {
-  const head = body.slice(0, maxChars + 1);
-  const line = head.lastIndexOf('\n');
-  if (line > 0) return line;
-  const space = head.lastIndexOf(' ');
-  return space > 0 ? space : maxChars;
-}
-
-/**
- * A `<blockquote expandable>` takes inline RichText only: one block child (a heading, a list, a
- * `<pre>`) and the client silently drops the collapse toggle. So every block marker is flattened to
- * its inline meaning rather than printed as punctuation.
- * shortcut: a fenced block inside the tail keeps its text but loses its monospace block; upgrade
- * when a real source posts code past the fold.
+ * The whole post as one `<blockquote expandable>`: the client shows its own collapsed height and one
+ * tap reveals the rest, with no bot state and nothing left outside the fold. Line breaks stay
+ * `<br/>` because Telegram collapses a raw newline, and every value is escaped by `inline`.
  */
 export function expandableQuote(text: string): string {
-  const lines = text.replace(/\r\n?/g, '\n').split('\n').map(tailLine);
-  // A blank line separates paragraphs, but a run of them must not open a growing gap.
-  return `<blockquote expandable>${lines.join('<br/>').replace(/(?:<br\/>){3,}/g, '<br/><br/>')}</blockquote>`;
+  // A post with no words (media only) gets no quote at all, rather than an empty one.
+  const body = text.replace(/\r\n?/g, '\n').trim();
+  if (body === '') return '';
+  const lines = body.split('\n').map(inlineLine);
+  // A blank line separates paragraphs, but a run of them must not open a growing gap, and a fence
+  // line dropped at either edge must not leave an empty first or last line.
+  const html = lines.join('<br/>').replace(/(?:<br\/>){3,}/g, '<br/><br/>').replace(/^(?:<br\/>)+|(?:<br\/>)+$/g, '');
+  return `<blockquote expandable>${html}</blockquote>`;
 }
 
-function tailLine(line: string): string {
+/** One source line as inline RichText: block markers flattened, values escaped, links kept. */
+function inlineLine(line: string): string {
+  // A spaces-only line is a paragraph gap, not a line of invisible spaces.
+  if (line.trim() === '') return '';
   const heading = HEADING.exec(line);
   if (heading) return `<b>${inline(heading[2] ?? '')}</b>`;
   // The fence itself would print as ```; the code inside stays plain text.

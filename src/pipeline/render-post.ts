@@ -4,7 +4,7 @@ import { leadOf } from '../article/readability.ts';
 import { log } from '../obs/log.ts';
 import { clampMessage, esc, payloadOf, RICH_TEXT_LIMIT, type MediaFile, type MediaKind, type MessagePlan } from '../render/message-plan.ts';
 import { breakNumberedList, postHeader } from '../render/caption.ts';
-import { expandableQuote, richBody, splitPreview } from '../render/rich-text.ts';
+import { expandableQuote } from '../render/rich-text.ts';
 import { renderAlbum, renderVideo, unsendable, withVideoLinks } from '../render/video.ts';
 import type { PostKind } from './classify-media.ts';
 
@@ -89,9 +89,8 @@ function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras)
 }
 
 /**
- * One rich message: heading + time, a slideshow of the post's own media, the post's words, then one
- * labelled link per video that cannot upload. A post past the preview budget folds its tail into an
- * expandable quote, so the reader scrolls past a caption, not a wall of text (ADR-025).
+ * One rich message: heading + time, a slideshow of the post's own media, the whole post inside one
+ * expandable quote, then one labelled link per video that cannot upload (ADR-025).
  */
 function richPlan(header: string, parts: string[], files: MediaFile[]): MessagePlan {
   // shortcut: media past the 50-attachment ceiling is dropped, upgrade when a real source exceeds it.
@@ -108,7 +107,7 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
     header,
     visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
     ...audio.map((x) => ref(x.index, x.file.kind)),
-    bodyHtml(bodyPlain),
+    expandableQuote(bodyPlain),
     links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
   ].filter((block) => block !== '').join('');
 
@@ -121,18 +120,6 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
     html = compose(bodyPlain);
   }
   return { kind: 'rich', html, media };
-}
-
-/**
- * Under this the client renders the whole quote and shows no toggle — the tail is too short to fold
- * (docs/expandable-quotes.md, pitfall 3) — so the post stays open instead of wearing a dead quote.
- */
-const FOLD_MIN_CHARS = 240;
-
-/** The post's own words: the preview as blocks, the tail folded into the quote. */
-function bodyHtml(text: string): string {
-  const { preview, tail } = splitPreview(text);
-  return tail.length < FOLD_MIN_CHARS ? richBody(text) : `${richBody(preview)}${expandableQuote(tail)}`;
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

@@ -114,16 +114,17 @@ Notes:
 
 ## 6. How this repo implements it
 
-- `src/render/rich-text.ts` — `splitPreview()` cuts a post's text into the visible preview (the
-  first ~240 characters of whole lines) and the hidden tail; `expandableQuote()` renders the tail. It
-  emits inline tags only and reuses the `inline()` escaper, so a heading, list or fence marker in the
-  tail can never reach Telegram as a block (pitfall 1).
-- `src/pipeline/render-post.ts` — `bodyHtml()` decides whether to fold at all: a tail under 240
-  characters is not folded, because it would draw a quote with no toggle (pitfall 3).
+- `src/render/rich-text.ts` — `expandableQuote()` renders a post's whole body as the quote. It emits
+  inline tags only and reuses the `inline()` escaper, so a heading, list or fence marker in the post
+  can never reach Telegram as a block (pitfall 1).
+- `src/pipeline/render-post.ts` — `richPlan()` puts that quote between the slideshow and the
+  oversized-video links: nothing of the post is left outside it, and the client's collapsed height
+  is the preview. Markup cannot pin it to five lines (pitfall 2).
 - `src/render/caption.ts` — the rich header: the `<h3>` source line, and the bold time line whose
   label `relativeTime()` writes and `<tg-time format="r">` keeps current as the message ages.
-- `test/unit/rich-render.test.ts` — pins the preview/tail split, the inline-only guard over the
-  quote's content, and the short-tail case; `test/unit/rich-text.test.ts` pins the escaping.
+- `test/unit/rich-render.test.ts` — pins the whole-body-in-the-quote layout, the 50-item list, the
+  inline-only guard over the quote's content, and the empty-body case; `test/unit/rich-text.test.ts`
+  pins the escaping and the marker flattening.
 - `docs/adr/025-expandable-quote-layout.md` — why this replaced ADR-024's "Show more" button.
 - After changing any markup: `npm run typecheck`, `npm test`, `npm run build`, then **restart the
   bot** — a running bot serves the code it loaded at startup.

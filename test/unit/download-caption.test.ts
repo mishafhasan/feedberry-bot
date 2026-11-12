@@ -22,7 +22,7 @@ test('Download caption: the account names the source and the post text follows i
 
   assert.equal(plan.kind, 'rich', 'one rich message per post (ADR-023)');
   assert.match(htmlOf(plan), /<a href="https:\/\/instagram\.com\/p\/C1xYz\/">cristiano<\/a> \| Instagram/, 'the header links the post under the account, and names the platform');
-  assert.match(htmlOf(plan), /<p>Sunset over the bay<\/p>/, 'the post text is kept, not dropped');
+  assert.match(htmlOf(plan), /<blockquote expandable>Sunset over the bay<\/blockquote>/, 'the post text is kept, not dropped');
   assert.match(htmlOf(plan), /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
 });
 
@@ -30,16 +30,15 @@ test('Download caption: without an author the title stays the source and is not 
   const plan = renderDownload([photo], { title: 'Big Buck Bunny', artist: null, platform: 'youtube' }, 'https://youtu.be/abc');
 
   assert.match(htmlOf(plan), />Big Buck Bunny<\/a> \| YouTube/);
-  assert.doesNotMatch(htmlOf(plan), /<p>Big Buck Bunny<\/p>/, 'no duplicated title');
+  assert.doesNotMatch(htmlOf(plan), /<blockquote/, 'no duplicated title');
 });
 
-test('Download caption: a flattened numbered list becomes an ordered list', () => {
+test('Download caption: a flattened numbered list keeps its numbers on their own lines', () => {
   // What TikTok hands over: every item on one line, numbers glued to the previous sentence.
   const flat = '50 websites that feel like the internet’s hidden toolbox 1. http://unpaywall.org — Free research papers 2. http://openlibrary.org — Borrow books online 4. http://alternativeto.net — App alternatives';
   const plan = renderDownload([photo], { title: flat, artist: 'amanyahd', platform: 'tiktok' }, 'https://www.tiktok.com/@amanyahd/video/1');
 
-  assert.match(htmlOf(plan), /hidden toolbox<\/p><ol><li>/, 'the numbered entries start an ordered list');
-  assert.match(htmlOf(plan), /unpaywall\.org[\s\S]*<\/li><li>[\s\S]*openlibrary\.org/, 'one list item per entry');
+  assert.match(htmlOf(plan), /hidden toolbox<br\/>1\. <a href="http:\/\/unpaywall\.org">/, 'the numbered entries start their own lines');
   assert.doesNotMatch(htmlOf(plan), /papers 2\./, 'no number left glued to the previous item');
 });
 
@@ -47,7 +46,7 @@ test('Download caption: prose with one numbered mention is left alone', () => {
   const prose = 'I tried 2. things today and none of them worked';
   const plan = renderDownload([photo], { title: prose, artist: 'someone', platform: 'tiktok' }, 'https://www.tiktok.com/@someone/video/2');
 
-  assert.ok(htmlOf(plan).includes(`<p>${prose}</p>`), 'the sentence keeps its shape');
+  assert.ok(htmlOf(plan).includes(prose), 'the sentence keeps its shape');
 });
 
 test('Download caption: a words-only post keeps its text, still one rich message', () => {

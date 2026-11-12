@@ -26,24 +26,30 @@ const rich = (summary: string, files: MediaFile[]) => {
 /** The header every rich post opens with: a heading source line, then the bold, live time line. */
 const HEADER = /^<h3><tg-emoji emoji-id="\d+">📸<\/tg-emoji> <a href="https:\/\/www\.instagram\.com\/p\/DfJ2075AGx3\/">Evolving AI<\/a> \| Instagram<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1793505660" format="r">[^<]*<\/tg-time><\/p>/;
 
-test('rich: heading + bold relative time, slideshow ref, and the body in one message', () => {
+test('rich: heading + bold relative time, slideshow ref, and the whole body in one quote', () => {
   const plan = rich('Hello world', [photo()]);
   assert.match(plan.html, HEADER);
   assert.match(plan.html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/);
-  assert.match(plan.html, /<p>Hello world<\/p>$/);
+  assert.match(plan.html, /<blockquote expandable>Hello world<\/blockquote>$/);
   assert.deepEqual(plan.media, [{ id: 'm0', file: 'a.jpg', kind: 'photo' }]);
 });
 
-test('rich: original line breaks become <br/>, paragraphs stay blocks, source values are escaped', () => {
+test('rich: line breaks stay <br/>, a blank line is the only paragraph gap, source values are escaped', () => {
   const plan = rich('line one\nline two\n\na < b & c > d', []);
-  assert.match(plan.html, /<p>line one<br\/>line two<\/p><p>a &lt; b &amp; c &gt; d<\/p>/);
+  assert.match(plan.html, /<blockquote expandable>line one<br\/>line two<br\/><br\/>a &lt; b &amp; c &gt; d<\/blockquote>$/);
 });
 
-test('rich: no media still ships header + time + text, no slideshow', () => {
+test('rich: no media still ships header + time + the quoted body, no slideshow', () => {
   const plan = rich('words only', []);
   assert.doesNotMatch(plan.html, /<tg-slideshow>/);
   assert.deepEqual(plan.media, []);
-  assert.match(plan.html, /<p>words only<\/p>/);
+  assert.match(plan.html, /<blockquote expandable>words only<\/blockquote>$/);
+});
+
+test('rich: a post with no words ships no empty quote', () => {
+  const plan = rich('   ', [photo()]);
+  assert.doesNotMatch(plan.html, /<blockquote/);
+  assert.match(plan.html, /<tg-slideshow>/, 'the media still goes out');
 });
 
 test('rich: audio stands as its own block, never inside the slideshow', () => {
@@ -96,34 +102,33 @@ test('rich: an RSS post keeps the classic layout, never rich', () => {
   assert.equal(plan.kind, 'photo');
 });
 
-test('rich: a long post folds its tail into an expandable quote', () => {
+test('rich: the whole post sits in the quote, so the client fold is the only preview', () => {
   const paragraphs = [1, 2, 3, 4, 5, 6].map((n) => `Para ${n}: ${'word '.repeat(20).trim()}`);
   const plan = rich(paragraphs.join('\n\n'), []);
 
-  assert.match(plan.html, /^[\s\S]*<p>Para 1:[\s\S]*<\/p><blockquote expandable>/);
   const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
-  assert.match(quote, /^Para 3:/, 'the tail starts at the first line past the preview budget');
-  assert.match(quote, /Para 6:/, 'to the last paragraph');
-  assert.doesNotMatch(quote, /Para [12]:/, 'the preview stays outside the quote');
+  assert.match(quote, /^Para 1:/, 'the first line is inside the quote');
+  assert.match(quote, /Para 6:/, 'and so is the last paragraph');
+  assert.doesNotMatch(plan.html, /<p>Para /, 'nothing of the body is left outside it');
 });
 
-test('rich: a 50-item list folds too, no blank line needed', () => {
+test('rich: a 50-item list is quoted whole, numbers print, no list element', () => {
   const items = Array.from({ length: 50 }, (_, i) => `${i + 1}. A site worth keeping in the toolbox`);
   const plan = rich(`50 websites\n${items.join('\n')}`, []);
   const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
 
-  assert.match(plan.html, /<ol><li>/, 'the open part keeps its list');
-  assert.match(quote, /50\. A site worth keeping/, 'the tail reaches the last item');
-  assert.doesNotMatch(quote, /<ol|<li/, 'and is inline only');
+  assert.match(quote, /^50 websites<br\/>1\. A site worth keeping/);
+  assert.match(quote, /50\. A site worth keeping/, 'the last item is inside too');
+  assert.doesNotMatch(plan.html, /<ol|<li/, 'no list element anywhere');
 });
 
-test('rich: the hidden tail holds inline RichText only, or the client drops the toggle', () => {
-  const filler = 'The tail is what the reader has to tap to see. '.repeat(20).trim();
+test('rich: the quote holds inline RichText only, or the client drops the toggle', () => {
+  const filler = 'The rest of the post is what the reader taps to see. '.repeat(20).trim();
   const body = [filler, '', '# a heading', '> a quote', '- a bullet', '```js', 'const a = 1;', '```', 'last'].join('\n');
   const plan = rich(body, []);
   const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
 
-  assert.ok(quote !== '', 'the body overflows the preview');
+  assert.ok(quote !== '', 'the body is in the quote');
   assert.doesNotMatch(quote, /<(?:p|h[1-6]|pre|ul|ol|li|blockquote|table|details|aside|tg-math-block|tg-button-row)\b/, 'no block element inside the quote');
   assert.match(quote, /<b>a heading<\/b>/, 'a heading line keeps its emphasis');
   assert.match(quote, /• a bullet/, 'a dash bullet keeps a bullet');
@@ -132,12 +137,7 @@ test('rich: the hidden tail holds inline RichText only, or the client drops the 
   assert.match(quote, /<br\/>/, 'line breaks stay explicit');
 });
 
-test('rich: a post that fits the preview keeps no quote, a longer one folds', () => {
-  assert.doesNotMatch(rich('one\n\ntwo', []).html, /<blockquote/);
-  const long = rich('word '.repeat(300).trim(), []);
-  assert.match(long.html, /<blockquote expandable>/, 'one long line folds as well');
-
-  const tinyTail = rich('word '.repeat(50).trim(), []);
-  assert.doesNotMatch(tinyTail.html, /<blockquote/, 'a tail too short to fold would only draw a dead quote');
-  assert.match(tinyTail.html, /<p>word word /, 'so its text stays in the open');
+test('rich: every post gets the quote, even a one-liner', () => {
+  assert.match(rich('one\n\ntwo', []).html, /<blockquote expandable>one<br\/><br\/>two<\/blockquote>$/);
+  assert.match(rich('word '.repeat(300).trim(), []).html, /<blockquote expandable>/, 'a long single line too');
 });

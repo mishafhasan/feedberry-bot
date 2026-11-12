@@ -31,15 +31,16 @@ Two facts decided the layout:
 
 ## Decision
 
-- Stage 6 always returns `rich`. `splitPreview(text)` cuts the body at the last line break inside a
-  240-character budget (the last space when the body has no line break there), so the preview is the
-  first few whole lines — a numbered list stops between items — and the tail is everything else. A
-  tail under 240 characters is not folded: a quote that fits the collapsed height draws no toggle, so
-  the post would wear a dead quote.
-- `expandableQuote(tail)` renders the tail as inline RichText: one line per `<br/>`, every value
-  escaped by the same `inline()` the open body uses, and block markers flattened to their inline
+- Stage 6 always returns `rich`. **The whole body is the quote**: `expandableQuote(body)` wraps every
+  line of the post, so nothing of the post is left outside it and the client's collapsed height is
+  the only preview there is. The markup cannot pin that height to a line count — the product asked
+  for five lines, the client decides (docs/expandable-quotes.md) — and the visible part is the first
+  lines of the quote, in every client, for every post.
+- `expandableQuote(body)` renders the body as inline RichText: one line per `<br/>`, every value
+  escaped by the same `inline()` the open body used, and block markers flattened to their inline
   meaning (`# heading` → `<b>`, `- item` → `• item`, `>` dropped, the fence dropped, the code kept
-  as text). No heading, list, `<pre>`, table or nested element ever enters the quote.
+  as text). No heading, list, `<pre>`, table or nested element ever enters the quote. A body with no
+  words (media only) gets no quote rather than an empty one.
 - Order stays: header, `<tg-slideshow>` (≤50 uploaded photos/videos/animations) and audio blocks,
   the body, then one `🎬 <a href="direct URL">Video n</a>` line per video that cannot upload.
 - The header becomes two blocks (ADR-023's single `<p>` is gone): the source line as `<h3>`
@@ -60,14 +61,16 @@ Two facts decided the layout:
   bot restart, and in channels where a callback would need the bot to be an admin.
 - Collapsed text is client-side only, so it is not searchable and not in the message preview line
   while folded — the trade ADR-024 named, now paid for a smaller mechanism.
-- A quote whose tail lands under 240 characters is not built at all; the post simply stays open.
-- `shortcut:` a fenced block inside the folded tail keeps its text but loses its monospace block,
-  because `<pre>` would break the toggle. Upgrade when a real source posts code past the fold.
+- A short post wears a quote box with no toggle, because the client only folds content taller than
+  its collapsed height. That is the price of one layout for every post, and it keeps the body out of
+  a paragraph block the reader cannot fold when the post is long.
+- `shortcut:` a fenced block inside the quote keeps its text but loses its monospace block, because
+  `<pre>` would break the toggle. Upgrade when a real source posts code.
 
 ## Evidence
 
-`test/unit/rich-render.test.ts` (preview + tail, the 50-item list, inline-only guard, short-tail
-case), `test/unit/rich-text.test.ts` (`splitPreview`, `expandableQuote` escaping),
+`test/unit/rich-render.test.ts` (whole body in the quote, the 50-item list, inline-only guard,
+empty-body case), `test/unit/rich-text.test.ts` (`expandableQuote` escaping and marker flattening),
 `test/unit/caption-header.test.ts` (`<h3>`, `<tg-time>`, `relativeTime`), `test/integration/threads.test.ts`
 (the 3,779-char sub-post arrives inside the quote). Tag behaviour: `docs/expandable-quotes.md`.
 

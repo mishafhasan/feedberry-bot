@@ -227,7 +227,7 @@ test('M12 Download: the page names the account and dates the post, like a schedu
       /^<h3><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1754844947" format="r">/,
       `one heading source line, then the bold live time (saw ${html.slice(0, 160)}…)`,
     );
-    assert.match(html, /<p>Bro turned the whole resort up!<\/p>/);
+    assert.match(html, /<blockquote expandable>Bro turned the whole resort up!<\/blockquote>/);
   } finally {
     db.close();
     await api.close();
@@ -285,7 +285,7 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
       /^<h3><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1724438076" format="r">/,
       `one heading source line, then the bold live time (saw ${html.slice(0, 160)}…)`,
     );
-    assert.match(html, /<p>Watch as Funny Vidz captures another unsuspecting victim\.<\/p>/);
+    assert.match(html, /<blockquote expandable>Watch as Funny Vidz captures another unsuspecting victim\.<\/blockquote>/);
     assert.match(html, /<tg-slideshow><video src="tg:\/\/video\?id=m0"><\/video><\/tg-slideshow>/);
   } finally {
     db.close();
@@ -333,7 +333,7 @@ test('M12 Download: an engine caption above 1024 chars rides whole in one rich m
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     // The fold between the preview and the quote eats one space, so count the words, not the string.
     assert.equal((html.match(/word/g) ?? []).length, 300, 'every word of the caption rides inside the rich message');
-    assert.match(html, /<blockquote expandable>/, 'the tail folds into the quote');
+    assert.match(html, /<blockquote expandable>/, 'the whole caption sits in the quote');
     assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
     assert.doesNotMatch(html, /Read more/, 'no Instant View link on the rich path');
     assert.equal(pages.length, 0, 'Download Mode never publishes a Telegraph page (ADR-023)');
