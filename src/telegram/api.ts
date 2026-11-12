@@ -6,6 +6,7 @@ import { chunk } from '../render/albums.ts';
 import { splitMessage } from '../render/caption.ts';
 import type { MediaKind, MessagePlan } from '../render/message-plan.ts';
 import { RateLimiter, sharedLimiter } from './ratelimit.ts';
+import { moreToken, rememberMore, type MorePayload } from './more.ts';
 import type { Target } from './target.ts';
 
 /** Telegram's caption cap; the pipeline's Read-more budget is derived from it. */
@@ -35,6 +36,8 @@ export class TelegramSender {
         return this.sendAlbum(target, plan.items, plan.caption);
       case 'rich':
         return this.sendRich(target, plan.html, plan.media);
+      case 'rich_more':
+        return this.sendRichMore(target, plan);
       case 'thumbnail':
         return this.sendThumbnail(target, plan.file, plan.caption, plan.link, plan.remote === true);
       default:
@@ -108,6 +111,39 @@ export class TelegramSender {
       if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
       log('warn', 'tg_parse_fallback', { chat: target.chatId });
       return this.sendParts(target, plainText(html), false);
+    }
+  }
+
+  /** ADR-024: the truncated post; the button's token recalls the full body for the edit. */
+  private async sendRichMore(target: Target, plan: Extract<MessagePlan, { kind: 'rich_more' }>): Promise<number[]> {
+    const token = moreToken();
+    const rich: InputRichMessage = {
+      html: `${plan.html}${moreButton(token)}`,
+      skip_entity_detection: true,
+      ...(plan.media.length > 0 ? { media: plan.media.map((m) => ({ id: m.id, media: { type: m.kind, media: new InputFile(m.file) } })) } : {}),
+    };
+    const message = await this.run(target, 1, () => this.api.sendRichMessage(target.chatId, rich, { message_thread_id: target.messageThreadId ?? undefined }));
+    // Stage 9 deletes the files, so the expansion edits with the file_ids this send returned.
+    const media = fileRefsOf(message, plan.media);
+    if (media.length !== plan.media.length) log('warn', 'more_media_refs_missing', { want: plan.media.length, got: media.length });
+    rememberMore(token, { html: plan.fullHtml, media });
+    return [message.message_id];
+  }
+
+  /** ADR-024: reveal the full body in place, keeping the slideshow by file_id. */
+  async expandMore(target: Target, messageId: number, full: MorePayload): Promise<void> {
+    const rich: InputRichMessage = {
+      html: full.html,
+      skip_entity_detection: true,
+      ...(full.media.length > 0 ? { media: full.media.map((m) => ({ id: m.id, media: { type: m.kind, media: m.fileId } })) } : {}),
+    };
+    try {
+      await this.run(target, 1, () => this.api.editMessageText(target.chatId, messageId, rich));
+    } catch (err) {
+      // §8.2 rule 5: a body Telegram cannot parse is edited as plain text, never left half broken.
+      if (!isCoded(err) || err.code !== E.TG_PARSE) throw err;
+      log('warn', 'tg_parse_fallback', { chat: target.chatId });
+      await this.run(target, 1, () => this.api.editMessageText(target.chatId, messageId, plainText(full.html)));
     }
   }
 
@@ -229,4 +265,33 @@ export const senderTarget = (chatId: number): Target => ({ chatId, messageThread
 /** Text we built, minus its HTML: what goes out when Telegram cannot parse the original. */
 export function plainText(html: string): string {
   return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+/** The one button of the preview; `more:<token>` stays far below the 64-byte callback cap.
+ * style="primary" is the blue full-width pill the product asked for (one button fills the row). */
+const moreButton = (token: string): string => `<tg-button-row align="left"><tg-button type="callback_data" style="primary" data="more:${token}">Show more</tg-button></tg-button-row>`;
+
+/**
+ * The file_ids the send returned, in `media` order: the slideshow keeps visual order and audio its
+ * own blocks. A photo lists every size, so the last (largest) file_id represents it.
+ */
+function fileRefsOf(message: { rich_message?: { blocks?: unknown } }, media: Array<{ id: string; kind: MediaKind }>): MorePayload['media'] {
+  const blocks = (Array.isArray(message.rich_message?.blocks) ? message.rich_message.blocks : []) as any[];
+  const visual: string[] = [];
+  const audio: string[] = [];
+  for (const block of blocks) {
+    if (block?.type === 'slideshow' && Array.isArray(block.blocks)) {
+      for (const item of block.blocks) {
+        const sizes = Array.isArray(item?.photo) ? item.photo : [];
+        const fileId = sizes.length > 0 ? sizes[sizes.length - 1]?.file_id : item?.video?.file_id ?? item?.animation?.file_id;
+        if (typeof fileId === 'string') visual.push(fileId);
+      }
+    } else if (block?.type === 'audio' && typeof block.audio?.file_id === 'string') {
+      audio.push(block.audio.file_id);
+    }
+  }
+  return media.flatMap((entry) => {
+    const fileId = entry.kind === 'audio' ? audio.shift() : visual.shift();
+    return fileId === undefined ? [] : [{ id: entry.id, kind: entry.kind, fileId }];
+  });
 }

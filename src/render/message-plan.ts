@@ -21,7 +21,9 @@ export type MessagePlan =
   /** R3/R4: one `sendMediaGroup` per 10 items. Photos and videos may share a group. */
   | { kind: 'album'; items: Array<{ file: string; kind: 'photo' | 'video' }>; caption: string }
   /** ADR-023/025: one rich message — html with `tg://…?id=` refs into `media`, uploaded by stage 7. */
-  | { kind: 'rich'; html: string; media: Array<{ id: string; file: string; kind: MediaKind }> };
+  | { kind: 'rich'; html: string; media: Array<{ id: string; file: string; kind: MediaKind }> }
+  /** ADR-024: unused since ADR-025 (the quote expands in the client); kept so the sender stays as it was. */
+  | { kind: 'rich_more'; html: string; fullHtml: string; media: Array<{ id: string; file: string; kind: MediaKind }> };
 
 /** What a `posts.payload_json` row carries from stage 2 to the renderer. */
 export interface PostPayload {
