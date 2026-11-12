@@ -33,9 +33,10 @@ Two facts decided the layout:
 
 - Stage 6 always returns `rich`. **The whole body is the quote**: `expandableQuote(body)` wraps every
   line of the post, so nothing of the post is left outside it and the client's collapsed height is
-  the only preview there is. The markup cannot pin that height to a line count — the product asked
-  for five lines, the client decides (docs/expandable-quotes.md) — and the visible part is the first
-  lines of the quote, in every client, for every post.
+  the only preview there is. That height is not a markup decision: TDLib collapses an
+  `textEntityTypeExpandableBlockQuote` "by default to 3 lines", and neither the block type
+  (`text`, `credit`) nor the HTML form (bare `expandable`) accepts a height or a line count. Any
+  other number of visible lines is only reachable by leaving those lines outside the quote.
 - `expandableQuote(body)` renders the body as inline RichText: one line per `<br/>`, every value
   escaped by the same `inline()` the open body used, and block markers flattened to their inline
   meaning (`# heading` → `<b>`, `- item` → `• item`, `>` dropped, the fence dropped, the code kept

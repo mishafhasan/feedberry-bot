@@ -24,8 +24,14 @@ Key facts that follow from where the control lives:
   There is no callback, no inline button, and no bot-side state. If the tag is
   correct, the tap behavior comes for free.
 - **The client decides the collapsed height.** There is *no* markup knob for
-  "show N lines initially". A quote whose content fits the client's collapsed
-  height simply renders fully, and `expandable` is ignored.
+  "show N lines initially". TDLib fixes it at **3 lines**:
+  `textEntityTypeExpandableBlockQuote` is "Text that must be formatted as if inside a
+  blockquote HTML tag and collapsed by default to 3 lines with the ability to show full
+  text" (https://core.telegram.org/tdlib/docs/classtd_1_1td__api_1_1text_entity_type_expandable_block_quote.html).
+  Both the block form (`expandable_blockquote`: `text`, optional `credit`) and the HTML
+  form (bare `expandable` attribute) carry no height, and the height is pixels, so the
+  number of visible lines that fit changes only with the reader's font settings. A quote
+  whose content fits the collapsed height renders fully, and `expandable` is ignored.
 - **The API is lenient; the client is not.** The Bot API *accepts* block
   elements nested inside `<blockquote expandable>` (tables, pre, details,
   button rows…). But the block type is specified to take inline RichText only —
