@@ -35,7 +35,6 @@ import { cleanupWorkDir, workDirFor } from '../pipeline/cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import { slotAfter } from '../scheduler/slots.ts';
 import type { TelegramSender } from '../telegram/api.ts';
-import { morePayload } from '../telegram/more.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './session.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
@@ -140,9 +139,6 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
 
   // The admin panel owns its callbacks; it re-checks the admin id and answers its own toast.
   if (data.startsWith(ADM.prefix)) return handleAdminCallback(ctx, deps, userId, data);
-
-  // ADR-024: "Show more" rewrites the post in place; it is not a menu action, so it skips the quota.
-  if (data.startsWith('more:')) return expandPost(ctx, deps, data.slice('more:'.length));
 
   // Answer before any network work: otherwise the client keeps its spinner running.
   const lang = langOf(deps, userId);
@@ -1118,25 +1114,7 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
   return renderDownload(files, { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
-/** ADR-024: replace a truncated post with its full body, same message, media kept by file_id. */
-async function expandPost(ctx: Context, deps: BotDeps, token: string): Promise<void> {
-  const chat = ctx.chat;
-  const messageId = ctx.callbackQuery?.message?.message_id;
-  if (chat === undefined || messageId === undefined) return;
-  const full = morePayload(token);
-  if (full === undefined) {
-    // The payload is process-local and expires; the preview stays untouched.
-    await ctx.answerCallbackQuery({ text: 'This post can no longer be expanded.' });
-    return;
-  }
-  await ctx.answerCallbackQuery();
-  try {
-    await deps.sender.expandMore({ chatId: chat.id, messageThreadId: null, isGroup: chat.type !== 'private' }, messageId, full);
-  } catch (err) {
-    log('warn', 'expand_failed', { chat: chat.id, cause: err instanceof Error ? err.message : String(err) });
-  }
-}
-
+/** A failed check lands here: log the code, reset the session, hand the reader a retry keyboard. */
 async function showError(ctx: Context, deps: BotDeps, userId: number, err: unknown, last: LastError): Promise<void> {
   const code = isCoded(err) ? err.code : E.TG_UNKNOWN;
   log('warn', 'check_failed', { code, cause: message(err) });
