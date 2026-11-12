@@ -52,9 +52,10 @@ Two facts decided the layout:
   ages, which a static string cannot.
 - `platformIcon()` falls back to `🌐` for a platform the icon table does not own (it used to print a
   satellite dish).
-- Retired with ADR-024: the `rich_more` plan kind, `sendRichMore`, `expandMore`, `moreButton`,
-  `fileRefsOf`, `src/telegram/more.ts`, and the `more:` callback route. Nothing in the delivery path
-  carries post state across messages any more.
+- ADR-024's machinery stays exactly as it was: `rich_more`, `sendRichMore`, `expandMore`,
+  `src/telegram/more.ts` and the `more:` callback route are untouched. Nothing produces `rich_more`
+  any more, so the route is dormant — a button on an old message answers "can no longer be
+  expanded" — and this branch changes nothing outside the render layer.
 
 ## Consequences
 
