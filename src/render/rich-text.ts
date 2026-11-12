@@ -151,25 +151,28 @@ function quote(run: Array<{ depth: number; text: string }>): string {
   return `<blockquote>${walk(1)}</blockquote>`;
 }
 
-/** The preview budget: the first two paragraphs, about 240 characters. */
-export const PREVIEW_PARAGRAPHS = 2;
+/** The preview budget: about this much of the post stays open above the fold. */
 export const PREVIEW_CHARS = 240;
 
 /**
- * The reader sees the preview, the rest folds into the expandable quote (ADR-025). Whole paragraphs
- * only, so a cut never lands mid-sentence; `tail` is empty when the whole post fits.
+ * The reader sees a preview, the rest folds into the expandable quote (ADR-025). The cut lands on
+ * the last line break inside the budget, so a folded list stops between items; a post with no line
+ * break in the budget is cut at a space, never mid-word. `tail` is empty when the post fits.
  */
-export function splitPreview(text: string, maxParagraphs = PREVIEW_PARAGRAPHS, maxChars = PREVIEW_CHARS): { preview: string; tail: string } {
-  const paragraphs = text.split(/\n{2,}/).filter((paragraph) => paragraph.trim() !== '');
-  const kept: string[] = [];
-  let chars = 0;
-  for (const paragraph of paragraphs) {
-    if (kept.length >= maxParagraphs) break;
-    kept.push(paragraph);
-    chars += paragraph.length;
-    if (chars >= maxChars) break;
-  }
-  return { preview: kept.join('\n\n'), tail: paragraphs.slice(kept.length).join('\n\n') };
+export function splitPreview(text: string, maxChars = PREVIEW_CHARS): { preview: string; tail: string } {
+  const body = text.replace(/\r\n?/g, '\n').trim();
+  if (body.length <= maxChars) return { preview: body, tail: '' };
+  const cut = foldIndex(body, maxChars);
+  return { preview: body.slice(0, cut).trimEnd(), tail: body.slice(cut).trimStart() };
+}
+
+/** The last line break inside the budget, else the last space, else the budget itself. */
+function foldIndex(body: string, maxChars: number): number {
+  const head = body.slice(0, maxChars + 1);
+  const line = head.lastIndexOf('\n');
+  if (line > 0) return line;
+  const space = head.lastIndexOf(' ');
+  return space > 0 ? space : maxChars;
 }
 
 /**

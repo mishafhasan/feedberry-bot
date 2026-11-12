@@ -331,7 +331,9 @@ test('M12 Download: an engine caption above 1024 chars rides whole in one rich m
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.ok(html.includes(long), 'the whole caption rides inside the rich message');
+    // The fold between the preview and the quote eats one space, so count the words, not the string.
+    assert.equal((html.match(/word/g) ?? []).length, 300, 'every word of the caption rides inside the rich message');
+    assert.match(html, /<blockquote expandable>/, 'the tail folds into the quote');
     assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
     assert.doesNotMatch(html, /Read more/, 'no Instant View link on the rich path');
     assert.equal(pages.length, 0, 'Download Mode never publishes a Telegraph page (ADR-023)');

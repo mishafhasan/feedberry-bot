@@ -84,23 +84,26 @@ test('rich text: blocks between paragraphs keep the paragraph order', () => {
   assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
 });
 
-test('rich text: the preview keeps whole paragraphs, two or about 240 chars, and the tail is the rest', () => {
+test('rich text: the preview is the first ~240 chars of whole lines, the tail is the rest', () => {
   const text = [1, 2, 3, 4, 5, 6].map((n) => `Paragraph ${n}. ${'word '.repeat(20).trim()}`).join('\n\n');
   const { preview, tail } = splitPreview(text);
 
-  assert.equal(preview.split('\n\n').length, 2, 'two paragraphs fit the preview');
-  assert.match(preview, /Paragraph 2\./);
-  assert.doesNotMatch(preview, /Paragraph 3/, 'the cut lands on a paragraph boundary');
   assert.ok(preview.length <= 240, `preview is ${preview.length} chars`);
+  assert.match(preview, /^Paragraph 1\./);
+  assert.match(preview, /Paragraph 2\./, 'both paragraphs fit the budget');
+  assert.doesNotMatch(preview, /Paragraph 3/, 'the cut lands on a line break');
   assert.match(tail, /^Paragraph 3\./, 'the tail starts where the preview stopped');
   assert.match(tail, /Paragraph 6\./, 'and keeps the end of the post');
 
   assert.deepEqual(splitPreview('one\n\ntwo'), { preview: 'one\n\ntwo', tail: '' }, 'a short post is untouched');
-  const long = `long `.repeat(300).trim();
-  assert.deepEqual(splitPreview(long), { preview: long, tail: '' }, 'one long paragraph is never cut');
-  assert.deepEqual(splitPreview('a\nb\n\nc'), { preview: 'a\nb\n\nc', tail: '' }, 'line breaks inside a kept paragraph stay');
-  const titleAndBody = `Title\n\n${'word '.repeat(300).trim()}`;
-  assert.deepEqual(splitPreview(titleAndBody), { preview: titleAndBody, tail: '' }, 'a title never stands alone as the preview');
+  assert.deepEqual(splitPreview('a\nb\n\nc'), { preview: 'a\nb\n\nc', tail: '' }, 'line breaks inside a short post stay');
+
+  const prose = 'word '.repeat(300).trim();
+  const folded = splitPreview(prose);
+  assert.ok(folded.preview.length <= 240 && folded.tail !== '', 'one long paragraph folds too, it is not a wall of text');
+  assert.equal(`${folded.preview} ${folded.tail}`, prose, 'the cut lands on a space, so no word is torn');
+
+  assert.deepEqual(splitPreview(`Title\n\n${prose}`), { preview: 'Title', tail: prose }, 'a title opens, the body folds');
 });
 
 test('rich text: the expandable quote escapes its content and keeps every line break', () => {

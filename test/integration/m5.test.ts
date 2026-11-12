@@ -262,7 +262,9 @@ test('M5 download mode: a long caption arrives whole in one rich message, no Ins
 
     const rich = api.last('sendRichMessage');
     const html = String(rich?.body.rich_message?.html ?? '');
-    assert.ok(html.includes(LONG), 'the whole caption rides inside the rich message');
+    // The fold between the preview and the quote eats one space, so count the words, not the string.
+    assert.equal((html.match(/word/g) ?? []).length, 205, 'every word of the caption rides inside the rich message');
+    assert.match(html, /<blockquote expandable>/, 'the tail opens behind the quote');
     assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
     assert.ok(!api.calls.some((call) => call.method === 'sendPhoto'), 'no attached media message');
     assert.ok(!api.calls.some((call) => /\(2\/2\)$/.test(String(call.body.text ?? ''))), 'the rest is not sent as a second message');

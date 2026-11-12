@@ -88,7 +88,7 @@ test('rich: media past the 50-attachment ceiling is dropped', () => {
 test('rich: a body over 32,768 chars is clamped at a word boundary with an ellipsis', () => {
   const plan = rich('word '.repeat(7000).trim(), []);
   assert.ok(plan.html.length <= RICH_TEXT_LIMIT, `html is ${plan.html.length} chars`);
-  assert.match(plan.html, /…<\/p>$/);
+  assert.match(plan.html, /…<\/blockquote>$/, 'the ellipsis closes the folded tail');
 });
 
 test('rich: an RSS post keeps the classic layout, never rich', () => {
@@ -96,20 +96,30 @@ test('rich: an RSS post keeps the classic layout, never rich', () => {
   assert.equal(plan.kind, 'photo');
 });
 
-test('rich: a long multi-paragraph post folds its tail into an expandable quote', () => {
+test('rich: a long post folds its tail into an expandable quote', () => {
   const paragraphs = [1, 2, 3, 4, 5, 6].map((n) => `Para ${n}: ${'word '.repeat(20).trim()}`);
   const plan = rich(paragraphs.join('\n\n'), []);
 
-  assert.match(plan.html, /<p>Para 1:[\s\S]*<\/p><p>Para 2:[\s\S]*<\/p><blockquote expandable>/);
+  assert.match(plan.html, /^[\s\S]*<p>Para 1:[\s\S]*<\/p><blockquote expandable>/);
   const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
-  assert.match(quote, /Para 3:/, 'the tail is kept, not dropped');
+  assert.match(quote, /^Para 3:/, 'the tail starts at the first line past the preview budget');
   assert.match(quote, /Para 6:/, 'to the last paragraph');
-  assert.doesNotMatch(quote, /Para 2:/, 'the preview stays outside the quote');
+  assert.doesNotMatch(quote, /Para [12]:/, 'the preview stays outside the quote');
+});
+
+test('rich: a 50-item list folds too, no blank line needed', () => {
+  const items = Array.from({ length: 50 }, (_, i) => `${i + 1}. A site worth keeping in the toolbox`);
+  const plan = rich(`50 websites\n${items.join('\n')}`, []);
+  const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
+
+  assert.match(plan.html, /<ol><li>/, 'the open part keeps its list');
+  assert.match(quote, /50\. A site worth keeping/, 'the tail reaches the last item');
+  assert.doesNotMatch(quote, /<ol|<li/, 'and is inline only');
 });
 
 test('rich: the hidden tail holds inline RichText only, or the client drops the toggle', () => {
-  const filler = 'The tail is what the reader has to tap to see. '.repeat(8).trim();
-  const body = ['first', 'second', '', 'third', '', '# a heading', '> a quote', '- a bullet', '```js', 'const a = 1;', '```', filler, 'last'].join('\n');
+  const filler = 'The tail is what the reader has to tap to see. '.repeat(20).trim();
+  const body = [filler, '', '# a heading', '> a quote', '- a bullet', '```js', 'const a = 1;', '```', 'last'].join('\n');
   const plan = rich(body, []);
   const quote = /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(plan.html)?.[1] ?? '';
 
@@ -122,12 +132,12 @@ test('rich: the hidden tail holds inline RichText only, or the client drops the 
   assert.match(quote, /<br\/>/, 'line breaks stay explicit');
 });
 
-test('rich: a short post, or one paragraph that is long, never gets a quote', () => {
-  const short = rich('one\n\ntwo', []);
-  assert.doesNotMatch(short.html, /<blockquote/);
-  const single = rich('word '.repeat(200).trim(), []);
-  assert.doesNotMatch(single.html, /<blockquote/);
-  const tinyTail = rich('one\n\ntwo\n\nthree', []);
+test('rich: a post that fits the preview keeps no quote, a longer one folds', () => {
+  assert.doesNotMatch(rich('one\n\ntwo', []).html, /<blockquote/);
+  const long = rich('word '.repeat(300).trim(), []);
+  assert.match(long.html, /<blockquote expandable>/, 'one long line folds as well');
+
+  const tinyTail = rich('word '.repeat(50).trim(), []);
   assert.doesNotMatch(tinyTail.html, /<blockquote/, 'a tail too short to fold would only draw a dead quote');
-  assert.match(tinyTail.html, /<p>three<\/p>$/, 'so its text stays in the open');
+  assert.match(tinyTail.html, /<p>word word /, 'so its text stays in the open');
 });
