@@ -136,4 +136,5 @@ test('relative time: words while words are true, the day-first date past a week'
 test('icons: the bot layer re-exports the one producer in platform/icons', () => {
   assert.equal(platformIconViaTexts('x'), platformIcon('x'));
   assert.match(platformIcon('x'), /^<tg-emoji emoji-id="\d+">✖️<\/tg-emoji>$/);
+  assert.equal(platformIcon('constructor'), '🌐', 'a platform with no logo falls back to the globe');
 });
