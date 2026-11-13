@@ -291,6 +291,8 @@ test('M26 registry: a message is searched for its links before anything classifi
   assert.deepEqual(linksIn('https://a.test/x! And https://b.test/y.'), ['https://a.test/x', 'https://b.test/y'], 'two links, sentence punctuation dropped');
   assert.deepEqual(linksIn('https://a.test/x and https://a.test/x'), ['https://a.test/x'], 'the same link twice is one');
   assert.deepEqual(linksIn('see www.instagram.com/cristiano'), ['https://www.instagram.com/cristiano'], 'a www host becomes a URL');
+  assert.deepEqual(linksIn('«https://instagram.com/cristiano»'), ['https://instagram.com/cristiano'], 'a locale quote is the sentence\'s');
+  assert.deepEqual(linksIn('देखो https://www.instagram.com/cristiano।'), ['https://www.instagram.com/cristiano'], 'the danda ends the sentence, not the URL');
   assert.deepEqual(linksIn('hello, how are you?'), [], 'ordinary text carries no link');
   assert.deepEqual(linksIn('ftp://files.test/a https://ok.test/b'), ['https://ok.test/b'], 'only http(s) is a link here');
 });

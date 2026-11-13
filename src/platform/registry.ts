@@ -285,7 +285,8 @@ export function linksIn(text: string): string[] {
 
 /** Trailing punctuation is the sentence's; a bracket the URL opened itself (Wikipedia) stays. */
 function trimLink(token: string): string {
-  let link = token.replace(/[.,;:!?…]+$/, '');
+  // The shipped locales punctuate with «», । and 。, so the cut is not ASCII-only.
+  let link = token.replace(/[.,;:!?…»«“”‘’।。，、]+$/u, '');
   for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']] as const) {
     while (link.endsWith(close) && countOf(link, open) < countOf(link, close)) link = link.slice(0, -1);
   }

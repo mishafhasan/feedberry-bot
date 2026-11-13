@@ -354,9 +354,21 @@ async function answerUnusable(ctx: Context, deps: BotDeps, userId: number, text:
 
 /** The download-or-subscribe choice for a link that is not a source. */
 async function askPostOrSource(ctx: Context, deps: BotDeps, userId: number, link: string, profileUrl: string | null): Promise<void> {
-  setSession(userId, { state: 'choosing', chooser: { link, profile: profileUrl ?? undefined } });
+  await dropChooser(ctx, userId);
   const lang = langOf(deps, userId);
-  await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
+  const sent = await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
+  setSession(userId, { state: 'choosing', chooser: { link, profile: profileUrl ?? undefined, messageId: sent.message_id } });
+}
+
+/**
+ * The chooser is one prompt for one link. The moment another flow takes over, its message goes with
+ * it: two prompts read the same, and the older one would act on whatever link arrived last.
+ */
+async function dropChooser(ctx: Context, userId: number): Promise<void> {
+  const previous = getSession(userId).chooser?.messageId;
+  const chatId = ctx.chat?.id;
+  if (chatId !== undefined && previous !== undefined) await ctx.api.deleteMessage(chatId, previous).catch(() => {});
+  setSession(userId, { chooser: undefined });
 }
 
 /** The classifier's answer, or null for a link no flow can use. */
@@ -450,6 +462,7 @@ interface ResolveOptions {
  * one-step add. A link no flow can use falls through, so runResolve reports its own code.
  */
 async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string, options: ResolveOptions = {}): Promise<void> {
+  await dropChooser(ctx, userId);
   // Only the classification is guarded: a paint that fails must not become an add with default kinds.
   let ref: SourceRef | undefined;
   try {
@@ -952,6 +965,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
   const chat = ensurePrivateChat(deps.db, user.id, userId);
   const chatId = ctx.chat?.id;
   let working: number | undefined;
+  await dropChooser(ctx, userId);
 
   try {
     const ref = detectSource(link, detectOpts(deps));

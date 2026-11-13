@@ -359,9 +359,13 @@ test('M26: the link is what counts, not the words around it, and no message leav
     assert.ok(buttons(chooser).includes('dl:post'), 'the download is offered');
     assert.ok(buttons(chooser).includes('add:post'), 'and the account behind the post');
 
-    // The chooser is a prompt, not a draft: a second link replaces it instead of vanishing.
+    // The chooser is a prompt, not a draft: a second link replaces it, and the old prompt is gone
+    // so its buttons cannot act on the newer link.
+    const mark = api.calls.length;
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'actually this one https://www.instagram.com/p/C2/'));
-    assert.match(String(api.last('sendMessage')?.body.text), /post link/, 'the second link is answered too');
+    const replaced = api.callsSince(mark);
+    assert.ok(replaced.some((call) => call.method === 'deleteMessage'), 'the older chooser is removed');
+    assert.equal(replaced.filter((call) => call.method === 'sendMessage').length, 1, 'the second link is answered with its own chooser');
 
     // Text that meant a link with nothing openable in it: named, not ignored.
     await bot.handleUpdate(startUpdate(updateId++, USER_ID));
@@ -376,8 +380,9 @@ test('M26: the link is what counts, not the words around it, and no message leav
     assert.match(String(api.last('sendMessage')?.body.text), /Send a post link, not a profile\./);
 
     // The refusal never left the screen: the next post link still downloads.
+    const before = api.calls.length;
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
-    assert.ok(api.calls.some((call) => call.method === 'sendRichMessage'), 'a post link still downloads');
+    assert.ok(api.callsSince(before).some((call) => call.method === 'sendRichMessage'), 'a post link still downloads');
   } finally {
     db.close();
     await api.close();
@@ -398,7 +403,13 @@ test('M26: a source link inside a sentence previews the source in free text and 
     await bot.init();
     await bot.handleUpdate(startUpdate(updateId++, USER_ID));
 
+    // A chooser is open; a source link takes over and the prompt goes with it, so its buttons can
+    // never act on the link that arrived last.
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
+    assert.ok(buttons(api.last('sendMessage')).includes('dl:post'), 'the chooser is open');
+    const mark = api.calls.length;
     await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'new source: https://www.instagram.com/cristiano/ — enjoy'));
+    assert.ok(api.callsSince(mark).some((call) => call.method === 'deleteMessage'), 'the chooser prompt is removed');
     assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the source is previewed, not ignored');
     assert.ok(fetched.includes('http://rsshub.test/instagram/user/cristiano'), 'through the route the link names');
 

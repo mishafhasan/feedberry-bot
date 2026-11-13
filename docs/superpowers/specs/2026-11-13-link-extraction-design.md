@@ -45,6 +45,13 @@ The "Add source" button keeps its current visibility: it appears only when the p
 followable, so a post on X without instance tokens or on Snapchat offers Download alone rather than
 a button that can only end in an error.
 
+### One live chooser
+
+A chooser message is deleted the moment another flow takes over (a second link, a source add, a
+download). Two prompts read identically, and without this the older message's buttons would act on
+whatever link arrived last. The result message after a download keeps its own `add:post` button: it
+is not a chooser prompt, so it is never deleted.
+
 ## Out of scope
 
 - links in photo/video captions (`message:caption`);

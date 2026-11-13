@@ -95,7 +95,7 @@ export interface Session {
   /** The /filter page being read, so a clear or an edit returns to the same one. */
   kwPage?: number;
   /** A link waiting on the download/add choice; `profile` is set when a download or the page named the account. */
-  chooser?: { link: string; profile?: string };
+  chooser?: { link: string; profile?: string; messageId?: number };
   /** Admin panel page, so Back from details returns to the list the admin was reading. */
   adm?: { page: number };
   /** Notify target, kept while the admin types the message body. */
