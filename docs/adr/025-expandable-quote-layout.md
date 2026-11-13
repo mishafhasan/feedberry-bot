@@ -42,14 +42,16 @@ Two facts decided the layout:
   meaning (`# heading` → `<b>`, `- item` → `• item`, `>` dropped, the fence dropped, the code kept
   as text). No heading, list, `<pre>`, table or nested element ever enters the quote. A body with no
   words (media only) gets no quote rather than an empty one.
-- Order stays: header, `<tg-slideshow>` (≤50 uploaded photos/videos/animations) and audio blocks,
-  the body, then one `🎬 <a href="direct URL">Video n</a>` line per video that cannot upload.
-- The header becomes two blocks (ADR-023's single `<p>` is gone): the source line as `<h3>`
+- Order: header, `<tg-slideshow>` (≤50 uploaded photos/videos/animations) and audio blocks, an
+  `<hr/>`, the quote, an `<hr/>`, then one `🎬 <a href="direct URL">Video n</a>` line per video that
+  cannot upload. The two rules frame the post so it reads as one block of content under the heading;
+  a media-only post gets neither rules nor an empty quote.
+- The header becomes two blocks (ADR-023's single `<p>` is gone): the source line as `<h5>`
   (`{platformIcon} <a href="post URL">SourceName</a> | SourceType`) and the time as
-  `<p>⏱️ <b>Time</b>: <tg-time unix=… format="r">…</tg-time></p>`. `relativeTime()` writes the
-  fallback label — "just now", "5 minutes ago", "2 days ago" — and the day-first absolute time in
-  the reader's `users.tz` past a week; `<tg-time format="r">` keeps the label right as the message
-  ages, which a static string cannot.
+  `<p>⏱️ <b>Time</b>: DD/MM HH:MM</p>` in the reader's `users.tz`. The string is built by
+  `ddmmhhmm()` rather than `<tg-time>`: that tag can only print the client's own locale format
+  (`d` is the app's short date), the layout asks for day-first `DD/MM`, and an absolute stamp has
+  nothing to tick.
 - `platformIcon()` falls back to `🌐` for a platform the icon table does not own (it used to print a
   satellite dish).
 - ADR-024's machinery stays exactly as it was: `rich_more`, `sendRichMore`, `expandMore`,

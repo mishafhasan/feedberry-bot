@@ -90,7 +90,7 @@ function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras)
 
 /**
  * One rich message: heading + time, a slideshow of the post's own media, the whole post inside one
- * expandable quote, then one labelled link per video that cannot upload (ADR-025).
+ * expandable quote framed by two rules, then one labelled link per video that cannot upload (ADR-025).
  */
 function richPlan(header: string, parts: string[], files: MediaFile[]): MessagePlan {
   // shortcut: media past the 50-attachment ceiling is dropped, upgrade when a real source exceeds it.
@@ -103,13 +103,17 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
   // Audio cannot ride in a slideshow (Telegram hoists it out), so it stands as its own block.
   const audio = indexed.filter((x) => x.file.kind === 'audio');
   const links = withVideoLinks('', files).trim();
-  const compose = (bodyPlain: string): string => [
-    header,
-    visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
-    ...audio.map((x) => ref(x.index, x.file.kind)),
-    expandableQuote(bodyPlain),
-    links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
-  ].filter((block) => block !== '').join('');
+  const compose = (bodyPlain: string): string => {
+    const body = expandableQuote(bodyPlain);
+    return [
+      header,
+      visual.length > 0 ? `<tg-slideshow>${visual.map((x) => ref(x.index, x.file.kind)).join('')}</tg-slideshow>` : '',
+      ...audio.map((x) => ref(x.index, x.file.kind)),
+      // Two rules frame the quote, so the post reads as one block of content under the heading.
+      body === '' ? '' : `<hr/>${body}<hr/>`,
+      links === '' ? '' : `<p>${links.replace(/\n/g, '<br/>')}</p>`,
+    ].filter((block) => block !== '').join('');
+  };
 
   let bodyPlain = parts.join('\n\n');
   let html = compose(bodyPlain);

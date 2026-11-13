@@ -115,29 +115,11 @@ export function postHeader(params: { sourceTitle: string | null; url: string | n
     return [`🌐 ${line}`, when === null ? null : `⏱️ Time: ${when}`].filter((text) => text !== null).join('\n');
   }
 
-  // `<tg-time>` keeps the label right as the message ages; the text inside is the fallback.
-  const time = publishedAt === null
-    ? ''
-    : `<p>⏱️ <b>Time</b>: <tg-time unix="${Math.floor(publishedAt / 1000)}" format="r">${relativeTime(publishedAt, tz)}</tg-time></p>`;
-  return `<h3>${platformIcon(params.platform)} ${line}</h3>${time}`;
+  // `<tg-time>` would print the client's own locale format; the layout asks for DD/MM HH:MM, and an
+  // absolute stamp has nothing to tick, so the reader's zone decides the string instead.
+  const time = publishedAt === null ? '' : `<p>⏱️ <b>Time</b>: ${ddmmhhmm(publishedAt, tz)}</p>`;
+  return `<h5>${platformIcon(params.platform)} ${line}</h5>${time}`;
 }
-
-/**
- * The time in words while words are still true: "just now", "5 minutes ago", "2 days ago". Past a
- * week the day-first date in the reader's zone is the only useful label left.
- */
-export function relativeTime(ms: number, tz = 'UTC', now = Date.now()): string {
-  // A source may stamp a post in the future (its clock, not ours): the reader sees "just now".
-  const minutes = Math.floor((now - ms) / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${count(minutes, 'minute')} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${count(hours, 'hour')} ago`;
-  const days = Math.floor(hours / 24);
-  return days < 7 ? `${count(days, 'day')} ago` : ddmmhhmm(ms, tz);
-}
-
-const count = (value: number, unit: string): string => `${value} ${unit}${value === 1 ? '' : 's'}`;
 
 /** The display name of a source platform, for every screen that names one: post header, source list. */
 export function platformLabel(platform: string): string {
@@ -179,7 +161,7 @@ export function mmddhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, false);
 }
 
-/** `DD/MM HH:MM` — the day-first absolute time, the fallback once a post is older than a week. */
+/** `DD/MM HH:MM` — the rich header's day-first absolute time in the reader's zone. */
 export function ddmmhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, true);
 }

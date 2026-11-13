@@ -539,16 +539,17 @@ The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source che
 | R13 | article too thin (< 400 chars readable text) | `sendMessage` | title + link, no IV | — | fallback of R12 |
 | R14 | unknown / unsupported | `sendMessage` | text + original link | — | 2,3,4,6,7 |
 | R15 | album holding a video > 50 MB | `sendMediaGroup` of the rest, plus one frame per oversized video | caption + one `🎬` line per oversized video | the oversized video is never uploaded, never dropped | 2–7 |
-| R16 | any non-RSS (social) post | one `sendRichMessage` | `<h3>` source line + bold relative time + in-message slideshow + full text (≤32,768), one `🎬` link per video > 50 MB | ADR-023; supersedes R1–R11/R15 for non-RSS | 2,3,4,5,6,7 |
-| R17 | any non-RSS post with text | the same one `sendRichMessage` | the whole body inside `<blockquote expandable>` (inline RichText only); the client's collapsed height is the preview | ADR-025; supersedes ADR-024 | 2,3,4,5,6,7 |
+| R16 | any non-RSS (social) post | one `sendRichMessage` | `<h5>` source line + bold `DD/MM HH:MM` + in-message slideshow + full text (≤32,768), one `🎬` link per video > 50 MB | ADR-023; supersedes R1–R11/R15 for non-RSS | 2,3,4,5,6,7 |
+| R17 | any non-RSS post with text | the same one `sendRichMessage` | the whole body inside `<blockquote expandable>` (inline RichText only) framed by two `<hr/>`; the client's collapsed height is the preview | ADR-025; supersedes ADR-024 | 2,3,4,5,6,7 |
 
 Every row goes through stage 9 (cleanup). Every row sends to `chat_id` + `message_thread_id` when set.
 
 R16 (ADR-023) is the layout for every non-RSS source, scheduled and Download Mode alike: the whole post
 ships as one rich message with an in-message slideshow, no caption split and no Telegraph page. The classic
 rows R1–R11/R15 remain the RSS/blog layout (article extraction, the thin-page fallback, blog enclosures).
-R17 (ADR-025) refines R16: the post's words all fold into a `<blockquote expandable>`, so one native tap
-reveals them — no callback, no stored payload, no edit — and the collapsed height is the client's.
+R17 (ADR-025) refines R16: the post's words all fold into a `<blockquote expandable>` between two rules,
+so one native tap reveals them — no callback, no stored payload, no edit — and the collapsed height is
+the client's.
 
 ### 8.2 Caption vs message splitting with `(2/3)`
 

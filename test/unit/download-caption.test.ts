@@ -54,7 +54,7 @@ test('Download caption: a words-only post keeps its text, still one rich message
   const plan = renderDownload([], { title: 'But AI can’t do your job.', artist: 'jacobwren', publishedAt: Date.UTC(2025, 11, 13, 22, 37), platform: 'tumblr' }, link);
 
   assert.equal(plan.kind, 'rich', 'no media does not mean no post');
-  assert.match(htmlOf(plan), /<a href="[^"]+">jacobwren<\/a> \| Tumblr<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1765665420" format="r">/, 'same heading + live time as every other source');
+  assert.match(htmlOf(plan), /<a href="[^"]+">jacobwren<\/a> \| Tumblr<\/h5><p>⏱️ <b>Time<\/b>: 13\/12 22:37<\/p>/, 'same h5 heading + day-first time as every other source');
   assert.ok(htmlOf(plan).includes('But AI can’t do your job.'), 'the words survive');
   assert.doesNotMatch(htmlOf(plan), /<tg-slideshow>/, 'no media, no slideshow');
 });

@@ -23,32 +23,33 @@ const rich = (summary: string, files: MediaFile[]) => {
   return plan.kind === 'rich' ? plan : { html: '', media: [] };
 };
 
-/** The header every rich post opens with: a heading source line, then the bold, live time line. */
-const HEADER = /^<h3><tg-emoji emoji-id="\d+">📸<\/tg-emoji> <a href="https:\/\/www\.instagram\.com\/p\/DfJ2075AGx3\/">Evolving AI<\/a> \| Instagram<\/h3><p>⏱️ <b>Time<\/b>: <tg-time unix="1793505660" format="r">[^<]*<\/tg-time><\/p>/;
+/** The header every rich post opens with: an h5 source line, then the bold DD/MM HH:MM time line. */
+const HEADER = /^<h5><tg-emoji emoji-id="\d+">📸<\/tg-emoji> <a href="https:\/\/www\.instagram\.com\/p\/DfJ2075AGx3\/">Evolving AI<\/a> \| Instagram<\/h5><p>⏱️ <b>Time<\/b>: 01\/11 04:01<\/p>/;
 
-test('rich: heading + bold relative time, slideshow ref, and the whole body in one quote', () => {
+test('rich: h5 heading + time, slideshow ref, and the whole body in one framed quote', () => {
   const plan = rich('Hello world', [photo()]);
   assert.match(plan.html, HEADER);
   assert.match(plan.html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/);
-  assert.match(plan.html, /<blockquote expandable>Hello world<\/blockquote>$/);
+  assert.match(plan.html, /<hr\/><blockquote expandable>Hello world<\/blockquote><hr\/>$/);
   assert.deepEqual(plan.media, [{ id: 'm0', file: 'a.jpg', kind: 'photo' }]);
 });
 
 test('rich: line breaks stay <br/>, a blank line is the only paragraph gap, source values are escaped', () => {
   const plan = rich('line one\nline two\n\na < b & c > d', []);
-  assert.match(plan.html, /<blockquote expandable>line one<br\/>line two<br\/><br\/>a &lt; b &amp; c &gt; d<\/blockquote>$/);
+  assert.match(plan.html, /<blockquote expandable>line one<br\/>line two<br\/><br\/>a &lt; b &amp; c &gt; d<\/blockquote>/);
 });
 
 test('rich: no media still ships header + time + the quoted body, no slideshow', () => {
   const plan = rich('words only', []);
   assert.doesNotMatch(plan.html, /<tg-slideshow>/);
   assert.deepEqual(plan.media, []);
-  assert.match(plan.html, /<blockquote expandable>words only<\/blockquote>$/);
+  assert.match(plan.html, /<hr\/><blockquote expandable>words only<\/blockquote><hr\/>$/);
 });
 
-test('rich: a post with no words ships no empty quote', () => {
+test('rich: a post with no words ships no empty quote, and no rules around nothing', () => {
   const plan = rich('   ', [photo()]);
   assert.doesNotMatch(plan.html, /<blockquote/);
+  assert.doesNotMatch(plan.html, /<hr\/>/, 'a rule would frame an empty space');
   assert.match(plan.html, /<tg-slideshow>/, 'the media still goes out');
 });
 
@@ -94,7 +95,7 @@ test('rich: media past the 50-attachment ceiling is dropped', () => {
 test('rich: a body over 32,768 chars is clamped at a word boundary with an ellipsis', () => {
   const plan = rich('word '.repeat(7000).trim(), []);
   assert.ok(plan.html.length <= RICH_TEXT_LIMIT, `html is ${plan.html.length} chars`);
-  assert.match(plan.html, /…<\/blockquote>$/, 'the ellipsis closes the folded tail');
+  assert.match(plan.html, /…<\/blockquote><hr\/>$/, 'the ellipsis closes the folded text');
 });
 
 test('rich: an RSS post keeps the classic layout, never rich', () => {
@@ -138,6 +139,6 @@ test('rich: the quote holds inline RichText only, or the client drops the toggle
 });
 
 test('rich: every post gets the quote, even a one-liner', () => {
-  assert.match(rich('one\n\ntwo', []).html, /<blockquote expandable>one<br\/><br\/>two<\/blockquote>$/);
+  assert.match(rich('one\n\ntwo', []).html, /<hr\/><blockquote expandable>one<br\/><br\/>two<\/blockquote><hr\/>$/);
   assert.match(rich('word '.repeat(300).trim(), []).html, /<blockquote expandable>/, 'a long single line too');
 });

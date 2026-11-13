@@ -123,11 +123,12 @@ Notes:
 - `src/render/rich-text.ts` — `expandableQuote()` renders a post's whole body as the quote. It emits
   inline tags only and reuses the `inline()` escaper, so a heading, list or fence marker in the post
   can never reach Telegram as a block (pitfall 1).
-- `src/pipeline/render-post.ts` — `richPlan()` puts that quote between the slideshow and the
-  oversized-video links: nothing of the post is left outside it, and the client's collapsed height
-  is the preview. Markup cannot pin it to five lines (pitfall 2).
-- `src/render/caption.ts` — the rich header: the `<h3>` source line, and the bold time line whose
-  label `relativeTime()` writes and `<tg-time format="r">` keeps current as the message ages.
+- `src/pipeline/render-post.ts` — `richPlan()` frames that quote with an `<hr/>` above and below,
+  between the slideshow and the oversized-video links: nothing of the post is left outside it, and
+  the client's collapsed height is the preview. Markup cannot pin it to five lines (pitfall 2).
+- `src/render/caption.ts` — the rich header: the `<h5>` source line, and the bold time line in
+  `DD/MM HH:MM` from `ddmmhhmm()` in the reader's zone (not `<tg-time>`, which prints the client's
+  locale format).
 - `test/unit/rich-render.test.ts` — pins the whole-body-in-the-quote layout, the 50-item list, the
   inline-only guard over the quote's content, and the empty-body case; `test/unit/rich-text.test.ts`
   pins the escaping and the marker flattening.
