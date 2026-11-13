@@ -407,7 +407,23 @@ async function pageSourceFor(deps: BotDeps, ref: SourceRef, askIfNotSection: boo
 async function ownerOf(link: string, deps: BotDeps): Promise<string | null> {
   const match = classifyLink(link, detectOpts(deps));
   if (match.kind === 'source') return null;
-  return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps)));
+  return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps))) ?? (await threadsOwner(deps, link));
+}
+
+/**
+ * A `/t/<code>` thread names its account only in the page, which the download reads anyway. Asking
+ * it here is what offers Add source before the download instead of after it.
+ */
+async function threadsOwner(deps: BotDeps, link: string): Promise<string | null> {
+  try {
+    const ref = detectSource(link, detectOpts(deps));
+    if (ref.platform !== 'threads' || ref.strategy !== 'single_post') return null;
+    const thread = await fetchThreadsThread(deps.http, ref.canonicalUrl);
+    return thread.author === null ? null : profileFromAuthor('threads', thread.author);
+  } catch {
+    // A post the page cannot answer is still downloadable; it just cannot offer a source yet.
+    return null;
+  }
 }
 
 /** Platforms whose extractor names the poster, and whose profile has a feed to follow. */

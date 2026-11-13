@@ -52,6 +52,14 @@ download). Two prompts read identically, and without this the older message's bu
 whatever link arrived last. The result message after a download keeps its own `add:post` button: it
 is not a chooser prompt, so it is never deleted.
 
+### The chooser reads what the download reads
+
+A post link names its account in one of three places: the URL (`tumblr.com/<blog>/…`), the extractor
+(Instagram, TikTok), or the page (Threads `/t/<code>`, YouTube posts). The chooser asks all three
+before it paints, so Add source can never appear only after the download. Threads was the gap: the
+cobalt extractor returns no artist for a thread, so the chooser now reads the permalink page once —
+the same request the download already makes.
+
 ## Out of scope
 
 - links in photo/video captions (`message:caption`);
