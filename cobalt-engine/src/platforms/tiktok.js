@@ -182,7 +182,10 @@ export default async function(obj) {
             }
         }
         return {
-            urls: video,
+            // The play address is the picture only; TikTok keeps the sound in its own track, so the
+            // engine muxes the two. Without it an inline TikTok video played silent.
+            urls: detail.music?.playUrl ? [video, detail.music.playUrl] : video,
+            cover: detail.video?.originCover || detail.video?.cover,
             subtitles,
             ...((caption || fileMetadata) && { fileMetadata: { ...(caption && { title: caption }), ...fileMetadata } }),
             filename: videoFilename,

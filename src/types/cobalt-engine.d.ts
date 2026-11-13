@@ -15,6 +15,8 @@ declare module 'cobalt-engine' {
     filename?: string;
     urls?: string[];
     picker?: PickItem[];
+    /** The platform's own poster for the media, when it states one. */
+    cover?: string;
     headers?: Record<string, string>;
     metadata?: { title?: string; artist?: string; publishedAt?: number };
     error?: { code: string };
@@ -34,7 +36,7 @@ declare module 'cobalt-engine' {
 
   export function download(
     input: string | EngineResult,
-    options?: { dir?: string; filename?: string; index?: number; signal?: AbortSignal; mux?: boolean },
+    options?: { dir?: string; filename?: string; index?: number; signal?: AbortSignal; mux?: boolean; maxBytes?: number },
   ): Promise<EngineDownload>;
 
   export function hasFFmpeg(): boolean;

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { PostRow } from '../../src/db/repos/posts.ts';
 import { detectSource, profileFromAuthor, profileOfPost } from '../../src/platform/registry.ts';
-import { renderDownload } from '../../src/pipeline/render-post.ts';
+import { renderDownload, renderPost } from '../../src/pipeline/render-post.ts';
+import type { MediaFile } from '../../src/render/message-plan.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
@@ -57,4 +59,38 @@ test('Download caption: a words-only post keeps its text, still one rich message
   assert.match(htmlOf(plan), /<a href="[^"]+">jacobwren<\/a> \| Tumblr<\/h5><p>⏱️ <b>Time<\/b>: 13\/12 22:37<\/p>/, 'same h5 heading + day-first time as every other source');
   assert.ok(htmlOf(plan).includes('But AI can’t do your job.'), 'the words survive');
   assert.doesNotMatch(htmlOf(plan), /<tg-slideshow>/, 'no media, no slideshow');
+});
+
+/** The same post as the scheduler stamps it; Download Mode only ever has its words and its link. */
+const row = (title: string): PostRow => ({
+  id: 9,
+  source_id: 1,
+  guid: 'guid',
+  url: 'https://instagram.com/p/C1xYz/',
+  published_at: Date.UTC(2025, 11, 13, 22, 37),
+  kind: 'video',
+  payload_json: JSON.stringify({ title, summary: null, media: [] }),
+  first_seen_at: 0,
+});
+
+const LARGE: MediaFile = { path: '', kind: 'video', size: 0, url: 'https://cdn.test/large.mp4' };
+
+test('Rich layout: a lone clip renders the same in Download Mode as on the scheduled path', () => {
+  const files: MediaFile[] = [{ path: 'v.mp4', kind: 'video', size: 20 * 1024 * 1024, url: 'https://cdn.test/v.mp4' }, LARGE];
+  const scheduled = renderPost(row('A clip'), 'video', files, { platform: 'instagram', sourceTitle: 'cristiano', tz: 'Asia/Dhaka' });
+  const download = renderDownload(files, { title: 'A clip', artist: 'cristiano', publishedAt: Date.UTC(2025, 11, 13, 22, 37), platform: 'instagram', tz: 'Asia/Dhaka' }, 'https://instagram.com/p/C1xYz/');
+
+  assert.deepEqual(download, scheduled, 'one layout, whichever door the post came through');
+});
+
+test('Rich layout: a mixed album renders the same in Download Mode as on the scheduled path', () => {
+  const files: MediaFile[] = [
+    { path: 'i1.jpg', kind: 'photo', size: 2048, url: 'https://cdn.test/i1.jpg' },
+    { path: 'v1.mp4', kind: 'video', size: 20 * 1024 * 1024, url: 'https://cdn.test/v1.mp4' },
+    LARGE,
+  ];
+  const scheduled = renderPost(row('Three things'), 'album', files, { platform: 'instagram', sourceTitle: 'cristiano', tz: 'UTC' });
+  const download = renderDownload(files, { title: 'Three things', artist: 'cristiano', publishedAt: Date.UTC(2025, 11, 13, 22, 37), platform: 'instagram', tz: 'UTC' }, 'https://instagram.com/p/C1xYz/');
+
+  assert.deepEqual(download, scheduled);
 });

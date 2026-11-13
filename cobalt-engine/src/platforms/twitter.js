@@ -1,5 +1,5 @@
 import HLS from "hls-parser";
-import { genericUserAgent } from "../settings.js";
+import { env, genericUserAgent } from "../settings.js";
 import { createStream } from "../compat.js";
 import { getCookie, updateCookie } from "../cookie-store.js";
 
@@ -36,11 +36,28 @@ function needsFixing(media) {
     return mediaTimestamp > badContainerStart && mediaTimestamp < badContainerEnd
 }
 
-function bestQuality(arr) {
+// Twitter writes the rendition size in the path (`/vid/avc1/1280x720/…`): that is the only place the
+// height is stated, and a variant without one never qualifies as "at or under" a ceiling.
+function heightOf(url) {
+    return Number(/(\d+)x(\d+)\//.exec(url)?.[2] ?? 0);
+}
+
+/**
+ * The best mp4 rendition at or under the asked height, so a caller can trade resolution for size.
+ * A clip natively below the ceiling keeps its own best quality; one with nothing under the ceiling
+ * falls back to its smallest rendition. `max`/undefined keep the old highest-bitrate answer.
+ */
+function bestQuality(arr, quality = env.videoQuality) {
+    const mp4 = arr.filter(v => v.content_type === "video/mp4");
+    // A long clip can arrive as HLS only; there is no rendition to weigh, and an empty reduce would
+    // surface as a thrown `fetch.critical` that hides the real reason.
+    if (mp4.length === 0) return undefined;
+    const ranked = mp4.slice().sort((a, b) => heightOf(a.url) - heightOf(b.url));
+    const ceiling = Number(quality);
+    const fits = ceiling > 0 ? ranked.filter(v => heightOf(v.url) > 0 && heightOf(v.url) <= ceiling) : ranked;
+    const pool = ceiling > 0 && fits.length === 0 ? ranked.slice(0, 1) : fits;
     return stripVideoURL(
-        arr.filter(v => v.content_type === "video/mp4")
-        .reduce((a, b) => Number(a?.bitrate) > Number(b?.bitrate) ? a : b)
-        .url
+        pool.reduce((a, b) => Number(a?.bitrate) > Number(b?.bitrate) ? a : b).url
     );
 }
 
@@ -236,7 +253,7 @@ const extractGraphqlMedia = async (thread, dispatcher, id, guestToken, cookie) =
     return (repostedTweet?.media || baseTweet?.extended_entities?.media);
 }
 
-export default async function({ id, index, toGif, dispatcher, alwaysProxy, subtitleLang }) {
+export default async function({ id, index, toGif, dispatcher, alwaysProxy, subtitleLang, quality }) {
     const cookie = await getCookie('twitter');
 
     let guestToken = await getGuestToken(dispatcher);
@@ -349,7 +366,7 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
 
             return {
                 type: subtitles || needsFixing(mediaItem) ? "remux" : "proxy",
-                urls: bestQuality(mediaItem.video_info.variants),
+                urls: bestQuality(mediaItem.video_info.variants, quality),
                 filename: `twitter_${id}.mp4`,
                 audioFilename: `twitter_${id}_audio`,
                 isGif: mediaItem.type === "animated_gif",
@@ -374,7 +391,7 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                     }
                 }
 
-                let url = bestQuality(content.video_info.variants);
+                let url = bestQuality(content.video_info.variants, quality);
                 const shouldRenderGif = content.type === "animated_gif" && toGif;
                 const videoFilename = `twitter_${id}_${i + 1}.${shouldRenderGif ? "gif" : "mp4"}`;
 

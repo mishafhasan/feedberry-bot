@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { metaDescription, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
+import { metaDescription, metaImageOf, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
+
+test('page text: the poster is the page card image, and only an http(s) address is one', () => {
+  assert.equal(metaImageOf('<meta property="og:image" content="https://pbs.twimg.com/poster.jpg">'), 'https://pbs.twimg.com/poster.jpg');
+  assert.equal(metaImageOf('<meta property="og:image:secure_url" content="https://i.ytimg.com/vi/x/maxresdefault.jpg">'), 'https://i.ytimg.com/vi/x/maxresdefault.jpg');
+  assert.equal(metaImageOf('<meta name="twitter:image" content="https://scontent.cdninstagram.com/p.jpg">'), 'https://scontent.cdninstagram.com/p.jpg');
+  assert.equal(metaImageOf('<meta property="og:image" content="data:image/png;base64,AAAA">'), null, 'a data URI is not a poster');
+  assert.equal(metaImageOf('<meta property="og:image" content="/relative.jpg">'), null, 'a relative address cannot be fetched by us');
+  assert.equal(metaImageOf('<html></html>'), null);
+});
 
 test('page text: og:description wins over the Twitter card and the plain description', () => {
   const html = `

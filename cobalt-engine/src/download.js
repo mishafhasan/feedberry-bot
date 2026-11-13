@@ -8,7 +8,7 @@
 import { createWriteStream } from "node:fs";
 import { access, mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants as fsConstants } from "node:fs";
 import { join, resolve as resolvePath, basename } from "node:path";
@@ -111,12 +111,15 @@ async function alignImageExtension(file) {
     return corrected;
 }
 
-async function streamToFile(url, destination, { headers, signal, onProgress, attempts = 2 } = {}) {
+const tooLarge = () => Object.assign(new Error("media exceeds byte limit"), { code: "error.content.too_large" });
+
+async function streamToFile(url, destination, { headers, signal, onProgress, attempts = 2, maxBytes = Infinity } = {}) {
     for (let attempt = 1; ; attempt++) {
         try {
             const response = await fetch(url, { headers, signal });
 
             if (!response.ok) {
+                await response.body?.cancel();
                 throw new Error(`HTTP ${response.status} for media URL`);
             }
             if (!response.body) {
@@ -124,18 +127,22 @@ async function streamToFile(url, destination, { headers, signal, onProgress, att
             }
 
             const total = Number(response.headers.get("content-length")) || 0;
-            let received = 0;
-
-            const source = Readable.fromWeb(response.body);
-
-            if (onProgress) {
-                source.on("data", (chunk) => {
-                    received += chunk.length;
-                    onProgress({ received, total });
-                });
+            if (total > maxBytes) {
+                await response.body.cancel();
+                throw tooLarge();
             }
+            let received = 0;
+            const source = Readable.fromWeb(response.body);
+            const limit = new Transform({
+                transform(chunk, _encoding, callback) {
+                    received += chunk.length;
+                    if (received > maxBytes) return callback(tooLarge());
+                    onProgress?.({ received, total });
+                    callback(null, chunk);
+                },
+            });
 
-            await pipeline(source, createWriteStream(destination));
+            await pipeline(source, limit, createWriteStream(destination), { signal });
             return { bytes: received, total };
         } catch (e) {
             // CDNs drop long transfers now and then. Drop the partial file so a
@@ -143,6 +150,7 @@ async function streamToFile(url, destination, { headers, signal, onProgress, att
             await rm(destination, { force: true }).catch(() => {});
 
             const retryable = attempt < attempts
+                && e?.code !== "error.content.too_large"
                 && !signal?.aborted
                 && !/^HTTP 4\d\d/.test(e?.message ?? "");
 
@@ -218,7 +226,7 @@ export async function download(input, options = {}) {
     const dir = resolvePath(options.dir ?? process.cwd());
     await mkdir(dir, { recursive: true });
 
-    const { signal, onProgress, mux: shouldMux = true } = options;
+    const { signal, onProgress, mux: shouldMux = true, maxBytes = Infinity } = options;
 
     const items = result.picker
         ? Number.isInteger(options.index)
@@ -240,7 +248,7 @@ export async function download(input, options = {}) {
                 `item_${i + 1}.${ext}`
             );
             const target = await uniquePath(dir, name);
-            await streamToFile(item.url, target, { headers, signal, onProgress: onProgress && (p => onProgress({ ...p, file: target })) });
+            await streamToFile(item.url, target, { headers, signal, maxBytes, onProgress: onProgress && (p => onProgress({ ...p, file: target })) });
             files.push(await alignImageExtension(target));
         }
         return { status: "ok", files, muxed: false };
@@ -276,6 +284,7 @@ export async function download(input, options = {}) {
         await streamToFile(url, target, {
             headers,
             signal,
+            maxBytes,
             onProgress: onProgress && (p => onProgress({ ...p, file: target })),
         });
         return { status: "ok", files: [await alignImageExtension(target)], muxed: false };
@@ -288,20 +297,27 @@ export async function download(input, options = {}) {
 
     try {
         const videoPath = join(workDir, `video.${ext || "mp4"}`);
-        await streamToFile(videoURL, videoPath, {
+        const videoSize = await streamToFile(videoURL, videoPath, {
             headers,
             signal,
+            maxBytes,
             onProgress: onProgress && (p => onProgress({ ...p, file: "video" })),
         });
 
         const audioExt = /\.(m4a|mp3|opus|ogg|webm)(\?|$)/i.exec(audioURL)?.[1] ?? "m4a";
         const audioPath = join(workDir, `audio.${audioExt}`);
-        await streamToFile(audioURL, audioPath, { headers, signal });
+        await streamToFile(audioURL, audioPath, { headers, signal, maxBytes: maxBytes - videoSize.bytes });
 
         if (shouldMux && hasFFmpeg()) {
             const target = await uniquePath(dir, baseName);
-            await mux(videoPath, audioPath, target);
-            return { status: "ok", files: [target], muxed: true };
+            try {
+                await mux(videoPath, audioPath, target);
+                if ((await stat(target)).size > maxBytes) throw tooLarge();
+                return { status: "ok", files: [target], muxed: true };
+            } catch (err) {
+                await rm(target, { force: true });
+                throw err;
+            }
         }
 
         // no ffmpeg: keep both tracks rather than silently dropping audio

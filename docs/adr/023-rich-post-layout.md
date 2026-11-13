@@ -96,7 +96,8 @@ inside a link label prints literally; upgrade when a real source needs nested st
   set; otherwise Telegram strips the tag to the plain emoji fallback (spike case E). The layout degrades
   gracefully, exactly as the existing `platformIcon` shortcut comment predicts.
 - An oversized video is still downloaded before it is withheld (ADR-022's bandwidth note stands); the rich
-  path simply links it instead of framing it.
+  path simply links it instead of framing it. **Amended by ADR-026**: a non-RSS clip is measured with a
+  ranged request and never downloaded when it cannot upload, and X/YouTube step 1080 → 720 → 480 first.
 - A failed media download keeps its `🎬` link when the engine gave a URL (R15), so a stalled transfer is
   still not a lost post.
 

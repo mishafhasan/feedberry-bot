@@ -9,6 +9,8 @@ export interface MediaFile {
   size: number;
   /** Where it came from; a file past the upload ceiling links back to it from the caption (R15). */
   url?: string;
+  /** The clip's own poster, so a linked clip still shows its face (ADR-027). */
+  poster?: string;
 }
 
 export type MessagePlan =

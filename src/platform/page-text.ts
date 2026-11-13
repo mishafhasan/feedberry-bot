@@ -24,6 +24,8 @@ export interface PageMeta {
   publishedAt: number | null;
   /** The post's own video file, when the page links one directly (Snapchat spotlight). */
   video: string | null;
+  /** The page's declared poster (`og:image`), shown when a clip is too big to send (ADR-027). */
+  image: string | null;
 }
 
 /** Fetches the post page once for everything the layout needs; any failure means "nothing known". */
@@ -36,13 +38,14 @@ export async function pageMeta(http: Http, url: string): Promise<PageMeta> {
       name: profileNameOf(res.body),
       publishedAt: publishedAtOf(res.body),
       video: metaVideoOf(res.body),
+      image: metaImageOf(res.body),
     };
   } catch {
     return NOTHING;
   }
 }
 
-const NOTHING: PageMeta = { text: null, name: null, publishedAt: null, video: null };
+const NOTHING: PageMeta = { text: null, name: null, publishedAt: null, video: null, image: null };
 
 /** The post's own words when neither the feed nor the media engine carries them. */
 export async function pageText(http: Http, url: string): Promise<string | null> {
@@ -52,6 +55,12 @@ export async function pageText(http: Http, url: string): Promise<string | null> 
 /** The card's video file, when the page points at one (a Snapchat spotlight clip). */
 export function metaVideoOf(html: string): string | null {
   return metaContent(html, 'og:video') ?? metaContent(html, 'og:video:secure_url');
+}
+
+/** The card's picture: what Telegram and every social preview shows for the page. */
+export function metaImageOf(html: string): string | null {
+  const raw = metaContent(html, 'og:image') ?? metaContent(html, 'og:image:secure_url') ?? metaContent(html, 'twitter:image');
+  return raw !== null && /^https?:\/\//i.test(raw) ? raw : null;
 }
 
 /**

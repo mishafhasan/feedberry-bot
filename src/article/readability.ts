@@ -4,6 +4,7 @@ import sanitizeHtml from 'sanitize-html';
 import { Coded, E } from '../platform/errors.ts';
 import { HTML_LIMIT, type Http } from '../platform/http.ts';
 import { backgroundImages, imageSource, usableUrl } from '../platform/media-urls.ts';
+import { metaImageOf } from '../platform/page-text.ts';
 
 export interface Article {
   title: string;
@@ -53,15 +54,30 @@ export async function extractArticle(http: Http, url: string): Promise<Article> 
     allowedSchemes: ['http', 'https'],
   });
 
+  const html = withLeadImage(clean, res.body, res.url);
+
   return {
     title: (parsed.title ?? '').trim() || url,
     byline: parsed.byline?.trim() || null,
     siteName: parsed.siteName?.trim() || null,
-    html: clean,
-    textLength: textOf(clean).length,
+    html,
+    textLength: textOf(html).length,
     url: res.url,
     publishedAt: parseDate(parsed.publishedTime),
   };
+}
+
+/**
+ * ADR-027: Readability picks the text container, and a news page often keeps its lead picture
+ * outside it, so the Instant View page came out with no picture at all. The page's own declared
+ * image is the one the reader would otherwise never see; it is resolved and checked like any other.
+ */
+function withLeadImage(html: string, page: string, baseUrl: string): string {
+  if (/<img\b/i.test(html)) return html;
+  const raw = metaImageOf(page);
+  const src = raw === null ? null : usableUrl(raw, baseUrl);
+  if (src === null) return html;
+  return `<figure><img src="${src.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"/></figure>${html}`;
 }
 
 function parseDate(value: string | null | undefined): number | null {

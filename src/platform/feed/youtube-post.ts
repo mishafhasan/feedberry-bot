@@ -25,10 +25,12 @@ export interface YouTubePostDoc {
   /** The channel title as the post shows it ("Ceylon Focus News"), not the handle. */
   author: string | null;
   channel: YouTubeChannel | null;
-  /** The post's words, plus its poll or attached video written out as text. */
+  /** The post's words, plus its poll written out as text; an attached video is only its title here. */
   text: string;
   /** Original-size image URLs, in post order. */
   media: string[];
+  /** Attached videos as the page links them; their label is the renderer's job, never raw text. */
+  videos: string[];
   /** The page's own publish date, when it declares one. */
   publishedAt: number | null;
 }
@@ -54,7 +56,7 @@ export function parseYouTubePost(html: string, postId: string): YouTubePostDoc |
   if (post === null) return null;
 
   const text = [textOf(post.contentText), ...attachmentParts(post.backstageAttachment)].filter((part) => part !== '').join('\n\n');
-  return { author: textOf(post.authorText) || null, channel: channelOf(post), text, media: imagesOf(post.backstageAttachment), publishedAt: publishedAtOf(html) };
+  return { author: textOf(post.authorText) || null, channel: channelOf(post), text, media: imagesOf(post.backstageAttachment), videos: videosOf(post.backstageAttachment), publishedAt: publishedAtOf(html) };
 }
 
 /** `…/post/<id>`, the only shape the post adapter accepts; null for a video, a Short or a channel. */
@@ -95,7 +97,8 @@ export function parseYouTubeChannelPosts(html: string, now = Date.now()): FeedIt
     seen.add(id);
     const text = [textOf(post.contentText), ...attachmentParts(post.backstageAttachment)].filter((part) => part !== '').join('\n\n');
     const images = imagesOf(post.backstageAttachment);
-    if (text === '' && images.length === 0) continue;
+    const videos = videosOf(post.backstageAttachment);
+    if (text === '' && images.length === 0 && videos.length === 0) continue;
     items.push({
       guid: id,
       link: `https://youtube.com/post/${id}`,
@@ -104,7 +107,11 @@ export function parseYouTubeChannelPosts(html: string, now = Date.now()): FeedIt
       title: firstLine(text),
       publishedAt: relativeTimeOf(post.publishedTimeText, now),
       summary: text === '' ? null : text.slice(0, SUMMARY_LIMIT),
-      media: images.map((url) => ({ url, type: 'photo' as const })),
+      media: [
+        ...images.map((url) => ({ url, type: 'photo' as const })),
+        // A video is a page, not a file: the payload keeps the link the delivery renders as a label.
+        ...videos.map((url) => ({ url, type: 'video' as const })),
+      ],
     });
   }
   return items;
@@ -174,6 +181,21 @@ function imagesOf(attachment: RawAttachment | null | undefined): string[] {
   return one === null ? [] : [one];
 }
 
+/** An attached video as the page links it: the clip lives on YouTube, never as bytes here. */
+function videosOf(attachment: RawAttachment | null | undefined): string[] {
+  const id = attachment?.videoRenderer?.videoId;
+  return typeof id === 'string' && id !== '' ? [`https://youtu.be/${id}`] : [];
+}
+
+/**
+ * YouTube states a poster for every video id, so a clip we only link still shows its face (ADR-027).
+ * `hqdefault` is the size YouTube generates for every upload; `maxres`/`hq720` are 404 on plenty of them.
+ */
+export function youtubePoster(url: string): string | null {
+  const id = /^https?:\/\/youtu\.be\/([\w-]{11})(?:[?&#]|$)/.exec(url)?.[1];
+  return id === undefined ? null : `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+}
+
 /** Thumbnails run smallest first; the original is the widest one that still carries a URL. */
 function largest(image: RawImage | null | undefined): string | null {
   const thumbs = image?.thumbnails;
@@ -195,20 +217,16 @@ function largest(image: RawImage | null | undefined): string | null {
 const area = (thumb: RawThumb): number => (thumb.width ?? 0) * (thumb.height ?? 0);
 
 /**
- * A poll or an attached video has no file of its own, so its facts join the post's words: the
- * video is a link, never a download (it is often longer than anything worth uploading).
+ * A poll or an attached video has no file of its own, so its facts join the post's words: only the
+ * title, because the renderer builds the one labelled link (a bare URL here printed as raw text).
  */
 function attachmentParts(attachment: RawAttachment | null | undefined): string[] {
   const poll = attachment?.pollRenderer;
   const choices = Array.isArray(poll?.choices) ? poll.choices.map((choice) => textOf(choice?.text)).filter((label) => label !== '') : [];
   if (choices.length > 0) return [`📊 Poll\n${choices.map((label) => `• ${label}`).join('\n')}`];
 
-  const video = attachment?.videoRenderer;
-  if (typeof video?.videoId === 'string' && video.videoId !== '') {
-    const title = textOf(video.title);
-    return [`🎬 ${title === '' ? 'YouTube video' : title}\nhttps://youtu.be/${video.videoId}`];
-  }
-  return [];
+  const title = textOf(attachment?.videoRenderer?.title);
+  return title === '' ? [] : [title];
 }
 
 /** One list line from a post's own opening; the full text stays in the summary. */

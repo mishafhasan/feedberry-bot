@@ -16,10 +16,11 @@ import { E, isCoded } from '../platform/errors.ts';
 import { allowsContent, parseContentTypes, youtubeKindOf } from '../platform/content-types.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
+import { youtubePoster } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
-import { pageText } from '../platform/page-text.ts';
+import { pageMeta, pageText } from '../platform/page-text.ts';
 import type { SourceRef } from '../platform/registry.ts';
-import { payloadOf, type MessagePlan } from '../render/message-plan.ts';
+import { payloadOf, type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { fetchSourceFeed } from './fetch-feed.ts';
@@ -27,7 +28,7 @@ import { classifyMedia } from './classify-media.ts';
 import { effectiveKeywords, passesFilter } from './keyword-filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './dedupe.ts';
-import { mediaSignal, prepareMedia } from './prepare-media.ts';
+import { ladderFor, mediaSignal, prepareMedia, withPosters } from './prepare-media.ts';
 import { renderPost } from './render-post.ts';
 import { pageOfPost, withReadMore } from './read-more.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
@@ -251,26 +252,45 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   }
   // A community post has no extractor: the feed's own photos are the media, so the album still ships.
   // An upload's feed media is only its thumbnail, so a failed extraction stays a link card (R14).
-  if (items.length === 0 && youtubeKindOf(post.url) === 'post') items = feedPhotos(payload.media);
+  const youtubePost = youtubeKindOf(post.url) === 'post';
+  if (items.length === 0 && youtubePost) items = feedPhotos(payload.media);
+  // An attached video is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
+  const videoLinks = youtubePost ? feedVideoLinks(payload.media) : [];
 
   const kind = classifyMedia(items, hadFeedMedia);
   // A feed that ships media only (X/Twitter, TikTok) leaves the caption to the page's own words.
   const hasFeedText = payload.title !== '' || (payload.summary ?? '') !== '';
   const titleFallback = engineTitle ?? (hasFeedText || !post.url ? null : await pageText(deps.http, post.url));
-  if (items.length === 0) return renderPost(post, kind, [], { platform, sourceTitle, titleFallback, tz });
+  const posterOf = async (): Promise<string | null> => (post.url === null ? null : (await pageMeta(deps.http, post.url)).image);
+  if (items.length === 0) {
+    const linked = await withPosters(deps.media, videoLinks, dir, { signal, poster: posterOf });
+    return renderPost(post, kind, [...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
+  }
 
   let files;
   try {
-    files = await prepareMedia(deps.media, items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+    files = await prepareMedia(deps.media, items, dir, {
+      maxMb: deps.cfg.limits.maxDownloadMb,
+      signal,
+      // A social post links a clip it cannot send; an RSS post keeps the bytes ADR-012/022 cut a frame from.
+      ...(platform === 'rss'
+        ? { keepOversizedVideo: true }
+        : { ladderUrl: ladderFor(platform, post.url), poster: posterOf }),
+    });
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
+    // A linked video still ships: its URL has left the post text, so this is the only copy of it.
     log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
-    return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback, tz });
+    return renderPost(post, 'link_only', videoLinks, { platform, sourceTitle, titleFallback, tz });
   }
 
   // ADR-023: a non-RSS post ships as one rich message — the duration rule and stand-in frames below
   // are the RSS/blog album layout, and a frame must never leak into the rich slideshow.
-  if (platform !== 'rss') return renderPost(post, kind, files, { platform, sourceTitle, titleFallback, tz });
+  if (platform !== 'rss') {
+    // A community post's linked clip is built outside stage 5, so its poster is added here.
+    const linked = await withPosters(deps.media, [...files, ...videoLinks], dir, { signal, poster: posterOf });
+    return renderPost(post, kind, [...files, ...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
+  }
 
   if (kind !== 'video') {
     // R15: an oversized video cannot ride in the album, so a frame rides in its place.
@@ -328,6 +348,16 @@ async function threadRow(http: Http, post: PostRow): Promise<PostRow> {
 /** A feed that ships photo URLs and no extractor behind them (a YouTube community post album). */
 function feedPhotos(media: Array<{ url: string; type: string }>): MediaItem[] {
   return media.filter((item) => item.type === 'photo').map((item) => ({ kind: 'photo' as const, url: item.url, picker: false }));
+}
+
+/** A video the feed names by its page (a YouTube community attachment): linked, never downloaded. */
+function feedVideoLinks(media: Array<{ url: string; type: string }>): MediaFile[] {
+  return media
+    .filter((item) => item.type === 'video')
+    .map((item) => {
+      const poster = youtubePoster(item.url);
+      return { path: '', kind: 'video' as const, size: 0, url: item.url, ...(poster === null ? {} : { poster }) };
+    });
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({
