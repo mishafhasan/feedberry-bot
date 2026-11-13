@@ -272,8 +272,9 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
     });
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
+    // A linked video still ships: its URL has left the post text, so this is the only copy of it.
     log('warn', 'media_download_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown' });
-    return renderPost(post, 'link_only', [], { platform, sourceTitle, titleFallback, tz });
+    return renderPost(post, 'link_only', videoLinks, { platform, sourceTitle, titleFallback, tz });
   }
 
   // ADR-023: a non-RSS post ships as one rich message — the duration rule and stand-in frames below

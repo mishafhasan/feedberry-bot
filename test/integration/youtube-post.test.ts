@@ -3,7 +3,7 @@
  * The page fixtures are the captures behind the unit tests, so nothing here touches YouTube.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -12,8 +12,16 @@ import { createBot } from '../../src/bot/index.ts';
 import { getSession } from '../../src/bot/session.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
+import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
+import { markPendingDelivery } from '../../src/db/repos/deliveries.ts';
+import { insertPosts } from '../../src/db/repos/posts.ts';
+import { upsertSource } from '../../src/db/repos/sources.ts';
+import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
+import { ensureUser } from '../../src/db/repos/users.ts';
 import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
+import { deliverPending } from '../../src/pipeline/run.ts';
+import { TelegramSender } from '../../src/telegram/api.ts';
 import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
 
@@ -153,7 +161,64 @@ test('youtube: a post that attaches a video ships it as a link, not as a downloa
     assert.equal(api.last('sendPhoto'), undefined, 'no media message for a text post');
     assert.equal(api.last('sendMediaGroup'), undefined);
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.ok(html.includes('https://youtu.be/tycyv2eoOaU'), 'the attached video ships as a link');
+    assert.ok(
+      html.includes('<p>🎬 <a href="https://youtu.be/tycyv2eoOaU">Video 1</a></p>'),
+      `the attached video ships as its label, never as a raw URL:\n${html}`,
+    );
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('youtube: a scheduled post keeps the clip label even when its photos break the budget', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-budget-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const calls = { resolve: 0, download: 0 };
+
+  try {
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, { platform: 'youtube', canonicalUrl: 'https://youtube.com/@CeylonFocusNews', externalId: 'CeylonFocusNews', feedUrl: null, strategy: 'native_rss', title: 'Ceylon Focus News', avatarUrl: null });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+    // The community post as stage 2 stores it: one photo to download, one attached video as a page link.
+    const rows = insertPosts(db, source.id, [{
+      guid: 'community-video',
+      link: VIDEO_POST,
+      title: 'A post',
+      summary: null,
+      publishedAt: Date.now(),
+      media: [{ url: 'https://yt3.ggpht.com/photo=s1600', type: 'photo' }, { url: 'https://youtu.be/tycyv2eoOaU', type: 'video' }],
+    }]);
+    for (const row of rows) markPendingDelivery(db, row.id, chat.id);
+
+    // A one megabyte budget against a two megabyte photo: stage 5 trips it (ADR-012).
+    const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE: 'http://rsshub.test', MAX_DOWNLOAD_MB: '1' });
+    const heavy: MediaEngine = {
+      async resolve() {
+        return { items: [], title: null, artist: null };
+      },
+      async download(_item, into) {
+        mkdirSync(into, { recursive: true });
+        const path = join(into, 'photo.jpg');
+        const fd = openSync(path, 'w');
+        ftruncateSync(fd, 2 * 1024 * 1024);
+        closeSync(fd);
+        return path;
+      },
+    };
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http: async () => { throw new Error('no page fetch expected'); }, media: heavy });
+    await bot.init();
+    const result = await deliverPending({ db, cfg, http: async () => { throw new Error('no feed fetch expected'); }, media: heavy, thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
+
+    assert.equal(result.delivered, 1, 'a budget failure is a degraded post, never a lost one');
+    const rich = api.last('sendRichMessage');
+    const media = (rich?.body.rich_message?.media ?? []) as Array<unknown>;
+    assert.equal(media.length, 0, 'the photo that broke the budget is not uploaded');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.ok(html.includes('<p>🎬 <a href="https://youtu.be/tycyv2eoOaU">Video 1</a></p>'), `the clip is still one tap away:\n${html}`);
   } finally {
     db.close();
     await api.close();
