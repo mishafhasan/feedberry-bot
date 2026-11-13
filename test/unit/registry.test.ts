@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { classifyLink, detectSource, isSectionSource, isSectionUrl, isWebsitePage, sectionOf } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource, isSectionSource, isSectionUrl, isWebsitePage, linksIn, sectionOf } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -282,4 +282,17 @@ test('M23 registry: a Substack publication is a source at /feed, whether a post 
   const post = detectSource('https://newsletter.example.substack.com/p/nvidia-ceo-admits-affair', opts);
   assert.equal(post.canonicalUrl, 'https://newsletter.example.substack.com', 'a post link names its publication');
   assert.deepEqual(classifyLink('https://newsletter.example.substack.com/p/nvidia-ceo-admits-affair', opts), { kind: 'source' });
+});
+
+test('M26 registry: a message is searched for its links before anything classifies it', () => {
+  assert.deepEqual(linksIn('look at this https://x.com/blue/status/123, nice'), ['https://x.com/blue/status/123'], 'the words around the URL are not the URL');
+  assert.deepEqual(linksIn('(https://instagram.com/p/C1/)'), ['https://instagram.com/p/C1/'], 'a bracket the text opened is not part of the code');
+  assert.deepEqual(linksIn('https://en.wikipedia.org/wiki/Foo_(bar)'), ['https://en.wikipedia.org/wiki/Foo_(bar)'], 'a bracket the URL opened stays');
+  assert.deepEqual(linksIn('https://a.test/x! And https://b.test/y.'), ['https://a.test/x', 'https://b.test/y'], 'two links, sentence punctuation dropped');
+  assert.deepEqual(linksIn('https://a.test/x and https://a.test/x'), ['https://a.test/x'], 'the same link twice is one');
+  assert.deepEqual(linksIn('see www.instagram.com/cristiano'), ['https://www.instagram.com/cristiano'], 'a www host becomes a URL');
+  assert.deepEqual(linksIn('«https://instagram.com/cristiano»'), ['https://instagram.com/cristiano'], 'a locale quote is the sentence\'s');
+  assert.deepEqual(linksIn('देखो https://www.instagram.com/cristiano।'), ['https://www.instagram.com/cristiano'], 'the danda ends the sentence, not the URL');
+  assert.deepEqual(linksIn('hello, how are you?'), [], 'ordinary text carries no link');
+  assert.deepEqual(linksIn('ftp://files.test/a https://ok.test/b'), ['https://ok.test/b'], 'only http(s) is a link here');
 });

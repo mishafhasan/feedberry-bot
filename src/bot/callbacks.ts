@@ -15,7 +15,7 @@ import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import { fetchYouTubePost, youtubePostId } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { CONTENT_KINDS, filterByContentTypes, parseContentTypes, type ContentKind } from '../platform/content-types.ts';
-import { classifyLink, detectSource, isWebsitePage, profileFromAuthor, profileOfPost, sectionOf, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
+import { classifyLink, detectSource, isWebsitePage, linksIn, profileFromAuthor, profileOfPost, sectionOf, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
 import { pinOwner } from '../platform/pinterest-pin.ts';
 import { pageMeta } from '../platform/page-text.ts';
 import { youtubeChannelOf } from '../platform/youtube-channel.ts';
@@ -56,7 +56,7 @@ import { scheduleListView, schedulePickerView, SCHEDULE_OPTIONS } from './screen
 import { contentTypePickerView } from './screens/content-type-picker.ts';
 import { ADM } from './screens/admin-screens.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
-import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkRequired, postLinkPrompt, sourceBody, sourceTitle } from './texts.ts';
+import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkInvalid, linkRequired, oneLink, postLinkPrompt, sourceBody, sourceTitle } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -280,10 +280,15 @@ export async function handleReplyMenu(ctx: Context, deps: BotDeps, userId: numbe
 /** A link arrived in `awaiting_source_link`; the mode decides which flow owns it (ADR-013). */
 export async function handleSourceLink(ctx: Context, deps: BotDeps): Promise<void> {
   const userId = ctx.from?.id;
-  const link = ctx.message?.text?.trim();
-  if (userId === undefined || !link) return;
+  const text = ctx.message?.text?.trim();
+  if (userId === undefined || !text) return;
 
   const download = getSession(userId).mode === 'download';
+  const links = linksIn(text);
+  const [link] = links;
+  // No link, or several: say what to send, since neither Retry nor a download would help.
+  if (link === undefined || links.length > 1) return answerUnusable(ctx, deps, userId, text, links.length, download ? 'post' : 'source');
+
   const kind = kindOf(link, deps);
   // A website page is one article (download) or one category (subscribe); both flows take it.
   const page = isPageLink(link, deps);
@@ -304,14 +309,22 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
   const text = ctx.message?.text?.trim();
   if (userId === undefined || !text) return;
   const { state } = getSession(userId);
-  if (state !== 'idle' && state !== 'done' && state !== 'error') return;
+  // The chooser is a prompt, not a draft: a new link replaces it instead of being ignored.
+  if (state !== 'idle' && state !== 'done' && state !== 'error' && state !== 'choosing') return;
+
+  const links = linksIn(text);
+  const [link] = links;
+  // Ordinary chatter in a private chat is not an error; only something that meant a link is.
+  if (link === undefined && !looksLikeLink(text)) return;
+  if (link === undefined || links.length > 1) {
+    setSession(userId, { state: 'idle', error: undefined });
+    return answerUnusable(ctx, deps, userId, text, links.length, 'source');
+  }
 
   let match: LinkMatch;
   try {
-    match = classifyLink(text, detectOpts(deps));
+    match = classifyLink(link, detectOpts(deps));
   } catch (err) {
-    // Ordinary chatter in a private chat is not an error; only something that looks like a link is.
-    if (!/^\s*https?:\/\//i.test(text)) return;
     // A link we cannot use is a one-line notice: a Retry button here would only fail again.
     setSession(userId, { state: 'idle', error: undefined });
     const lang = langOf(deps, userId);
@@ -319,21 +332,43 @@ export async function handleFreeText(ctx: Context, deps: BotDeps): Promise<void>
     return;
   }
 
-  if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, text);
+  if (match.kind === 'source') return resolveOrAskTypes(ctx, deps, userId, link);
 
   // A website page may be a category; its own feed decides, and an article keeps the download choice.
-  if (isPageLink(text, deps)) return resolveOrAskTypes(ctx, deps, userId, text, { askIfNotSection: true });
+  if (isPageLink(link, deps)) return resolveOrAskTypes(ctx, deps, userId, link, { askIfNotSection: true });
 
   // A pin link names no account; its oEmbed card does, so the chooser can still offer the source.
-  const profileUrl = (await ownerOf(text, deps)) ?? (await engineOwnerOf(text, deps)) ?? (await youtubeChannelOf(deps.http, text))?.url ?? null;
-  await askPostOrSource(ctx, deps, userId, text, profileUrl);
+  const profileUrl = (await ownerOf(link, deps)) ?? (await engineOwnerOf(link, deps)) ?? (await youtubeChannelOf(deps.http, link))?.url ?? null;
+  await askPostOrSource(ctx, deps, userId, link, profileUrl);
+}
+
+/** Text that meant to be a link: a scheme or a `www.` host, neither of which prose says by accident. */
+const looksLikeLink = (text: string): boolean => /:\/\/|(^|\s)www\./i.test(text);
+
+/** No usable link in a message, or more than one: one line that says what to send instead. */
+async function answerUnusable(ctx: Context, deps: BotDeps, userId: number, text: string, count: number, want: 'post' | 'source'): Promise<void> {
+  const lang = langOf(deps, userId);
+  const notice = count > 1 ? oneLink(count, lang) : looksLikeLink(text) ? linkInvalid(lang) : linkRequired(want, lang);
+  await ctx.reply(notice, { parse_mode: 'HTML', reply_markup: noticeKeyboard(lang) });
 }
 
 /** The download-or-subscribe choice for a link that is not a source. */
 async function askPostOrSource(ctx: Context, deps: BotDeps, userId: number, link: string, profileUrl: string | null): Promise<void> {
-  setSession(userId, { state: 'choosing', chooser: { link, profile: profileUrl ?? undefined } });
+  await dropChooser(ctx, userId);
   const lang = langOf(deps, userId);
-  await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
+  const sent = await ctx.reply(postLinkPrompt(lang), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(profileUrl !== null, lang) });
+  setSession(userId, { state: 'choosing', chooser: { link, profile: profileUrl ?? undefined, messageId: sent.message_id } });
+}
+
+/**
+ * The chooser is one prompt for one link. The moment another flow takes over, its message goes with
+ * it: two prompts read the same, and the older one would act on whatever link arrived last.
+ */
+async function dropChooser(ctx: Context, userId: number): Promise<void> {
+  const previous = getSession(userId).chooser?.messageId;
+  const chatId = ctx.chat?.id;
+  if (chatId !== undefined && previous !== undefined) await ctx.api.deleteMessage(chatId, previous).catch(() => {});
+  setSession(userId, { chooser: undefined });
 }
 
 /** The classifier's answer, or null for a link no flow can use. */
@@ -372,7 +407,23 @@ async function pageSourceFor(deps: BotDeps, ref: SourceRef, askIfNotSection: boo
 async function ownerOf(link: string, deps: BotDeps): Promise<string | null> {
   const match = classifyLink(link, detectOpts(deps));
   if (match.kind === 'source') return null;
-  return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps)));
+  return match.profileUrl ?? (await pinOwner(deps.http, link, detectOpts(deps))) ?? (await threadsOwner(deps, link));
+}
+
+/**
+ * A `/t/<code>` thread names its account only in the page, which the download reads anyway. Asking
+ * it here is what offers Add source before the download instead of after it.
+ */
+async function threadsOwner(deps: BotDeps, link: string): Promise<string | null> {
+  try {
+    const ref = detectSource(link, detectOpts(deps));
+    if (ref.platform !== 'threads' || ref.strategy !== 'single_post') return null;
+    const thread = await fetchThreadsThread(deps.http, ref.canonicalUrl);
+    return thread.author === null ? null : profileFromAuthor('threads', thread.author);
+  } catch {
+    // A post the page cannot answer is still downloadable; it just cannot offer a source yet.
+    return null;
+  }
 }
 
 /** Platforms whose extractor names the poster, and whose profile has a feed to follow. */
@@ -427,6 +478,7 @@ interface ResolveOptions {
  * one-step add. A link no flow can use falls through, so runResolve reports its own code.
  */
 async function resolveOrAskTypes(ctx: Context, deps: BotDeps, userId: number, link: string, options: ResolveOptions = {}): Promise<void> {
+  await dropChooser(ctx, userId);
   // Only the classification is guarded: a paint that fails must not become an add with default kinds.
   let ref: SourceRef | undefined;
   try {
@@ -929,6 +981,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
   const chat = ensurePrivateChat(deps.db, user.id, userId);
   const chatId = ctx.chat?.id;
   let working: number | undefined;
+  await dropChooser(ctx, userId);
 
   try {
     const ref = detectSource(link, detectOpts(deps));
