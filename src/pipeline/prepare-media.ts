@@ -50,7 +50,7 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
       // A big file is the one most likely to time out mid-transfer, and cobalt reports that as
       // "no media". Keep the post: the video links from the caption, the rest of it still ships.
       log('warn', 'media_item_failed', { kind: item.kind, code: isCoded(err) ? err.code : 'unknown' });
-      if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: directLink(item, options.ladderUrl) });
+      if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url });
     }
   }
 
@@ -86,22 +86,22 @@ async function videoFile(engine: MediaEngine, first: MediaItem, index: number, d
     const file = await fitting(engine, item, dir, options);
     if (file !== null) return file;
   }
-  return { path: '', kind: 'video', size: 0, url: directLink(first, url) };
+  return { path: '', kind: 'video', size: 0, url: first.url };
 }
-
-/**
- * The URL a label points at: the media file itself, or the post when the file is two tracks and so no
- * single URL plays.
- */
-const directLink = (item: MediaItem, ladderUrl: string | undefined): string =>
-  item.audio === undefined ? item.url : (ladderUrl ?? item.url);
 
 /** The clip on disk when it fits, null when it does not — the next rung may still. */
 async function fitting(engine: MediaEngine, item: MediaItem, dir: string, options: PrepareOptions): Promise<MediaFile | null> {
   const keep = options.keepOversizedVideo === true;
   const known = keep ? null : await engine.size?.(item, options.signal) ?? null;
   if (known !== null && known > MAX_UPLOAD_BYTES) return null;
-  const path = await engine.download(item, dir, options.signal);
+  let path: string;
+  try {
+    // The downloader stops the stream at the ceiling, so a host that never names a size cannot slip one past.
+    path = await engine.download(item, dir, options.signal, keep ? undefined : MAX_UPLOAD_BYTES);
+  } catch (err) {
+    if (isCoded(err) && err.code === E.TOO_LARGE) return null;
+    throw err;
+  }
   const size = (await stat(path)).size;
   // A host that would not name the size can still hand back more than Telegram takes.
   if (!keep && size > MAX_UPLOAD_BYTES) {

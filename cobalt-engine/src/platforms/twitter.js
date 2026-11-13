@@ -49,6 +49,9 @@ function heightOf(url) {
  */
 function bestQuality(arr, quality = env.videoQuality) {
     const mp4 = arr.filter(v => v.content_type === "video/mp4");
+    // A long clip can arrive as HLS only; there is no rendition to weigh, and an empty reduce would
+    // surface as a thrown `fetch.critical` that hides the real reason.
+    if (mp4.length === 0) return undefined;
     const ranked = mp4.slice().sort((a, b) => heightOf(a.url) - heightOf(b.url));
     const ceiling = Number(quality);
     const fits = ceiling > 0 ? ranked.filter(v => heightOf(v.url) > 0 && heightOf(v.url) <= ceiling) : ranked;

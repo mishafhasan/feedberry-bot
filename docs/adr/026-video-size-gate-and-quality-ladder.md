@@ -44,8 +44,13 @@ Two facts make the decision cheap:
 - **X and YouTube walk a ladder**: `1080 → 720 → 480`. Rung one is the resolve the caller already paid
   for; each lower rung is a fresh `resolve(postUrl, { quality })`, matched **by item position** so a
   carousel keeps its order. A URL already tried is not probed again. The first rung that fits is
-  downloaded; when every rung is too big, the link is **rung one's URL** — the best quality the post
-  offers. A muxed result (two tracks, so no single URL plays) links the post instead.
+  downloaded; when every rung is too big, the link is **rung one's URL** — the direct file the post
+  offers, two tracks or one. The header already carries the post page, so the label never repeats it.
+- **The downloader stops at the ceiling on its own.** `download(..., { maxBytes })` rejects the
+  advertised `content-length` before the body and counts the streamed bytes through a transform, so a
+  host that names no size still cannot land more than 50 MB; the partial file is removed and a size
+  rejection is never retried. Measured live: an X rung that answered no length to the probe (it does
+  answer a ranged GET) cost seconds, not the 240 s a blind 491 MB transfer took before this cap.
 - **Only X and YouTube climb.** `ladderFor(platform, url)` returns a ladder URL for those two and
   nothing else; every other platform resolves once and is gated by size.
 - **RSS posts keep ADR-012/022 untouched**: `keepOversizedVideo` is set for `platform === 'rss'`, so an
@@ -71,7 +76,8 @@ Two facts make the decision cheap:
 - The fallback link can expire: platform CDN URLs are signed and short-lived. A message forwarded days
   later may open a dead URL; the header still links the post itself.
 - A host whose `content-length`/`content-range` lies still cannot upload past the ceiling: the
-  post-download stat check deletes the file and returns the link.
+  downloader stops the stream at 50 MB, deletes the partial file, and the label takes over. A platform
+  without a ladder pays at most 50 MB before it links; a ladder pays that per rung, never more.
 
 ## Evidence
 

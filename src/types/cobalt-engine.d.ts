@@ -34,7 +34,7 @@ declare module 'cobalt-engine' {
 
   export function download(
     input: string | EngineResult,
-    options?: { dir?: string; filename?: string; index?: number; signal?: AbortSignal; mux?: boolean },
+    options?: { dir?: string; filename?: string; index?: number; signal?: AbortSignal; mux?: boolean; maxBytes?: number },
   ): Promise<EngineDownload>;
 
   export function hasFFmpeg(): boolean;

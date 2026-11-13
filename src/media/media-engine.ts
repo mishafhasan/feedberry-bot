@@ -28,7 +28,7 @@ export interface ResolvedMedia {
 export interface MediaEngine {
   /** `quality` is a height ceiling ("1080", "720", "480"); cobalt keeps the best variant under it. */
   resolve(url: string, signal: AbortSignal, quality?: string): Promise<ResolvedMedia>;
-  download(item: MediaItem, dir: string, signal: AbortSignal): Promise<string>;
+  download(item: MediaItem, dir: string, signal: AbortSignal, maxBytes?: number): Promise<string>;
   /** What the file will weigh, without pulling it; null when the host will not say (stage 5 then downloads). */
   size?(item: MediaItem, signal: AbortSignal): Promise<number | null>;
 }
@@ -72,15 +72,16 @@ export const cobaltEngine: MediaEngine = {
     return { items: [{ kind, url: first, picker: false, ...(kind === 'video' && audio && { audio }), headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
   },
 
-  async download(item, dir, signal) {
+  async download(item, dir, signal, maxBytes) {
     try {
-      const res = await download(downloadInput(item), { dir, signal, index: 0 });
+      const res = await download(downloadInput(item), { dir, signal, index: 0, maxBytes });
       const file = res.files?.[0];
       if (res.status !== 'ok' || !file) throw new Coded(errorCode(res.error?.code), 'download failed');
       return file;
     } catch (err) {
       // A media host that refuses us is not a bot bug; the caller falls back to the link.
       if (isCoded(err)) throw err;
+      if (err instanceof Error && 'code' in err && err.code === 'error.content.too_large') throw new Coded(E.TOO_LARGE, err.message);
       throw new Coded(E.NO_MEDIA, err instanceof Error ? err.message : String(err));
     }
   },

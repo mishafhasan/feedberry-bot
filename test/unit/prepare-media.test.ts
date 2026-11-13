@@ -155,14 +155,38 @@ test('stage 5: a host that will not name the size still cannot slip a big file t
   }
 });
 
-test('stage 5: a muxed result links the post, because no single stream is the file', async () => {
+test('stage 5: a muxed result retains the requested top-quality direct URL', async () => {
   const dir = work();
   const { engine } = engineOf([{ quality: '1080', url: URL_1080, size: 200 * MB }]);
   try {
     const files = await prepareMedia(engine, [item(URL_1080, { audio: 'https://cdn.test/1080.m4a' })], dir, options({ ladderUrl: 'https://youtube.com/watch?v=abc' }));
 
     assert.equal(files[0]?.path, '');
-    assert.equal(files[0]?.url, 'https://youtube.com/watch?v=abc', 'a silent video stream is not what the reader wants');
+    assert.equal(files[0]?.url, URL_1080, 'the post page is already linked in the header');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: an unknown-size transfer hits the cap and tries the next quality', async () => {
+  const dir = work();
+  const { engine, asked, downloads } = engineOf([
+    { quality: '1080', url: URL_1080, size: null },
+    { quality: '720', url: URL_720, size: null },
+  ]);
+  const save = engine.download;
+  engine.download = async (target, into, signal, maxBytes) => {
+    assert.equal(maxBytes, 50 * MB, 'the limit reaches the streaming downloader');
+    if (target.url === URL_1080) throw new Coded(E.TOO_LARGE, 'stream crossed the cap');
+    return save(target, into, signal, maxBytes);
+  };
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080)], dir, options({ ladderUrl: POST }));
+
+    assert.deepEqual(asked, ['720']);
+    assert.deepEqual(downloads, [URL_720]);
+    assert.notEqual(files[0]?.path, '');
+    assert.equal(files[0]?.url, URL_720);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
@@ -177,6 +201,43 @@ test('stage 5: a failed download is a link, not a lost post', async () => {
     assert.equal(files.length, 1);
     assert.equal(files[0]?.path, '');
     assert.equal(files[0]?.url, URL_1080);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: each video of a carousel climbs its own ladder', async () => {
+  const dir = work();
+  const second = 'https://cdn.test/second-1080.mp4';
+  const byQuality: Record<string, Array<{ url: string; size: number }>> = {
+    '1080': [{ url: URL_1080, size: 200 * MB }, { url: second, size: 30 * MB }],
+    '720': [{ url: URL_720, size: 40 * MB }, { url: 'https://cdn.test/second-720.mp4', size: 20 * MB }],
+  };
+  const downloads: string[] = [];
+  const engine: MediaEngine = {
+    async resolve(_url, _signal, quality = '1080') {
+      return { items: (byQuality[quality] ?? []).map((rung) => item(rung.url)), title: null, artist: null };
+    },
+    async size(target) {
+      const rung = Object.values(byQuality).flat().find((candidate) => candidate.url === target.url);
+      return rung?.size ?? null;
+    },
+    async download(target, into) {
+      downloads.push(target.url);
+      mkdirSync(into, { recursive: true });
+      const path = join(into, `clip-${downloads.length}.mp4`);
+      const fd = openSync(path, 'w');
+      ftruncateSync(fd, 1024);
+      closeSync(fd);
+      return path;
+    },
+  };
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080), item(second)], dir, options({ ladderUrl: POST }));
+
+    assert.deepEqual(downloads, [URL_720, second], 'only the first video steps down');
+    assert.deepEqual(files.map((file) => file.path === '' ? 'link' : 'inline'), ['inline', 'inline']);
+    assert.deepEqual(files.map((file) => file.url), [URL_720, second]);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
