@@ -64,14 +64,20 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
   const withheld = (file: MediaFile): boolean => file.kind === 'video' && overCeiling(file);
   const total = files.filter((file) => !withheld(file)).reduce((sum, file) => sum + file.size, 0);
   if (total > options.maxMb * 1024 * 1024) throw new Coded(E.TOO_LARGE, `${total} bytes over ${options.maxMb} MB`);
-  return [...files, ...(await linkedPoster(engine, files, dir, options))];
+  return [...files, ...(await withPosters(engine, files, dir, options))];
 }
 
 /**
  * ADR-027: a clip too big to send still shows its face. The extractor's own poster is free; otherwise
  * the page's `og:image` is asked for once, and the picture rides in the slideshow beside the label.
+ * Exported because a page adapter (a YouTube community post) also hands over link-only clips.
  */
-async function linkedPoster(engine: MediaEngine, files: MediaFile[], dir: string, options: PrepareOptions): Promise<MediaFile[]> {
+export async function withPosters(
+  engine: MediaEngine,
+  files: MediaFile[],
+  dir: string,
+  options: Pick<PrepareOptions, 'signal' | 'poster' | 'keepOversizedVideo'>,
+): Promise<MediaFile[]> {
   const linked = files.filter((file) => file.kind === 'video' && file.path === '');
   if (linked.length === 0 || options.keepOversizedVideo === true) return [];
   const poster = linked.map((file) => file.poster).find((url) => url !== undefined) ?? (await options.poster?.() ?? null);

@@ -12,7 +12,7 @@ import { type Thumbnailer } from '../media/thumbnail.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
-import { fetchYouTubePost, youtubePostId } from '../platform/feed/youtube-post.ts';
+import { fetchYouTubePost, youtubePostId, youtubePoster } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { CONTENT_KINDS, filterByContentTypes, parseContentTypes, type ContentKind } from '../platform/content-types.ts';
 import { classifyLink, detectSource, isWebsitePage, linksIn, profileFromAuthor, profileOfPost, sectionOf, type DetectOptions, type LinkMatch, type SourceRef } from '../platform/registry.ts';
@@ -23,7 +23,7 @@ import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/resolve-source.ts';
 import { fetchPageSource, fetchSourceFeed } from '../pipeline/fetch-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
-import { ladderFor, mediaSignal, prepareMedia } from '../pipeline/prepare-media.ts';
+import { ladderFor, mediaSignal, prepareMedia, withPosters } from '../pipeline/prepare-media.ts';
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
@@ -1163,8 +1163,12 @@ async function youtubePage(deps: BotDeps, url: string): Promise<PagePost | null>
     channel: post.channel,
     text: post.text,
     items: post.media.map((photo) => ({ kind: 'photo' as const, url: photo, picker: false })),
-    // The clip is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
-    links: post.videos.map((video) => ({ path: '', kind: 'video' as const, size: 0, url: video })),
+    // The clip is a YouTube page, not a file cobalt can fetch: it ships as its labelled link,
+    // with the poster YouTube states for that id (ADR-027).
+    links: post.videos.map((video) => {
+      const poster = youtubePoster(video);
+      return { path: '', kind: 'video' as const, size: 0, url: video, ...(poster === null ? {} : { poster }) };
+    }),
   };
 }
 
@@ -1203,7 +1207,9 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
     // Over the size cap the post still ships its words; the media is the part that is lost.
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
-  return renderDownload([...files, ...(post.links ?? [])], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
+  // A page post's link-only clip is built outside stage 5, so its poster is added here too (ADR-027).
+  const media = [...files, ...(post.links ?? [])];
+  return renderDownload([...media, ...(await withPosters(deps.media, media, dir, { signal }))], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
 /** ADR-024: replace a truncated post with its full body, same message, media kept by file_id. */

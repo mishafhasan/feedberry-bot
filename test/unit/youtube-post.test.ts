@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { Coded, E, isCoded } from '../../src/platform/errors.ts';
 import type { Http } from '../../src/platform/http.ts';
-import { fetchYouTubePost, parseYouTubeChannelPosts, parseYouTubePost } from '../../src/platform/feed/youtube-post.ts';
+import { fetchYouTubePost, parseYouTubeChannelPosts, parseYouTubePost, youtubePoster } from '../../src/platform/feed/youtube-post.ts';
 
 const evidence = (name: string): string => readFileSync(fileURLToPath(new URL(`../fixtures/youtube/${name}`, import.meta.url)), 'utf8');
 
@@ -52,6 +52,12 @@ test('youtube: an attached video becomes its label, never a raw URL', () => {
   assert.deepEqual(doc.videos, ['https://youtu.be/tycyv2eoOaU'], 'the page link the label points at');
   assert.match(doc.text, /MrBeast Lab Ep 1: Monster Invasion/, 'the title stays as the post\'s words');
   assert.doesNotMatch(doc.text, /https?:\/\//, 'the renderer builds the link, so no URL is printed');
+});
+
+test('youtube: a linked clip still has the poster its id names (ADR-027)', () => {
+  assert.equal(youtubePoster('https://youtu.be/tycyv2eoOaU'), 'https://i.ytimg.com/vi/tycyv2eoOaU/hqdefault.jpg', 'hqdefault is the size every upload has');
+  assert.equal(youtubePoster('https://youtu.be/tycyv2eoOaU?t=30'), 'https://i.ytimg.com/vi/tycyv2eoOaU/hqdefault.jpg', 'a timestamp is not part of the id');
+  assert.equal(youtubePoster('https://www.youtube.com/watch?v=tycyv2eoOaU'), null, 'a watch URL is resolved by cobalt, not here');
 });
 
 test('youtube: a poll ships its question and every choice', () => {

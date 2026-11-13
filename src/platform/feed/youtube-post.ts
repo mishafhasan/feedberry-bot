@@ -187,6 +187,15 @@ function videosOf(attachment: RawAttachment | null | undefined): string[] {
   return typeof id === 'string' && id !== '' ? [`https://youtu.be/${id}`] : [];
 }
 
+/**
+ * YouTube states a poster for every video id, so a clip we only link still shows its face (ADR-027).
+ * `hqdefault` is the size YouTube generates for every upload; `maxres`/`hq720` are 404 on plenty of them.
+ */
+export function youtubePoster(url: string): string | null {
+  const id = /^https?:\/\/youtu\.be\/([\w-]{11})(?:[?&#]|$)/.exec(url)?.[1];
+  return id === undefined ? null : `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+}
+
 /** Thumbnails run smallest first; the original is the widest one that still carries a URL. */
 function largest(image: RawImage | null | undefined): string | null {
   const thumbs = image?.thumbnails;

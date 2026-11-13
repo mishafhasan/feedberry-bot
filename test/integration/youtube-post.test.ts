@@ -110,6 +110,45 @@ test('youtube: one post link delivers its channel, its words and its photo', asy
   }
 });
 
+test('youtube: a scheduled community post with only a clip ships its poster and its label', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-clip-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const calls = { resolve: 0, download: 0 };
+
+  try {
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, { platform: 'youtube', canonicalUrl: 'https://youtube.com/@NASA', externalId: 'NASA', feedUrl: null, strategy: 'native_rss', title: 'NASA', avatarUrl: null });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+    // Stage 2 stores the attachment as a video page link; there is no photo to upload at all.
+    const rows = insertPosts(db, source.id, [{
+      guid: 'community-clip',
+      link: VIDEO_POST,
+      title: 'A post with a clip',
+      summary: null,
+      publishedAt: Date.now(),
+      media: [{ url: 'https://youtu.be/tycyv2eoOaU', type: 'video' }],
+    }]);
+    for (const row of rows) markPendingDelivery(db, row.id, chat.id);
+
+    const cfg = config();
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http: async () => { throw new Error('no page fetch expected'); }, media: mediaEngine(calls) });
+    await bot.init();
+    const result = await deliverPending({ db, cfg, http: async () => { throw new Error('no feed fetch expected'); }, media: mediaEngine(calls), thumbnail: async () => null, sender: new TelegramSender(bot.api) }, source.id);
+
+    assert.equal(result.delivered, 1);
+    const rich = api.last('sendRichMessage');
+    const html = String(rich?.body.rich_message?.html ?? '');
+    assert.ok(html.includes('<p>🎬 <a href="https://youtu.be/tycyv2eoOaU">Video 1</a></p>'), `the label is there:\n${html}`);
+    assert.ok(html.includes('<tg-slideshow><img src="tg://photo?id=m0"/></tg-slideshow>'), `and the poster rides above it:\n${html}`);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('youtube: an album post ships every photo in one slideshow', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-youtube-album-'));
@@ -157,14 +196,20 @@ test('youtube: a post that attaches a video ships it as a link, not as a downloa
     await bot.handleUpdate(commandUpdate(2, USER_ID, 'download'));
     await bot.handleUpdate(textUpdate(3, USER_ID, VIDEO_POST));
 
-    assert.equal(calls.download, 0, 'nothing to upload');
+    assert.equal(calls.download, 1, 'the clip is not downloaded, only its poster (ADR-027)');
     assert.equal(api.last('sendPhoto'), undefined, 'no media message for a text post');
     assert.equal(api.last('sendMediaGroup'), undefined);
-    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    const rich = api.last('sendRichMessage');
+    const html = String(rich?.body.rich_message?.html ?? '');
     assert.ok(
       html.includes('<p>🎬 <a href="https://youtu.be/tycyv2eoOaU">Video 1</a></p>'),
       `the attached video ships as its label, never as a raw URL:\n${html}`,
     );
+    assert.ok(
+      html.includes('<tg-slideshow><img src="tg://photo?id=m0"/></tg-slideshow>'),
+      `and its poster rides in the same message:\n${html}`,
+    );
+    assert.equal((rich?.body.rich_message?.media as Array<unknown> | undefined)?.length, 1, 'one uploaded poster');
   } finally {
     db.close();
     await api.close();

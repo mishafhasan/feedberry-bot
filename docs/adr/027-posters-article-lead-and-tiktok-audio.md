@@ -40,6 +40,10 @@ Three reports came from the same delivery batch:
 - **Both doors call it.** `planForDelivery` and Download Mode both go through `prepareMedia`; download
   mode passes the `og:image` from the page it already read, scheduled delivery fetches it lazily. The
   bytes of the two plans stay identical (`test/unit/video-label.test.ts`).
+- **A clip that never reaches stage 5 still gets a face.** A YouTube community attachment is a page
+  link, not a downloadable item, so the pipeline calls the same `withPosters` on the final file list.
+  Its poster needs no fetch: YouTube generates `i.ytimg.com/vi/<id>/hqdefault.jpg` for every upload
+  (`hq720`/`maxresdefault` 404 on plenty of them — measured on the test clip).
 - **RSS keeps ADR-012/022**: `keepOversizedVideo` skips the poster, because a frame cut from the clip is
   already in the album.
 - **An article with no pictures gets its own lead image.** After sanitizing, a body with no `<img>` is

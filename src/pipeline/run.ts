@@ -16,6 +16,7 @@ import { E, isCoded } from '../platform/errors.ts';
 import { allowsContent, parseContentTypes, youtubeKindOf } from '../platform/content-types.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
+import { youtubePoster } from '../platform/feed/youtube-post.ts';
 import type { Http } from '../platform/http.ts';
 import { pageMeta, pageText } from '../platform/page-text.ts';
 import type { SourceRef } from '../platform/registry.ts';
@@ -27,7 +28,7 @@ import { classifyMedia } from './classify-media.ts';
 import { effectiveKeywords, passesFilter } from './keyword-filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './dedupe.ts';
-import { ladderFor, mediaSignal, prepareMedia } from './prepare-media.ts';
+import { ladderFor, mediaSignal, prepareMedia, withPosters } from './prepare-media.ts';
 import { renderPost } from './render-post.ts';
 import { pageOfPost, withReadMore } from './read-more.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
@@ -260,7 +261,11 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   // A feed that ships media only (X/Twitter, TikTok) leaves the caption to the page's own words.
   const hasFeedText = payload.title !== '' || (payload.summary ?? '') !== '';
   const titleFallback = engineTitle ?? (hasFeedText || !post.url ? null : await pageText(deps.http, post.url));
-  if (items.length === 0) return renderPost(post, kind, videoLinks, { platform, sourceTitle, titleFallback, tz });
+  const posterOf = async (): Promise<string | null> => (post.url === null ? null : (await pageMeta(deps.http, post.url)).image);
+  if (items.length === 0) {
+    const linked = await withPosters(deps.media, videoLinks, dir, { signal, poster: posterOf });
+    return renderPost(post, kind, [...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
+  }
 
   let files;
   try {
@@ -270,7 +275,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       // A social post links a clip it cannot send; an RSS post keeps the bytes ADR-012/022 cut a frame from.
       ...(platform === 'rss'
         ? { keepOversizedVideo: true }
-        : { ladderUrl: ladderFor(platform, post.url), poster: async () => (post.url === null ? null : (await pageMeta(deps.http, post.url)).image) }),
+        : { ladderUrl: ladderFor(platform, post.url), poster: posterOf }),
     });
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).
@@ -281,7 +286,11 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
 
   // ADR-023: a non-RSS post ships as one rich message — the duration rule and stand-in frames below
   // are the RSS/blog album layout, and a frame must never leak into the rich slideshow.
-  if (platform !== 'rss') return renderPost(post, kind, [...files, ...videoLinks], { platform, sourceTitle, titleFallback, tz });
+  if (platform !== 'rss') {
+    // A community post's linked clip is built outside stage 5, so its poster is added here.
+    const linked = await withPosters(deps.media, [...files, ...videoLinks], dir, { signal, poster: posterOf });
+    return renderPost(post, kind, [...files, ...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
+  }
 
   if (kind !== 'video') {
     // R15: an oversized video cannot ride in the album, so a frame rides in its place.
@@ -343,7 +352,12 @@ function feedPhotos(media: Array<{ url: string; type: string }>): MediaItem[] {
 
 /** A video the feed names by its page (a YouTube community attachment): linked, never downloaded. */
 function feedVideoLinks(media: Array<{ url: string; type: string }>): MediaFile[] {
-  return media.filter((item) => item.type === 'video').map((item) => ({ path: '', kind: 'video' as const, size: 0, url: item.url }));
+  return media
+    .filter((item) => item.type === 'video')
+    .map((item) => {
+      const poster = youtubePoster(item.url);
+      return { path: '', kind: 'video' as const, size: 0, url: item.url, ...(poster === null ? {} : { poster }) };
+    });
 }
 
 const refOfSource = (source: SourceRow): SourceRef => ({

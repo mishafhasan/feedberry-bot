@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
-import { prepareMedia } from '../../src/pipeline/prepare-media.ts';
+import { prepareMedia, withPosters } from '../../src/pipeline/prepare-media.ts';
 import { Coded, E } from '../../src/platform/errors.ts';
 
 const MB = 1024 * 1024;
@@ -302,6 +302,21 @@ test('ADR-027: a dead poster URL still ships the clip and its label', async () =
     assert.deepEqual(files.map((file) => file.kind), ['video']);
     assert.equal(files[0]?.path, '');
     assert.equal(files[0]?.url, URL_1080);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('ADR-027: the poster is added once, however many times the pipeline asks', async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/poster.jpg';
+  const { engine, downloads } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }]);
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, options());
+    const again = await withPosters(engine, files, dir, { signal: new AbortController().signal });
+
+    assert.deepEqual(again, [], 'a poster already in the gallery is not uploaded twice');
+    assert.deepEqual(downloads, [poster], 'and never re-downloaded');
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
