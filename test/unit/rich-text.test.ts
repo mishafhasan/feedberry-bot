@@ -1,105 +1,84 @@
-/** ADR-023: source text → Telegram rich HTML (blocks line by line, styles inline). */
+/** ADR-025: source text → the inline RichText of the expandable quote (block markers flattened). */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { richBody, truncateParagraphs } from '../../src/render/rich-text.ts';
+import { expandableQuote } from '../../src/render/rich-text.ts';
 
-test('rich text: headings H1–H6 and subheadings', () => {
-  assert.equal(richBody('# Title'), '<h1>Title</h1>');
-  assert.equal(richBody('### Sub **bold**'), '<h3>Sub <b>bold</b></h3>');
-  assert.equal(richBody('###### Small'), '<h6>Small</h6>');
-  assert.equal(richBody('#hashtag stays text'), '<p>#hashtag stays text</p>', 'no space after # is not a heading');
+/** The html of a post with no line break, without the quote wrapper. */
+const inlineOf = (text: string): string =>
+  expandableQuote(text).replace(/^<blockquote expandable>/, '').replace(/<\/blockquote>$/, '');
+
+test('rich text: a heading line keeps its emphasis, never a block element', () => {
+  assert.equal(inlineOf('# Title'), '<b>Title</b>');
+  assert.equal(inlineOf('### Sub **bold**'), '<b>Sub <b>bold</b></b>');
+  assert.equal(inlineOf('#hashtag stays text'), '#hashtag stays text', 'no space after # is not a heading');
 });
 
-test('rich text: single, multi-line and nested blockquotes', () => {
-  assert.equal(richBody('> one'), '<blockquote>one</blockquote>');
-  assert.equal(richBody('> one\n> two'), '<blockquote>one<br/>two</blockquote>');
-  assert.equal(richBody('> outer\n>> inner'), '<blockquote>outer<br/><blockquote>inner</blockquote></blockquote>');
+test('rich text: quote, bullet and fence markers flatten instead of printing', () => {
+  assert.equal(inlineOf('> one\n>> two'), 'one<br/>two', 'the quote marker is dropped');
+  assert.equal(inlineOf('- a\n* b\n• c'), '• a<br/>• b<br/>• c');
+  assert.equal(inlineOf('1. one\n2. two'), '1. one<br/>2. two', 'numbers print as text');
+  assert.equal(
+    expandableQuote('```ts\nconst a = 1 < 2 && **bold**;\n```'),
+    '<blockquote expandable>const a = 1 &lt; 2 &amp;&amp; <b>bold</b>;</blockquote>',
+    'the fence line never prints; the code stays escaped text',
+  );
 });
 
-test('rich text: inline and fenced code, fenced content is not styled', () => {
-  assert.equal(richBody('run `npm test` now'), '<p>run <code>npm test</code> now</p>');
-  assert.equal(richBody('```ts\nconst a = 1 < 2 && **not bold**;\n```'), '<pre><code class="language-ts">const a = 1 &lt; 2 &amp;&amp; **not bold**;</code></pre>');
-  assert.equal(richBody('```\nplain\n```'), '<pre>plain</pre>');
-});
-
-test('rich text: unordered, ordered and nested lists', () => {
-  assert.equal(richBody('- a\n- b'), '<ul><li>a</li><li>b</li></ul>');
-  assert.equal(richBody('• a\n* b'), '<ul><li>a</li><li>b</li></ul>');
-  assert.equal(richBody('1. one\n2. two'), '<ol><li>one</li><li>two</li></ol>');
-  assert.equal(richBody('- a\n  - b\n- c'), '<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>');
-  assert.equal(richBody('1. one\n2. two\n\nnot a list'), '<ol><li>one</li><li>two</li></ol><p>not a list</p>');
-});
-
-test('rich text: bold, italic, underline, strike, spoiler, marked', () => {
-  const html = richBody('**bold** __bold__ *it* _it_ ++under++ ~~strike~~ ||spoiler|| ==marked==');
-  assert.equal(html, '<p><b>bold</b> <b>bold</b> <i>it</i> <i>it</i> <u>under</u> <s>strike</s> <tg-spoiler>spoiler</tg-spoiler> <mark>marked</mark></p>');
+test('rich text: inline code, bold, italic, underline, strike, spoiler, marked', () => {
+  assert.equal(inlineOf('run `npm test` now'), 'run <code>npm test</code> now');
+  assert.equal(
+    inlineOf('**bold** __bold__ *it* _it_ ++under++ ~~strike~~ ||spoiler|| ==marked=='),
+    '<b>bold</b> <b>bold</b> <i>it</i> <i>it</i> <u>under</u> <s>strike</s> <tg-spoiler>spoiler</tg-spoiler> <mark>marked</mark>',
+  );
 });
 
 test('rich text: markdown anchors, bare URLs, email and phone become our links', () => {
-  assert.equal(richBody('[the site](https://example.com/a?b=1)'), '<p><a href="https://example.com/a?b=1">the site</a></p>');
-  assert.equal(richBody('see https://x.com/p.'), '<p>see <a href="https://x.com/p">https://x.com/p</a>.</p>', 'trailing punctuation stays out of the href');
-  assert.equal(richBody('mail a@b.com'), '<p>mail <a href="mailto:a@b.com">a@b.com</a></p>');
-  assert.equal(richBody('call +8801712345678'), '<p>call <a href="tel:+8801712345678">+8801712345678</a></p>');
+  assert.equal(inlineOf('[the site](https://example.com/a?b=1)'), '<a href="https://example.com/a?b=1">the site</a>');
+  assert.equal(inlineOf('see https://x.com/p.'), 'see <a href="https://x.com/p">https://x.com/p</a>.', 'trailing punctuation stays out of the href');
+  assert.equal(inlineOf('mail a@b.com'), 'mail <a href="mailto:a@b.com">a@b.com</a>');
+  assert.equal(inlineOf('call +8801712345678'), 'call <a href="tel:+8801712345678">+8801712345678</a>');
 });
 
 test('rich text: custom emoji and date-time entities', () => {
-  assert.equal(richBody('![📸](tg://emoji?id=6282526363559666134)'), '<p><tg-emoji emoji-id="6282526363559666134">📸</tg-emoji></p>');
+  assert.equal(inlineOf('![📸](tg://emoji?id=6282526363559666134)'), '<tg-emoji emoji-id="6282526363559666134">📸</tg-emoji>');
   assert.equal(
-    richBody('![22:45 tomorrow](tg://time?unix=1647531900&format=wDT)'),
-    '<p><tg-time unix="1647531900" format="wDT">22:45 tomorrow</tg-time></p>',
+    inlineOf('![22:45 tomorrow](tg://time?unix=1647531900&format=wDT)'),
+    '<tg-time unix="1647531900" format="wDT">22:45 tomorrow</tg-time>',
   );
 });
 
 test('rich text: unsafe links and raw HTML stay literal text', () => {
-  assert.equal(richBody('<script>alert(1)</script>'), '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>');
-  const bad = richBody('[x](javascript:alert(1))');
+  assert.equal(inlineOf('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
+  const bad = expandableQuote('[x](javascript:alert(1))');
   assert.doesNotMatch(bad, /href=/, 'only http(s), mailto and tel become links');
-  const injected = richBody('[x](https://e.com/"onmouseover=1)');
+  const injected = expandableQuote('[x](https://e.com/"onmouseover=1)');
   assert.doesNotMatch(injected, /href="https:\/\/e\.com\/"onmouseover/, 'the quote is encoded before it can close the href');
   assert.match(injected, /%22|&quot;/, 'and survives only as an encoded character');
 });
 
-test('rich text: a blank line starts a new paragraph, prose line breaks stay', () => {
-  assert.equal(richBody('one\ntwo\n\nthree'), '<p>one<br/>two</p><p>three</p>');
-  assert.equal(richBody('one\n\n\n\ntwo'), '<p>one</p><p>two</p>', 'runs of blank lines collapse');
-  assert.equal(richBody('a < b & c > d'), '<p>a &lt; b &amp; c &gt; d</p>');
+test('rich text: the whole post is one quote, blank lines are the only paragraph gap', () => {
+  assert.equal(expandableQuote('one\ntwo'), '<blockquote expandable>one<br/>two</blockquote>');
+  assert.equal(expandableQuote('one\n\nthree'), '<blockquote expandable>one<br/><br/>three</blockquote>');
+  assert.equal(expandableQuote('one\n\n\n\nthree'), '<blockquote expandable>one<br/><br/>three</blockquote>', 'a run of blank lines is one gap');
+  assert.equal(expandableQuote('a < b & c > d'), '<blockquote expandable>a &lt; b &amp; c &gt; d</blockquote>');
+  assert.equal(expandableQuote('a\n   \nb'), '<blockquote expandable>a<br/><br/>b</blockquote>', 'a spaces-only line is a gap, not a line of spaces');
 });
 
-test('rich text: leading, trailing and whitespace-only lines never print', () => {
-  assert.equal(richBody('\n\na\n\n'), '<p>a</p>');
-  assert.equal(richBody('a\n   \nb'), '<p>a</p><p>b</p>', 'a spaces-only line is a paragraph break');
-  assert.equal(richBody('\n\n- x\n\n'), '<ul><li>x</li></ul>', 'blanks around a block stay out');
+test('rich text: leading, trailing and empty content never print, and an empty post has no quote', () => {
+  assert.equal(expandableQuote('\n\na\n\n'), '<blockquote expandable>a</blockquote>');
+  assert.equal(expandableQuote('\n\n- x\n\n'), '<blockquote expandable>• x</blockquote>');
+  assert.equal(expandableQuote('   \n\n '), '', 'a post with no words gets no quote at all');
 });
 
 test('rich text: CRLF and CR line endings behave like LF', () => {
-  assert.equal(richBody('a\r\nb'), '<p>a<br/>b</p>');
-  assert.equal(richBody('a\r\n\r\nb'), '<p>a</p><p>b</p>');
-  assert.equal(richBody('a\rb'), '<p>a<br/>b</p>');
+  assert.equal(expandableQuote('a\r\nb'), '<blockquote expandable>a<br/>b</blockquote>');
+  assert.equal(expandableQuote('a\r\n\r\nb'), '<blockquote expandable>a<br/><br/>b</blockquote>');
+  assert.equal(expandableQuote('a\rb'), '<blockquote expandable>a<br/>b</blockquote>');
 });
 
-test('rich text: blocks between paragraphs keep the paragraph order', () => {
-  assert.equal(richBody('a\n\n# H\n\nb'), '<p>a</p><h1>H</h1><p>b</p>');
-  assert.equal(richBody('a\n\n- x\n- y\n\nb'), '<p>a</p><ul><li>x</li><li>y</li></ul><p>b</p>');
-  assert.equal(richBody('a\n\n> q\n\nb'), '<p>a</p><blockquote>q</blockquote><p>b</p>');
-  assert.equal(richBody('```\na\n\nb\n```'), '<pre>a\n\nb</pre>', 'a blank line inside code is preserved');
-});
-
-test('rich text: the preview keeps whole paragraphs, two or about 240 chars', () => {
-  const text = [1, 2, 3, 4, 5, 6].map((n) => `Paragraph ${n}. ${'word '.repeat(20).trim()}`).join('\n\n');
-  const preview = truncateParagraphs(text);
-
-  assert.equal(preview.split('\n\n').length, 2, 'two paragraphs fit the preview');
-  assert.match(preview, /Paragraph 2\./);
-  assert.doesNotMatch(preview, /Paragraph 3/, 'the cut lands on a paragraph boundary');
-  assert.ok(preview.length <= 240, `preview is ${preview.length} chars`);
-  assert.equal(truncateParagraphs('one\n\ntwo'), 'one\n\ntwo', 'a short post is untouched');
-  assert.equal(truncateParagraphs(`long `.repeat(300).trim()), `long `.repeat(300).trim(), 'one long paragraph is never cut');
-  assert.equal(truncateParagraphs('a\nb\n\nc'), 'a\nb\n\nc', 'line breaks inside a kept paragraph stay');
-  const titleAndBody = `Title\n\n${'word '.repeat(300).trim()}`;
-  assert.equal(truncateParagraphs(titleAndBody), titleAndBody, 'a title never stands alone as the preview');
-});
-
-test('rich text: a flattened numbered list is split by the caller, then rendered as an ol', () => {
-  // breakNumberedList runs before richBody on the rich path; a bare ol is what it feeds.
-  assert.equal(richBody('1. http://site.test — one\n2. http://two.test — two'), '<ol><li><a href="http://site.test">http://site.test</a> — one</li><li><a href="http://two.test">http://two.test</a> — two</li></ol>');
+test('rich text: a numbered list with links keeps its numbers and its links', () => {
+  assert.equal(
+    inlineOf('1. http://site.test — one\n2. http://two.test — two'),
+    '1. <a href="http://site.test">http://site.test</a> — one<br/>2. <a href="http://two.test">http://two.test</a> — two',
+  );
 });

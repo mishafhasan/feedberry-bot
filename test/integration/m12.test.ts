@@ -224,10 +224,10 @@ test('M12 Download: the page names the account and dates the post, like a schedu
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
       html,
-      /^<p><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<br\/>⏱️ Time: 10\/08 16:55<\/p>/,
-      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
+      /^<h5><tg-emoji emoji-id="\d+">✖️<\/tg-emoji> <a href="https:\/\/x\.com\/blue\/status\/123">The World Of Funny<\/a> \| X<\/h5><p>⏱️ <b>Time<\/b>: 10\/08 16:55<\/p>/,
+      `one h5 source line, then the day-first time (saw ${html.slice(0, 160)}…)`,
     );
-    assert.match(html, /<p>Bro turned the whole resort up!<\/p>/);
+    assert.match(html, /<blockquote expandable>Bro turned the whole resort up!<\/blockquote>/);
   } finally {
     db.close();
     await api.close();
@@ -282,10 +282,10 @@ test('M12 Download: a Snapchat spotlight page delivers its clip in the same layo
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assert.match(
       html,
-      /^<p><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<br\/>⏱️ Time: 23\/08 18:34<\/p>/,
-      `one linked source line, then the day-first time (saw ${html.slice(0, 120)}…)`,
+      /^<h5><tg-emoji emoji-id="\d+">👻<\/tg-emoji> <a href="https:\/\/snapchat\.com\/@klipz96\/spotlight\/[^"]+">Funny Vidz<\/a> \| Snapchat<\/h5><p>⏱️ <b>Time<\/b>: 23\/08 18:34<\/p>/,
+      `one h5 source line, then the day-first time (saw ${html.slice(0, 160)}…)`,
     );
-    assert.match(html, /<p>Watch as Funny Vidz captures another unsuspecting victim\.<\/p>/);
+    assert.match(html, /<blockquote expandable>Watch as Funny Vidz captures another unsuspecting victim\.<\/blockquote>/);
     assert.match(html, /<tg-slideshow><video src="tg:\/\/video\?id=m0"><\/video><\/tg-slideshow>/);
   } finally {
     db.close();
@@ -331,7 +331,9 @@ test('M12 Download: an engine caption above 1024 chars rides whole in one rich m
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.ok(html.includes(long), 'the whole caption rides inside the rich message');
+    // The fold between the preview and the quote eats one space, so count the words, not the string.
+    assert.equal((html.match(/word/g) ?? []).length, 300, 'every word of the caption rides inside the rich message');
+    assert.match(html, /<blockquote expandable>/, 'the whole caption sits in the quote');
     assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
     assert.doesNotMatch(html, /Read more/, 'no Instant View link on the rich path');
     assert.equal(pages.length, 0, 'Download Mode never publishes a Telegraph page (ADR-023)');

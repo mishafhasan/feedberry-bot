@@ -94,7 +94,7 @@ test('caption header: the label is the source type, not the domain, and the time
   );
 });
 
-test('rich header: the platform logo leads and the time is day-first in the reader zone (ADR-023)', () => {
+test('rich header: an h5 source line, the logo leading, and the day-first time in the reader zone (ADR-025)', () => {
   const header = postHeader({
     sourceTitle: 'WIRED',
     url: 'https://www.wired.com/story/x/',
@@ -103,11 +103,24 @@ test('rich header: the platform logo leads and the time is day-first in the read
     tz: 'Asia/Dhaka',
     rich: true,
   });
-  assert.equal(header, `${platformIcon('instagram')} <a href="https://www.wired.com/story/x/">WIRED</a> | Instagram\n⏱️ Time: 01/11 10:01`);
+  assert.equal(
+    header,
+    `<h5>${platformIcon('instagram')} <a href="https://www.wired.com/story/x/">WIRED</a> | Instagram</h5>` +
+      '<p>⏱️ <b>Time</b>: 01/11 10:01</p>',
+    'DD/MM HH:MM, shifted by the reader zone',
+  );
   assert.equal(ddmmhhmm(Date.UTC(2026, 10, 1, 4, 1)), '01/11 04:01', 'UTC stays the default zone');
+});
+
+test('rich header: no publish date leaves the heading alone, never an empty time line', () => {
+  assert.equal(
+    postHeader({ sourceTitle: 'WIRED', url: null, publishedAt: null, platform: 'rss', rich: true }),
+    `<h5>${platformIcon('rss')} WIRED | RSS</h5>`,
+  );
 });
 
 test('icons: the bot layer re-exports the one producer in platform/icons', () => {
   assert.equal(platformIconViaTexts('x'), platformIcon('x'));
   assert.match(platformIcon('x'), /^<tg-emoji emoji-id="\d+">✖️<\/tg-emoji>$/);
+  assert.equal(platformIcon('constructor'), '🌐', 'a platform with no logo falls back to the globe');
 });

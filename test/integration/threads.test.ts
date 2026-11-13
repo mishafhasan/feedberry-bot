@@ -22,7 +22,7 @@ import { parseThreadDocument } from '../../src/platform/feed/threads.ts';
 import { runFetchSource } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { esc } from '../../src/render/message-plan.ts';
-import { callbackUpdate, commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
+import { commandUpdate, fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
 
 const TOKEN = '123456:AAHfakeTokenForTestsOnly_1234567890abc';
@@ -77,14 +77,14 @@ function mediaEngine(photoCalls: { resolve: number; download: number }): MediaEn
   };
 }
 
-/** The layout both modes must print: one linked source line with its platform, one day-first time line. */
+/** The layout both modes must print: one h5 source line with its platform, one day-first time line. */
 function assertHeaderBlock(html: string, hrefPattern: string, name: string, platform: string): void {
   assert.match(
     html,
-    new RegExp(`<a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}<br/>⏱️ Time: \\d{2}\\/\\d{2} \\d{2}:\\d{2}`),
-    `header block (saw ${html.slice(0, 120)}…)`,
+    new RegExp(`^<h5>.*?<a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}<\\/h5><p>⏱️ <b>Time<\\/b>: \\d{2}\\/\\d{2} \\d{2}:\\d{2}<\\/p>`),
+    `header block (saw ${html.slice(0, 160)}…)`,
   );
-  assert.equal((html.match(/⏱️ Time:/g) ?? []).length, 1, 'one time line');
+  assert.equal((html.match(/⏱️ <b>Time<\/b>:/g) ?? []).length, 1, 'one time line');
 }
 
 /** A rich post carries its whole text: no `(1/2)` split and no Instant View tail (ADR-023). */
@@ -95,6 +95,9 @@ function assertNoSplit(html: string): void {
 
 /** The renderer escapes source text and turns each newline into <br/>; match a tail the same way. */
 const richTail = (text: string): string => esc(text).replace(/\n/g, '<br/>');
+
+/** The part of a rich post the reader has to tap to see (ADR-025). */
+const quoteOf = (html: string): string => /<blockquote expandable>([\s\S]*)<\/blockquote>/.exec(html)?.[1] ?? '';
 
 test('threads: one post link delivers the whole thread, its words and its media', async () => {
   const api = await fakeBotApi();
@@ -138,14 +141,10 @@ test('threads: one post link delivers the whole thread, its words and its media'
     assertNoSplit(html);
     assert.match(html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the photo rides in the slideshow');
     
-    // Both posts' words reach the message whole: root and the 3,779-char sub-post.
+    // Both posts' words reach the message whole: the root in the open, the sub-post past the fold.
     assert.equal(pages.length, 0, 'no Instant View page on the rich path');
-    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'a long thread opens with a Show more button');
-    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
-    await bot.handleUpdate(callbackUpdate(4, USER_ID, `more:${token}`));
-    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
-    assert.ok(expanded.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post text arrives on expand');
-    assert.match(expanded, /<tg-slideshow>/, 'the slideshow survives the edit');
+    assert.ok(quoteOf(html).includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail rides in the expandable quote');
+    assert.match(html, /<tg-slideshow>/, 'the slideshow rides above the words');
 
     const row = db.prepare('SELECT post_id, status FROM deliveries ORDER BY id DESC LIMIT 1').get() as { post_id: number | null; status: string };
     assert.equal(row.post_id, null, 'Download mode has no posts row');
@@ -299,13 +298,9 @@ test('threads: a scheduled source prints the whole thread, not the feed preview 
     assert.doesNotMatch(html, /feed preview|@prompt\.__hub :/, 'the feed preview is not printed as a body of its own');
     assertNoSplit(html);
     
-    // The whole thread — root and the 3,779-char sub-post — reaches the message, once.
+    // The whole thread — root in the open and the 3,779-char sub-post past the fold — reaches the message, once.
     assert.equal(pages.length, 0, 'no Instant View page on the rich path');
-    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'the scheduled thread opens with a Show more button');
-    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
-    await bot.handleUpdate(callbackUpdate(10, USER_ID, `more:${token}`));
-    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
-    assert.ok(expanded.includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail arrives on expand');
+    assert.ok(quoteOf(html).includes(richTail(expected.posts[1]?.text.slice(-60) ?? '')), 'the sub-post tail rides in the expandable quote');
     assert.doesNotMatch(html, /feed preview/, 'the message carries the thread, not the RSS preview');
   } finally {
     db.close();
@@ -357,11 +352,7 @@ test('threads: a blocked permalink keeps the feed text instead of losing the pos
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
     assertHeaderBlock(html, 'https:\/\/(?:www\.)?threads\.com\/@prompt\.__hub\/post\/DcsVM6HlDOv', 'PROMPT HUB (@prompt.__hub)', 'Threads');
-    assert.match(html, /data="more:[A-Za-z0-9_-]+"/, 'the long feed text opens with a Show more button');
-    const token = /data="more:([A-Za-z0-9_-]+)"/.exec(html)?.[1] ?? '';
-    await bot.handleUpdate(callbackUpdate(1, USER_ID, `more:${token}`));
-    const expanded = String(api.last('editMessageText')?.body.rich_message?.html ?? '');
-    assert.match(expanded, /feed preview/, 'the feed text ships when the permalink says no');
+    assert.match(html, /feed preview/, 'the feed text ships when the permalink says no');
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'").get() as { n: number }).n, 1, 'one delivery, not two');
   } finally {
     db.close();

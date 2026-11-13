@@ -23,8 +23,11 @@ const PLATFORM_EMOJI: Partial<Record<Platform, string>> = {
 
 /** The plain emoji stays inside as the fallback for clients that ignore custom emoji. */
 export function platformIcon(platform: string): string {
-  const emoji = PLATFORM_ICON[platform as Platform] ?? '📡';
-  const id = PLATFORM_EMOJI[platform as Platform];
+  // The row stores the platform as text; `hasOwn` keeps a value like `constructor` off the
+  // prototype chain, which would otherwise render "function Object() { [native code] }".
+  if (!Object.hasOwn(PLATFORM_ICON, platform)) return '🌐';
+  const emoji = PLATFORM_ICON[platform as Platform];
+  const id = Object.hasOwn(PLATFORM_EMOJI, platform) ? PLATFORM_EMOJI[platform as Platform] : undefined;
   return id === undefined ? emoji : `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`;
 }
 

@@ -21,7 +21,7 @@ const post = (title: string, summary: string): PostRow => ({
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };
 const captionOf = (title: string, summary: string): string => {
   const plan = renderPost(post(title, summary), 'photo', [photo], { platform: 'instagram', sourceTitle: 'Evolving AI (@evolving.ai) - Instagram' });
-  return plan.kind === 'rich' ? plan.html : plan.kind === 'rich_more' ? plan.fullHtml : '';
+  return plan.kind === 'rich' ? plan.html : '';
 };
 
 test('delivery: a truncated feed title is not printed on top of the full body', () => {
@@ -79,8 +79,8 @@ test('delivery: a parsed multi-paragraph post is printed once, with its paragrap
     payload_json: JSON.stringify({ title: item.title, summary: item.summary, media: item.media }),
   };
   const plan = renderPost(row, 'photo', [photo], { platform: 'instagram', sourceTitle: 'Evolving AI' });
-  const caption = plan.kind === 'rich' ? plan.html : plan.kind === 'rich_more' ? plan.fullHtml : '';
+  const caption = plan.kind === 'rich' ? plan.html : '';
 
   assert.equal(caption.match(/Altman on RAM/g)?.length, 1, 'the title is a copy of the body');
-  assert.ok(caption.includes(['Altman on RAM.', 'Then the podcast.'].join('</p><p>')), 'paragraphs survive');
+  assert.ok(caption.includes(['Altman on RAM.', 'Then the podcast.'].join('<br/><br/>')), 'paragraphs survive');
 });

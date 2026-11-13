@@ -100,14 +100,25 @@ function splitFlattenedTail(line: string): string {
  * Every delivered post opens with where it came from and when the site published it, so a
  * forwarded post is traceable without opening it. The platform is what the *source* is, not what
  * its URL spells: a blog on a custom domain is still RSS.
+ *
+ * The rich layout (ADR-025) returns blocks: the source line is a heading, the time its own line.
+ * The classic layout returns `\n`-joined text, which its senders turn into `<br/>`.
  */
 export function postHeader(params: { sourceTitle: string | null; url: string | null; publishedAt: number | null; platform: string; tz?: string; rich?: boolean }): string {
   const name = esc(sourceName(params.sourceTitle ?? 'Source', params.platform));
   const title = params.url ? `<a href="${esc(params.url)}">${name}</a>` : name;
-  // The rich post layout leads with the platform logo and prints the day first (ADR-023).
-  const lead = params.rich === true ? platformIcon(params.platform) : '🌐';
-  const when = params.publishedAt === null ? null : params.rich === true ? ddmmhhmm(params.publishedAt, params.tz) : mmddhhmm(params.publishedAt, params.tz);
-  return [`${lead} ${title} | ${esc(platformLabel(params.platform))}`, when === null ? null : `⏱️ Time: ${when}`].filter((line) => line !== null).join('\n');
+  const line = `${title} | ${esc(platformLabel(params.platform))}`;
+  const { publishedAt, tz } = params;
+
+  if (params.rich !== true) {
+    const when = publishedAt === null ? null : mmddhhmm(publishedAt, tz);
+    return [`🌐 ${line}`, when === null ? null : `⏱️ Time: ${when}`].filter((text) => text !== null).join('\n');
+  }
+
+  // `<tg-time>` would print the client's own locale format; the layout asks for DD/MM HH:MM, and an
+  // absolute stamp has nothing to tick, so the reader's zone decides the string instead.
+  const time = publishedAt === null ? '' : `<p>⏱️ <b>Time</b>: ${ddmmhhmm(publishedAt, tz)}</p>`;
+  return `<h5>${platformIcon(params.platform)} ${line}</h5>${time}`;
 }
 
 /** The display name of a source platform, for every screen that names one: post header, source list. */
@@ -150,7 +161,7 @@ export function mmddhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, false);
 }
 
-/** `DD/MM HH:MM` — the rich post header's day-first order (ADR-023). */
+/** `DD/MM HH:MM` — the rich header's day-first absolute time in the reader's zone. */
 export function ddmmhhmm(ms: number, tz = 'UTC'): string {
   return timeLine(ms, tz, true);
 }
