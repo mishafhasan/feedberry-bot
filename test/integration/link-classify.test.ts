@@ -421,6 +421,38 @@ test('M26: a /t/ thread offers its account before the download, not only after i
   }
 });
 
+test('M26: a download dates the post from its feed when the page cannot be read', async () => {
+  // A datacenter IP gets Instagram's login wall instead of the post: the page states no date, the
+  // account's own feed still does.
+  const IG_FEED = `<?xml version="1.0"?><rss version="2.0"><channel><title>Wallx</title>
+    <item><title>Wall</title><link>https://www.instagram.com/p/C1/</link><guid>ig-1</guid>
+    <pubDate>Fri, 25 Sep 2026 13:26:00 GMT</pubDate><description>Body</description></item>
+  </channel></rss>`;
+  const pageBlocked: Http = async (url) => {
+    if (url === 'http://rsshub.test/instagram/user/cristiano') return { status: 200, url, contentType: 'application/rss+xml', body: IG_FEED };
+    return { status: 403, url, contentType: 'text/html', body: 'login wall' };
+  };
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-blocked-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http: pageBlocked, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://www.instagram.com/p/C1/'));
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
+
+    const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
+    assert.match(html, /⏱️ <b>Time<\/b>: 25\/09 13:26/, 'the feed dates the post the page would have dated');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('M26: a source link inside a sentence previews the source in free text and in Add Source', async () => {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-source-text-'));

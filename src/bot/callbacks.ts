@@ -1043,10 +1043,11 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const engineText = resolved.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved.artist?.trim() || null;
-        // The page states the date first; the extractor is the fallback for pages that hide it (Tumblr).
-        const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? null;
         // The page names the account as it prints it; then the extractor, then the account the link names.
         const owner = profileOfPost(ref.canonicalUrl);
+        // The page states the date first, the extractor second; the account's own feed last, because a
+        // datacenter IP can lose the page and not every extractor carries a date (§5.4).
+        const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? (await feedDateOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner))));
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
         // ADR-023: one rich message carries the whole post; a video too big to upload keeps its link.
@@ -1073,6 +1074,30 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
     await showError(ctx, deps, userId, err, { kind: 'download', link });
   } finally {
     if (working !== undefined && chatId !== undefined) await ctx.api.deleteMessage(chatId, working).catch(() => {});
+  }
+}
+
+/** The item that is the same post, by the id its URL spells rather than the text a feed prints. */
+function samePost(link: string, deps: BotDeps, externalId: string): boolean {
+  try {
+    return detectSource(link, detectOpts(deps)).externalId === externalId;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The post's date when the page will not state it: a datacenter IP gets Instagram's login wall,
+ * while RSSHub reads the same account for the subscriptions. No match means no time, never a guess.
+ */
+async function feedDateOf(deps: BotDeps, ref: SourceRef, author: string | null): Promise<number | null> {
+  const profile = author === null ? null : profileFromAuthor(ref.platform, author);
+  if (profile === null) return null;
+  try {
+    const feed = await fetchSourceFeed(deps.http, detectSource(profile, detectOpts(deps)), null, deps.cfg.rsshubBase);
+    return feed.items.find((item) => samePost(item.link, deps, ref.externalId))?.publishedAt ?? null;
+  } catch {
+    return null;
   }
 }
 
