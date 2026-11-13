@@ -23,7 +23,7 @@ import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/resolve-source.ts';
 import { fetchPageSource, fetchSourceFeed } from '../pipeline/fetch-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
-import { mediaSignal, prepareMedia } from '../pipeline/prepare-media.ts';
+import { ladderFor, mediaSignal, prepareMedia } from '../pipeline/prepare-media.ts';
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
@@ -1049,7 +1049,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // datacenter IP can lose the page and not every extractor carries a date (§5.4).
         const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? (await feedDateOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner))));
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
-        const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+        const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal, ladderUrl: ladderFor(ref.platform, ref.canonicalUrl) });
         // ADR-023: one rich message carries the whole post; a video too big to upload keeps its link.
         plan = renderDownload(files, { title: text, artist: source, publishedAt, platform: ref.platform, tz: user.tz }, ref.canonicalUrl);
       }
@@ -1111,6 +1111,8 @@ interface PagePost {
   channel: { url: string; handle: string | null } | null;
   text: string;
   items: MediaItem[];
+  /** Media the page only links (a community post's attached video): no bytes, just its direct URL. */
+  links?: MediaFile[];
 }
 
 /**
@@ -1155,6 +1157,8 @@ async function youtubePage(deps: BotDeps, url: string): Promise<PagePost | null>
     channel: post.channel,
     text: post.text,
     items: post.media.map((photo) => ({ kind: 'photo' as const, url: photo, picker: false })),
+    // The clip is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
+    links: post.videos.map((video) => ({ path: '', kind: 'video' as const, size: 0, url: video })),
   };
 }
 
@@ -1193,7 +1197,7 @@ async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir
     // Over the size cap the post still ships its words; the media is the part that is lost.
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
-  return renderDownload(files, { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
+  return renderDownload([...files, ...(post.links ?? [])], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
 /** ADR-024: replace a truncated post with its full body, same message, media kept by file_id. */

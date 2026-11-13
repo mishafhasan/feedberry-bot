@@ -45,12 +45,13 @@ test('youtube: an album keeps every image, in post order, at full size', () => {
   assert.match(doc.text, /themostdangerousgames\.com/);
 });
 
-test('youtube: an attached video becomes a link, never a download', () => {
+test('youtube: an attached video becomes its label, never a raw URL', () => {
   const doc = parseYouTubePost(evidence('post-video.html'), 'UgkxvMrKTpUbvqLPjv-lVi7N0wn68DV_NCBQ');
   assert.ok(doc);
   assert.deepEqual(doc.media, [], 'nothing to upload: a 25-minute video is not a caption');
-  assert.match(doc.text, /🎬 MrBeast Lab Ep 1: Monster Invasion/);
-  assert.match(doc.text, /https:\/\/youtu\.be\/tycyv2eoOaU$/);
+  assert.deepEqual(doc.videos, ['https://youtu.be/tycyv2eoOaU'], 'the page link the label points at');
+  assert.match(doc.text, /MrBeast Lab Ep 1: Monster Invasion/, 'the title stays as the post\'s words');
+  assert.doesNotMatch(doc.text, /https?:\/\//, 'the renderer builds the link, so no URL is printed');
 });
 
 test('youtube: a poll ships its question and every choice', () => {

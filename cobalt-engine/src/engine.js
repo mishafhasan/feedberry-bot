@@ -119,6 +119,7 @@ async function dispatch(host, patternMatch, params, url) {
                 toGif: !!params.convertGif,
                 alwaysProxy: params.alwaysProxy,
                 subtitleLang: params.subtitleLang,
+                quality: params.quality,
             });
 
         case "tiktok":
