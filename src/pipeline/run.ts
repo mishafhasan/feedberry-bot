@@ -17,7 +17,7 @@ import { allowsContent, parseContentTypes, youtubeKindOf } from '../platform/con
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
 import { fetchThreadsThread, threadText } from '../platform/feed/threads.ts';
 import type { Http } from '../platform/http.ts';
-import { pageText } from '../platform/page-text.ts';
+import { pageMeta, pageText } from '../platform/page-text.ts';
 import type { SourceRef } from '../platform/registry.ts';
 import { payloadOf, type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import type { TelegramSender } from '../telegram/api.ts';
@@ -268,7 +268,9 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       maxMb: deps.cfg.limits.maxDownloadMb,
       signal,
       // A social post links a clip it cannot send; an RSS post keeps the bytes ADR-012/022 cut a frame from.
-      ...(platform === 'rss' ? { keepOversizedVideo: true } : { ladderUrl: ladderFor(platform, post.url) }),
+      ...(platform === 'rss'
+        ? { keepOversizedVideo: true }
+        : { ladderUrl: ladderFor(platform, post.url), poster: async () => (post.url === null ? null : (await pageMeta(deps.http, post.url)).image) }),
     });
   } catch (err) {
     // Too large is a silent success path: the post ships as a link, not as a failure (ADR-012).

@@ -13,6 +13,7 @@ const PAGES: Record<string, string> = {
   'https://blog.example.test/thin': fixture('thin.html'),
   'https://blog.example.test/bbc': fixture('bbc.html'),
   'https://blog.example.test/medium': fixture('medium.html'),
+  'https://blog.example.test/lead-image': fixture('lead-image.html'),
 };
 
 const http: Http = async (url) => {
@@ -46,6 +47,15 @@ test('M7 article: Readability keeps the body, the site name and only http(s) ima
 test('M7 article: a thin page is detected, not published', async () => {
   const thin = await extractArticle(http, 'https://blog.example.test/thin');
   assert.ok(thin.textLength < 400, `thin page has ${thin.textLength} chars`);
+});
+
+test('ADR-027 article: a body Readability left pictureless keeps the page\'s own lead image', async () => {
+  const article = await extractArticle(http, 'https://blog.example.test/lead-image');
+  const imgs = article.html.match(/<img\b[^>]*>/gi) ?? [];
+
+  assert.equal(imgs.length, 1, 'the lead picture is carried, once');
+  assert.match(article.html, /^<figure><img src="https:\/\/ichef\.bbci\.co\.uk\/ace\/branded_news\/1200\/[^"]+"\/><\/figure>/, 'it leads the article, as a figure Instant View accepts');
+  assert.ok(article.textLength > 400, 'the words are unchanged');
 });
 
 test('M7 article: a picture whose real file lives in srcset keeps the image, never the placeholder', async () => {

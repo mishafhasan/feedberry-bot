@@ -15,6 +15,8 @@ declare module 'cobalt-engine' {
     filename?: string;
     urls?: string[];
     picker?: PickItem[];
+    /** The platform's own poster for the media, when it states one. */
+    cover?: string;
     headers?: Record<string, string>;
     metadata?: { title?: string; artist?: string; publishedAt?: number };
     error?: { code: string };

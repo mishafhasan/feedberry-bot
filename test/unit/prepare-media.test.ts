@@ -243,6 +243,70 @@ test('stage 5: each video of a carousel climbs its own ladder', async () => {
   }
 });
 
+test('ADR-027: a linked clip brings its own poster into the message', async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/poster.jpg';
+  const { engine, downloads } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }]);
+  let asked = 0;
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, { ...options(), poster: async () => { asked++; return null; } });
+
+    assert.deepEqual(downloads, [poster], 'the poster is the only thing pulled');
+    assert.deepEqual(files.map((file) => file.kind), ['video', 'photo']);
+    assert.equal(files[0]?.path, '', 'the clip itself stays a link');
+    assert.equal(files[1]?.url, poster);
+    assert.equal(asked, 0, 'the extractor poster answered, so the page was never read');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('ADR-027: without an extractor poster the page\'s own image is used, once', async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/og.jpg';
+  const { engine } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }]);
+  let asked = 0;
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080)], dir, { ...options(), poster: async () => { asked++; return poster; } });
+
+    assert.equal(asked, 1);
+    assert.deepEqual(files.map((file) => file.kind), ['video', 'photo']);
+    assert.equal(files[1]?.url, poster);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('ADR-027: an inline clip asks for no poster at all', async () => {
+  const dir = work();
+  const { engine, downloads } = engineOf([{ quality: '1080', url: URL_1080, size: 40 * MB }]);
+  let asked = 0;
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080)], dir, { ...options(), poster: async () => { asked++; return 'https://cdn.test/og.jpg'; } });
+
+    assert.equal(asked, 0, 'no page fetch on the common path');
+    assert.deepEqual(downloads, [URL_1080]);
+    assert.deepEqual(files.map((file) => file.kind), ['video']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('ADR-027: a dead poster URL still ships the clip and its label', async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/dead.jpg';
+  const { engine } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }], { fail: poster });
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, options());
+
+    assert.deepEqual(files.map((file) => file.kind), ['video']);
+    assert.equal(files[0]?.path, '');
+    assert.equal(files[0]?.url, URL_1080);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('stage 5: the RSS album keeps the bytes it needs for a stand-in frame', async () => {
   const dir = work();
   const { engine, downloads } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }]);

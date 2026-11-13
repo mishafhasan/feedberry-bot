@@ -1049,7 +1049,13 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // datacenter IP can lose the page and not every extractor carries a date (§5.4).
         const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? (await feedDateOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner))));
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
-        const files = await prepareMedia(deps.media, resolved.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal, ladderUrl: ladderFor(ref.platform, ref.canonicalUrl) });
+        const files = await prepareMedia(deps.media, resolved.items, dir, {
+          maxMb: deps.cfg.limits.maxDownloadMb,
+          signal,
+          ladderUrl: ladderFor(ref.platform, ref.canonicalUrl),
+          // The page was already read for its name and date: its poster is free (ADR-027).
+          poster: async () => meta.image,
+        });
         // ADR-023: one rich message carries the whole post; a video too big to upload keeps its link.
         plan = renderDownload(files, { title: text, artist: source, publishedAt, platform: ref.platform, tz: user.tz }, ref.canonicalUrl);
       }

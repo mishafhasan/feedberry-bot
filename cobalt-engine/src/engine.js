@@ -101,6 +101,8 @@ function normalize(r, {
         mime: getType(filename) || undefined,
         urls: picker ? picker.map(p => p.url) : urls,
         ...(picker && { picker }),
+        // A poster the platform states, so a caller can show the clip's face without a frame grab.
+        ...(r.cover && { cover: r.cover }),
         ...(urls.length > 1 && !picker && { requiresMux: true }),
         ...(r.headers && { headers: r.headers }),
         ...(r.isHLS && { isHLS: true }),

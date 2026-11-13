@@ -50,3 +50,14 @@ test('R15: Download Mode labels the same clip the same way', () => {
 
   assert.ok(html.includes(`<p>${LINK}</p>`), `the download path prints one label too:\n${html}`);
 });
+
+test('ADR-027: the clip\'s poster rides in the same message as its label', () => {
+  const files: MediaFile[] = [linked(DIRECT), { path: 'poster.jpg', kind: 'photo', size: 2048, url: 'https://cdn.test/poster.jpg' }];
+  const html = htmlOf(renderPost(post, 'video', files, { platform: 'x', sourceTitle: '@who' }));
+
+  assert.ok(html.includes('<tg-slideshow><img src="tg://photo?id=m0"/></tg-slideshow>'), `the poster is the slideshow:\n${html}`);
+  assert.ok(html.includes(`<p>${LINK}</p>`), 'and the file stays one tap away');
+  const schedule = renderPost(post, 'video', files, { platform: 'x', sourceTitle: '@who' });
+  const download = renderDownload(files, { title: 'A post', artist: '@who', publishedAt: post.published_at, platform: 'x' }, POST);
+  assert.deepEqual(download, schedule, 'both doors render the poster and the label identically');
+});

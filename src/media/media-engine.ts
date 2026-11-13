@@ -7,8 +7,10 @@ export interface MediaItem {
   url: string;
   /** A carousel item: it must be downloaded through the picker branch, not as a single stream. */
   picker: boolean;
-  /** The second track of a merged result (YouTube); cobalt muxes it back on download. */
+  /** The second track of a merged result (YouTube, TikTok); cobalt muxes it back on download. */
   audio?: string;
+  /** The clip's own poster, when the platform states one: what a linked clip shows instead of bytes. */
+  poster?: string;
   /** Feed/platform duration hint (§8.6 step 2); null when nobody knows. */
   durationSec?: number | null;
   /** Headers the extractor attaches to the media host; TikTok's CDN 403s without referer + UA. */
@@ -56,7 +58,7 @@ export const cobaltEngine: MediaEngine = {
     if (res.picker?.length) {
       const items = res.picker.flatMap((pick) => {
         const kind = KIND[pick.type];
-        return kind && pick.url ? [{ kind, url: pick.url, picker: true, headers: res.headers }] : [];
+        return kind && pick.url ? [{ kind, url: pick.url, picker: true, ...(httpOnly(pick.thumb) && { poster: pick.thumb }), headers: res.headers }] : [];
       });
       if (items.length === 0) throw new Coded(E.NO_MEDIA, 'picker without playable items');
       return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
@@ -67,9 +69,10 @@ export const cobaltEngine: MediaEngine = {
     // A words-only post (a Tumblr text post) resolves with no media but with its text: keep the words.
     if (!first && res.metadata?.title) return { items: [], title: res.metadata.title, artist: res.metadata.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
     if (!kind || !first) throw new Coded(E.NO_MEDIA, `type ${res.type ?? 'unknown'}`);
-    // A merged result (YouTube) is video + audio; dropping the second URL shipped a silent file.
+    // A merged result (YouTube, TikTok) is video + audio; dropping the second URL shipped a silent file.
     const audio = res.urls?.[1];
-    return { items: [{ kind, url: first, picker: false, ...(kind === 'video' && audio && { audio }), headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
+    const cover = httpOnly(res.cover) ? res.cover : null;
+    return { items: [{ kind, url: first, picker: false, ...(kind === 'video' && audio && { audio }), ...(cover !== null && { poster: cover }), headers: res.headers }], title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
   },
 
   async download(item, dir, signal, maxBytes) {
@@ -129,6 +132,9 @@ async function remoteBytes(url: string, headers: Record<string, string> | undefi
     return null;
   }
 }
+
+/** A poster is only usable when it is a plain http(s) address. */
+const httpOnly = (value: string | undefined): value is string => typeof value === 'string' && /^https?:\/\//i.test(value);
 
 /** §11 mapping of the engine's error codes; anything unknown is "couldn't extract media". */
 function errorCode(code: string | undefined): ErrorCode {

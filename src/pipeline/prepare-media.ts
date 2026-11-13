@@ -12,6 +12,11 @@ export interface PrepareOptions {
   ladderUrl?: string;
   /** ADR-022: an RSS album keeps the bytes of an oversized clip, because its stand-in frame is cut from them. */
   keepOversizedVideo?: boolean;
+  /**
+   * ADR-027, called only when a clip ends up link-only and the extractor named no poster: the page's
+   * own `og:image`. One page fetch on the rare oversized post, never on the common inline one.
+   */
+  poster?: () => Promise<string | null>;
 }
 
 /** The quality ladder of X and YouTube; the caller's item is already the top rung. */
@@ -50,7 +55,7 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
       // A big file is the one most likely to time out mid-transfer, and cobalt reports that as
       // "no media". Keep the post: the video links from the caption, the rest of it still ships.
       log('warn', 'media_item_failed', { kind: item.kind, code: isCoded(err) ? err.code : 'unknown' });
-      if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url });
+      if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url, ...(item.poster !== undefined && { poster: item.poster }) });
     }
   }
 
@@ -59,7 +64,32 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
   const withheld = (file: MediaFile): boolean => file.kind === 'video' && overCeiling(file);
   const total = files.filter((file) => !withheld(file)).reduce((sum, file) => sum + file.size, 0);
   if (total > options.maxMb * 1024 * 1024) throw new Coded(E.TOO_LARGE, `${total} bytes over ${options.maxMb} MB`);
-  return files;
+  return [...files, ...(await linkedPoster(engine, files, dir, options))];
+}
+
+/**
+ * ADR-027: a clip too big to send still shows its face. The extractor's own poster is free; otherwise
+ * the page's `og:image` is asked for once, and the picture rides in the slideshow beside the label.
+ */
+async function linkedPoster(engine: MediaEngine, files: MediaFile[], dir: string, options: PrepareOptions): Promise<MediaFile[]> {
+  const linked = files.filter((file) => file.kind === 'video' && file.path === '');
+  if (linked.length === 0 || options.keepOversizedVideo === true) return [];
+  const poster = linked.map((file) => file.poster).find((url) => url !== undefined) ?? (await options.poster?.() ?? null);
+  // The post may already upload this very picture; twice would look like a broken gallery.
+  if (poster === null || files.some((file) => file.url === poster)) return [];
+  const photo = await posterFile(engine, poster, dir, options.signal);
+  return photo === null ? [] : [photo];
+}
+
+/** The poster as an uploadable photo; a dead image URL never costs the post. */
+async function posterFile(engine: MediaEngine, url: string, dir: string, signal: AbortSignal): Promise<MediaFile | null> {
+  try {
+    const path = await engine.download({ kind: 'photo', url, picker: false }, dir, signal);
+    return { path, kind: 'photo', size: (await stat(path)).size, url };
+  } catch (err) {
+    log('warn', 'poster_failed', { code: isCoded(err) ? err.code : 'unknown' });
+    return null;
+  }
 }
 
 /** Every other kind: pull it and report what landed. */
@@ -86,7 +116,7 @@ async function videoFile(engine: MediaEngine, first: MediaItem, index: number, d
     const file = await fitting(engine, item, dir, options);
     if (file !== null) return file;
   }
-  return { path: '', kind: 'video', size: 0, url: first.url };
+  return { path: '', kind: 'video', size: 0, url: first.url, ...(first.poster !== undefined && { poster: first.poster }) };
 }
 
 /** The clip on disk when it fits, null when it does not — the next rung may still. */
