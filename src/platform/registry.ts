@@ -131,9 +131,13 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     case 'youtube': {
       const [first, second] = seg;
       if (normalizeHost(u.hostname) === 'youtu.be') return single(u, platform, first ?? '');
-      if (first === 'shorts' || first === 'live' || first === 'watch') {
-        return single(u, platform, first === 'watch' ? (u.searchParams.get('v') ?? '') : (second ?? ''));
+      // The id lives in the query, so the canonical URL must carry it: the bare page is the home screen.
+      if (first === 'watch') {
+        const v = u.searchParams.get('v');
+        if (!v) throw new Coded(E.LINK_INVALID, 'watch without v');
+        return single(u, platform, v, `https://youtube.com/watch?v=${v}`);
       }
+      if (first === 'shorts' || first === 'live') return single(u, platform, second ?? '');
       if (first === 'channel') {
         const id = second ?? '';
         // Native channel feed: no key, no RSSHub (§10).

@@ -61,6 +61,15 @@ test('M2 registry: feeds that need no helper are native', () => {
   assert.equal(detectSource('https://www.tiktok.com/@user/video/123', opts).strategy, 'single_post');
 });
 
+test('M2 registry: a watch link keeps the video id the id-less page would lose', () => {
+  const watch = detectSource('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s', opts);
+  assert.equal(watch.strategy, 'single_post');
+  assert.equal(watch.externalId, 'dQw4w9WgXcQ');
+  assert.equal(watch.canonicalUrl, 'https://youtube.com/watch?v=dQw4w9WgXcQ', 'cobalt resolves the video, not the home page');
+
+  assert.throws(() => detectSource('https://youtube.com/watch', opts), 'a watch link without v names no video');
+});
+
 test('M2 registry: a plain website is discovered, an obvious feed is used as-is', () => {
   const site = detectSource('https://example.com/blog/', opts);
   assert.equal(site.platform, 'rss');
