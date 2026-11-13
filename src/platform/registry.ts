@@ -271,6 +271,31 @@ export function classifyLink(link: string, opts: DetectOptions): LinkMatch {
   return { kind: 'post', profileUrl: profileUrl !== null && addable(profileUrl, opts) ? profileUrl : null };
 }
 
+/** A URL token in a message. `www.` is the one scheme-less form accepted: a sentence never says it by accident. */
+const LINK_TOKEN = /https?:\/\/[^\s<>"'`]+|(?<![\w.])www\.[^\s<>"'`]+/gi;
+
+/**
+ * Every link a message carries, in message order. People write "look at this <url>, nice" and paste
+ * two links at once; the whole message is not a URL, so the flow has to find the URL first.
+ */
+export function linksIn(text: string): string[] {
+  const tokens = text.match(LINK_TOKEN) ?? [];
+  return [...new Set(tokens.map(trimLink).map(withScheme))];
+}
+
+/** Trailing punctuation is the sentence's; a bracket the URL opened itself (Wikipedia) stays. */
+function trimLink(token: string): string {
+  let link = token.replace(/[.,;:!?…]+$/, '');
+  for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']] as const) {
+    while (link.endsWith(close) && countOf(link, open) < countOf(link, close)) link = link.slice(0, -1);
+  }
+  return link;
+}
+
+const countOf = (text: string, char: string): number => text.split(char).length - 1;
+
+const withScheme = (link: string): string => (/^www\./i.test(link) ? `https://${link}` : link);
+
 /** A website page the URL alone calls a category listing: `/category/science`, `/top-stories/155`. */
 export function isSectionSource(ref: SourceRef): boolean {
   if (ref.platform !== 'rss') return false;

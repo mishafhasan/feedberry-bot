@@ -83,6 +83,12 @@ export const postLinkPrompt = (lang: Lang = 'en'): string => t(lang, 'prompt.pos
 export const linkRequired = (want: 'post' | 'source', lang: Lang = 'en'): string =>
   t(lang, want === 'post' ? 'notice.postLinkRequired' : 'notice.sourceLinkRequired');
 
+/** One message carried several links: ask for one at a time, so the flow knows which one to open. */
+export const oneLink = (count: number, lang: Lang = 'en'): string => t(lang, 'notice.oneLink', { count });
+
+/** Text that meant to be a link but holds no openable URL; no Retry, it would fail identically. */
+export const linkInvalid = (lang: Lang = 'en'): string => t(lang, 'notice.linkInvalid');
+
 /** S3 — the bot's answer while stage 1 and 2 run. */
 export function s3Text(canonicalUrl: string, lang: Lang = 'en'): string {
   return `${t(lang, 's3.checking')}\n\n${esc(canonicalUrl)}`;

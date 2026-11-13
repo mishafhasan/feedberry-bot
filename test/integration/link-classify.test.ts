@@ -332,3 +332,84 @@ test('M17: a threads post offers the account behind it, and adding it runs the s
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('M26: the link is what counts, not the words around it, and no message leaves the user without an answer', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-text-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  let updateId = 1;
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(updateId++, USER_ID));
+
+    // Two links: one line asks for one at a time, and a Retry would only fail again.
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/ and https://www.instagram.com/p/C2/'));
+    const many = api.last('sendMessage');
+    assert.match(String(many?.body.text), /2 links/);
+    assert.ok(buttons(many).includes('menu:help'), 'the explanation stays one tap away');
+    assert.ok(!buttons(many).includes('err:retry'), 'no Retry that would fail again');
+
+    // A post link inside a sentence is still the post.
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'look at this https://www.instagram.com/p/C1/ — funny'));
+    const chooser = api.last('sendMessage');
+    assert.match(String(chooser?.body.text), /post link/);
+    assert.ok(buttons(chooser).includes('dl:post'), 'the download is offered');
+    assert.ok(buttons(chooser).includes('add:post'), 'and the account behind the post');
+
+    // The chooser is a prompt, not a draft: a second link replaces it instead of vanishing.
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'actually this one https://www.instagram.com/p/C2/'));
+    assert.match(String(api.last('sendMessage')?.body.text), /post link/, 'the second link is answered too');
+
+    // Text that meant a link with nothing openable in it: named, not ignored.
+    await bot.handleUpdate(startUpdate(updateId++, USER_ID));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'here ftp://files.test/a.bin'));
+    const invalid = api.last('sendMessage');
+    assert.match(String(invalid?.body.text), /isn't a link I can open/);
+    assert.ok(!buttons(invalid).includes('err:retry'), 'no Retry that would fail again');
+
+    // Download Mode keeps its own rule, with the words around the link ignored.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:download'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'this profile https://www.instagram.com/cristiano/ please'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Send a post link, not a profile\./);
+
+    // The refusal never left the screen: the next post link still downloads.
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/p/C1/'));
+    assert.ok(api.calls.some((call) => call.method === 'sendRichMessage'), 'a post link still downloads');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M26: a source link inside a sentence previews the source in free text and in Add Source', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-classify-source-text-'));
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  fetched.length = 0;
+  let updateId = 1;
+
+  try {
+    const bot = createBot({ cfg: cfgFor(), db, apiRoot: api.apiRoot, http, media: engine });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(updateId++, USER_ID));
+
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'new source: https://www.instagram.com/cristiano/ — enjoy'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the source is previewed, not ignored');
+    assert.ok(fetched.includes('http://rsshub.test/instagram/user/cristiano'), 'through the route the link names');
+
+    // Add Source asked for a link; the sentence around it is not a reason to refuse it.
+    await bot.handleUpdate(startUpdate(updateId++, USER_ID));
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:add'));
+    await bot.handleUpdate(textUpdate(updateId++, USER_ID, 'https://www.instagram.com/cristiano/?ref=share from the app'));
+    assert.match(String(api.last('sendMessage')?.body.text), /Latest post/, 'the preview, not "Send a source link"');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
