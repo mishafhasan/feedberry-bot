@@ -73,16 +73,15 @@ Two facts decided the layout:
 
 ## Evidence
 
-`test/unit/rich-render.test.ts` (whole body in the quote, the 50-item list, inline-only guard,
-empty-body case), `test/unit/rich-text.test.ts` (`expandableQuote` escaping and marker flattening),
-`test/unit/caption-header.test.ts` (`<h3>`, `<tg-time>`, `relativeTime`), `test/integration/threads.test.ts`
-(the 3,779-char sub-post arrives inside the quote). Tag behaviour: `docs/expandable-quotes.md`.
+`test/unit/rich-render.test.ts` (whole body in the quote, the rules around it, the 50-item list,
+inline-only guard, empty-body case), `test/unit/rich-text.test.ts` (`expandableQuote` escaping and
+marker flattening), `test/unit/caption-header.test.ts` (`<h5>`, bold `DD/MM HH:MM`),
+`test/integration/threads.test.ts` (the 3,779-char sub-post arrives inside the quote). Tag behaviour:
+`docs/expandable-quotes.md`.
 
-Live, against the real Bot API with the spike bot: the two requested links rendered by the real
-pipeline and sent as they come out of stage 6 —
-`x.com/The_techAI/status/2120336134568087586` (4,726 chars, no media, message 1779) parsed to
-`heading, paragraph, paragraph, list, expandable_blockquote`, and `threads.com/t/Dfl9OZClIHt`
-(6,044 chars, one uploaded photo, message 1780) parsed to
-`heading, paragraph, slideshow, paragraph, expandable_blockquote`. The API returning
-`expandable_blockquote` is the server's own confirmation that the quote is collapsible rather than a
-plain quote.
+Live, against the real Bot API with the spike bot: message 1830, the layout's html sent as stage 6
+emits it, came back as `heading(5), paragraph, divider, expandable_blockquote, divider` — the `<h5>`
+kept its size, both `<hr/>` parsed as dividers, and the quote stayed collapsible. Earlier, the two
+requested links rendered by the real pipeline parsed to `heading, paragraph, paragraph, list,
+expandable_blockquote` (X, message 1779) and `heading, paragraph, slideshow, paragraph,
+expandable_blockquote` (Threads with one uploaded photo, message 1780).
