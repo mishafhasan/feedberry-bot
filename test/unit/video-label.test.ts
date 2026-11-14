@@ -51,6 +51,16 @@ test('R15: Download Mode labels the same clip the same way', () => {
   assert.ok(html.includes(`<p>${LINK}</p>`), `the download path prints one label too:\n${html}`);
 });
 
+test('ADR-028: a body that repeats the media URL keeps only the label', () => {
+  const withUrl = { ...post, payload_json: JSON.stringify({ title: `Watch this ${DIRECT}`, summary: null, media: [] }) };
+  const html = htmlOf(renderPost(withUrl, 'video', [linked(DIRECT)], { platform: 'x', sourceTitle: '@who' }));
+
+  assert.equal((html.match(/video\.twimg\.com/g) ?? []).length, 1, 'the URL survives once, inside the label href');
+  assert.ok(html.includes(`<p>${LINK}</p>`), 'and the label is what the reader sees');
+  assert.ok(html.includes('Watch this'), 'the words keep their shape');
+  assert.doesNotMatch(html, />https?:\/\//, 'no raw URL as visible text');
+});
+
 test('ADR-027: the clip\'s poster rides in the same message as its label', () => {
   const files: MediaFile[] = [linked(DIRECT), { path: 'poster.jpg', kind: 'photo', size: 2048, url: 'https://cdn.test/poster.jpg' }];
   const html = htmlOf(renderPost(post, 'video', files, { platform: 'x', sourceTitle: '@who' }));

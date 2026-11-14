@@ -115,7 +115,10 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
     ].filter((block) => block !== '').join('');
   };
 
-  let bodyPlain = parts.join('\n\n');
+  // A feed that ends its text with the media URL would print it as a raw link; the label already
+  // carries that URL, so the words keep their shape and drop the duplicate (ADR-028).
+  const linkedUrls = files.filter((file) => file.kind === 'video' && file.path === '' && file.url !== undefined).map((file) => file.url as string);
+  let bodyPlain = withoutUrls(parts.join('\n\n'), linkedUrls);
   let html = compose(bodyPlain);
   if (html.length > RICH_TEXT_LIMIT) {
     // shortcut: >32,768-char posts are clamped, upgrade when a real source exceeds it.
@@ -124,6 +127,12 @@ function richPlan(header: string, parts: string[], files: MediaFile[]): MessageP
     html = compose(bodyPlain);
   }
   return { kind: 'rich', html, media };
+}
+
+/** Drops the URLs a label already links, and the blank lines their removal leaves behind. */
+function withoutUrls(text: string, urls: string[]): string {
+  const withoutLinks = urls.reduce((out, url) => out.split(url).join(''), text);
+  return withoutLinks.replace(/[ \t]+$/gm, '').split('\n\n\n').join('\n\n').trim();
 }
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {

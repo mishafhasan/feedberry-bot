@@ -28,7 +28,7 @@ import { classifyMedia } from './classify-media.ts';
 import { effectiveKeywords, passesFilter } from './keyword-filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './dedupe.ts';
-import { ladderFor, mediaSignal, prepareMedia, withPosters } from './prepare-media.ts';
+import { EXTRACT_BUDGET_MS, DOWNLOAD_BUDGET_MS, ladderFor, mediaSignal, prepareMedia, withPosters } from './prepare-media.ts';
 import { renderPost } from './render-post.ts';
 import { pageOfPost, withReadMore } from './read-more.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
@@ -217,13 +217,13 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
   return { delivered, failed };
 }
 
-const MEDIA_TIMEOUT_MS = 120_000;
-
 /** Stages 3 → 5 → 6 for one post; any media failure degrades to a link card, never a lost post. */
 async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string, sourceTitle: string | null, tz: string): Promise<MessagePlan> {
   const payload = payloadOf(post.payload_json);
   const hadFeedMedia = payload.media.length > 0;
-  const signal = mediaSignal(MEDIA_TIMEOUT_MS);
+  // ADR-028: extraction is a few small requests, the transfer is the one operation sized by the cap.
+  const signal = mediaSignal(EXTRACT_BUDGET_MS);
+  const transfer = mediaSignal(DOWNLOAD_BUDGET_MS);
 
   // R12: a website or blog post is an article when the page yields readable text. Trying this first
   // also skips cobalt, whose og:image made every blog post look like a photo with a headline.
@@ -240,7 +240,10 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
 
   let items: MediaItem[] = [];
   let engineTitle: string | null = null;
-  if (post.url) {
+  // ADR-026/028: a community post is a page, not a media file. Resolving it only answers with the
+  // page's own images, which the feed never carried and the paste door never asks for.
+  const youtubePost = youtubeKindOf(post.url) === 'post';
+  if (post.url && !youtubePost) {
     try {
       const resolved = await deps.media.resolve(post.url, signal);
       items = resolved.items;
@@ -252,7 +255,6 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   }
   // A community post has no extractor: the feed's own photos are the media, so the album still ships.
   // An upload's feed media is only its thumbnail, so a failed extraction stays a link card (R14).
-  const youtubePost = youtubeKindOf(post.url) === 'post';
   if (items.length === 0 && youtubePost) items = feedPhotos(payload.media);
   // An attached video is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
   const videoLinks = youtubePost ? feedVideoLinks(payload.media) : [];
@@ -263,7 +265,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   const titleFallback = engineTitle ?? (hasFeedText || !post.url ? null : await pageText(deps.http, post.url));
   const posterOf = async (): Promise<string | null> => (post.url === null ? null : (await pageMeta(deps.http, post.url)).image);
   if (items.length === 0) {
-    const linked = await withPosters(deps.media, videoLinks, dir, { signal, poster: posterOf });
+    const linked = await withPosters(deps.media, videoLinks, dir, { signal: transfer, poster: posterOf });
     return renderPost(post, kind, [...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
   }
 
@@ -271,7 +273,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   try {
     files = await prepareMedia(deps.media, items, dir, {
       maxMb: deps.cfg.limits.maxDownloadMb,
-      signal,
+      signal: transfer,
       // A social post links a clip it cannot send; an RSS post keeps the bytes ADR-012/022 cut a frame from.
       ...(platform === 'rss'
         ? { keepOversizedVideo: true }
@@ -288,7 +290,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   // are the RSS/blog album layout, and a frame must never leak into the rich slideshow.
   if (platform !== 'rss') {
     // A community post's linked clip is built outside stage 5, so its poster is added here.
-    const linked = await withPosters(deps.media, [...files, ...videoLinks], dir, { signal, poster: posterOf });
+    const linked = await withPosters(deps.media, [...files, ...videoLinks], dir, { signal: transfer, poster: posterOf });
     return renderPost(post, kind, [...files, ...videoLinks, ...linked], { platform, sourceTitle, titleFallback, tz });
   }
 
