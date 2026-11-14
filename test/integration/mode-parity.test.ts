@@ -37,6 +37,8 @@ interface Post {
   publishedAt: number;
   /** Feed media, the only source a community post has. */
   media?: Array<{ url: string; type: string }>;
+  /** The feed's own words, when they carry a player line the paste door never sees. */
+  summary?: string;
   /** What the extractor answers for the post link, per quality rung. */
   resolve: (quality?: string) => MediaItem[];
   /** Poster the extractor states, when it states one. */
@@ -131,7 +133,7 @@ async function scheduled(post: Post): Promise<Result> {
     const chat = ensurePrivateChat(db, user.id, USER_ID);
     const source = upsertSource(db, { platform: post.platform, canonicalUrl: post.link, externalId: post.artist, feedUrl: null, strategy: 'native_rss', title: post.artist, avatarUrl: null });
     insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
-    const rows = insertPosts(db, source.id, [{ guid: 'parity', link: post.link, title: post.title, summary: null, publishedAt: post.publishedAt, media: post.media ?? [] }]);
+    const rows = insertPosts(db, source.id, [{ guid: 'parity', link: post.link, title: post.title, summary: post.summary ?? null, publishedAt: post.publishedAt, media: post.media ?? [] }]);
     for (const row of rows) markPendingDelivery(db, row.id, chat.id);
 
     const cfg = config();
@@ -243,6 +245,25 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
     expect: (result) => {
       assert.equal(result.media, 3, 'both clips and the photo are uploaded');
       assert.equal(result.labels, 0, 'no link is needed');
+    },
+  },
+  {
+    name: '(e) a feed player line never prints beside the clip it linked',
+    post: {
+      platform: 'x',
+      link: 'https://x.com/who/status/456',
+      title: 'Made with Seedance',
+      // ADR-021 stores the embedded player as its own line; the paste door reads the tweet instead.
+      summary: 'Made with Seedance\n\n🎬 https://video.twimg.com/amplify/456/clip.mp4?tag=29',
+      artist: '@who',
+      publishedAt: Date.UTC(2026, 10, 13, 13, 0),
+      resolve: () => [small('https://video.twimg.com/amplify/456/clip.mp4?tag=29')],
+      sizes: { 'https://video.twimg.com/amplify/456/clip.mp4?tag=29': 2 * MB },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 1, 'the clip rides inline');
+      assert.equal(result.labels, 0, 'a clip that fits is never linked');
+      assert.doesNotMatch(result.html, /video\.twimg\.com/, 'and its direct URL never prints');
     },
   },
 ];

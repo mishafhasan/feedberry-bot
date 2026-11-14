@@ -84,8 +84,12 @@ export function renderDownload(files: MediaFile[], meta: { title: string | null;
 /** ADR-023: the scheduled half of the rich layout — same header, the feed's de-duplicated words. */
 function renderRichPost(post: PostRow, files: MediaFile[], extras: RenderExtras): MessagePlan {
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz, rich: true });
-  const parts = bodyParts(post, extras).map((part) => breakNumberedList(part));
-  return richPlan(header, parts, files);
+  const body = playerLines(bodyParts(post, extras).map((part) => breakNumberedList(part)));
+  // A clip the post already carries makes its player line redundant; one the pipeline never resolved
+  // keeps that URL as the label `withVideoLinks` builds, so no direct URL reaches the reader as text.
+  const covered = files.some((file) => file.kind === 'video');
+  const media = covered ? files : [...files, ...body.players.filter((url) => !files.some((file) => file.url === url)).map(linkedVideo)];
+  return richPlan(header, body.parts, media);
 }
 
 /**
@@ -134,6 +138,32 @@ function withoutUrls(text: string, urls: string[]): string {
   const withoutLinks = urls.reduce((out, url) => out.split(url).join(''), text);
   return withoutLinks.replace(/[ \t]+$/gm, '').split('\n\n\n').join('\n\n').trim();
 }
+
+/**
+ * ADR-021 writes a feed's player into the post's words as its own line — `🎬 <url>` for a clip, and
+ * `🎞️ <url>` for a loop — because a caption can print a URL and a rich post cannot: the client turns
+ * a bare URL into an anchor labelled with the whole address. So the line leaves the body here, and
+ * the URLs come back out for the one case `withVideoLinks` cannot label: nothing resolved at all.
+ */
+const PLAYER_LINE = /^\s*(?:🎬|🎞️)\s+(https?:\/\/\S+)\s*$/;
+
+function playerLines(parts: string[]): { parts: string[]; players: string[] } {
+  const players: string[] = [];
+  const kept = parts.map((part) =>
+    part
+      .split('\n')
+      .filter((line) => {
+        const match = PLAYER_LINE.exec(line);
+        if (match?.[1] !== undefined) players.push(match[1]);
+        return match === null;
+      })
+      .join('\n')
+      .trim(),
+  );
+  return { parts: kept.filter((part) => part !== ''), players };
+}
+
+const linkedVideo = (url: string): MediaFile => ({ path: '', kind: 'video', size: 0, url });
 
 function bodyOf(post: PostRow, extras: RenderExtras): string {
   const header = postHeader({ sourceTitle: extras.sourceTitle ?? null, url: post.url, publishedAt: post.published_at, platform: extras.platform, tz: extras.tz });

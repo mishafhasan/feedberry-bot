@@ -1202,16 +1202,18 @@ function pageFallback(err: unknown, adapter: string, url: string): null {
 async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal, platform: string, tz: string): Promise<MessagePlan> {
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
   const source = post.name ?? post.author ?? hostOf(link);
+  // ADR-027/028: the poster the schedule reads for an oversized clip, so both doors pick the same one.
+  const poster = async (): Promise<string | null> => (await pageMeta(deps.http, link)).image;
   let files: MediaFile[] = [];
   try {
-    files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+    files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal, poster });
   } catch (err) {
     // Over the size cap the post still ships its words; the media is the part that is lost.
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
   // A page post's link-only clip is built outside stage 5, so its poster is added here too (ADR-027).
   const media = [...files, ...(post.links ?? [])];
-  return renderDownload([...media, ...(await withPosters(deps.media, media, dir, { signal }))], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
+  return renderDownload([...media, ...(await withPosters(deps.media, media, dir, { signal, poster }))], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
 /** ADR-024: replace a truncated post with its full body, same message, media kept by file_id. */
