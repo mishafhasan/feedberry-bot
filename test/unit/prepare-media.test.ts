@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
-import { prepareMedia, withPosters } from '../../src/pipeline/prepare-media.ts';
+import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, mediaSignal, prepareMedia, withPosters } from '../../src/pipeline/prepare-media.ts';
 import { Coded, E } from '../../src/platform/errors.ts';
 
 const MB = 1024 * 1024;
@@ -320,6 +320,13 @@ test('ADR-027: the poster is added once, however many times the pipeline asks', 
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
+});
+
+test('ADR-028: the transfer budget carries a full clip on a slow line, extraction stays short', () => {
+  // A 50 MB file inside the budget means the link must stay usable at roughly 1.2 Mbps or better.
+  assert.ok((50 * MB) / (DOWNLOAD_BUDGET_MS / 1000) >= 150_000, `${DOWNLOAD_BUDGET_MS} ms is too tight for a 50 MB clip`);
+  assert.ok(DOWNLOAD_BUDGET_MS > EXTRACT_BUDGET_MS, 'the transfer is never the short budget');
+  assert.equal(mediaSignal(5).aborted, false, 'a fresh signal starts live');
 });
 
 test('stage 5: the RSS album keeps the bytes it needs for a stand-in frame', async () => {

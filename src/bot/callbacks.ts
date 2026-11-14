@@ -23,7 +23,7 @@ import { xFullText } from '../platform/x-text.ts';
 import { resolveProfile } from '../pipeline/resolve-source.ts';
 import { fetchPageSource, fetchSourceFeed } from '../pipeline/fetch-feed.ts';
 import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
-import { ladderFor, mediaSignal, prepareMedia, withPosters } from '../pipeline/prepare-media.ts';
+import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, ladderFor, mediaSignal, prepareMedia, withPosters } from '../pipeline/prepare-media.ts';
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
@@ -1020,7 +1020,9 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       return;
     }
 
-    const signal = mediaSignal(DOWNLOAD_TIMEOUT_MS);
+    const signal = mediaSignal(EXTRACT_BUDGET_MS);
+    // ADR-028: the transfer gets the budget its ceiling implies, the same one the schedule uses.
+    const transfer = mediaSignal(DOWNLOAD_BUDGET_MS);
     const dir = workDirFor(`download-${userId}-${Date.now()}`);
     let engineAuthor: string | null = null;
     let channel: PagePost['channel'] = null;
@@ -1031,7 +1033,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
       if (page !== null) {
         engineAuthor = page.author;
         channel = page.channel;
-        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, signal, ref.platform, user.tz);
+        plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, transfer, ref.platform, user.tz);
       } else {
         const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
@@ -1051,7 +1053,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
         const files = await prepareMedia(deps.media, resolved.items, dir, {
           maxMb: deps.cfg.limits.maxDownloadMb,
-          signal,
+          signal: transfer,
           ladderUrl: ladderFor(ref.platform, ref.canonicalUrl),
           // The page was already read for its name and date: its poster is free (ADR-027).
           poster: async () => meta.image,
@@ -1200,16 +1202,18 @@ function pageFallback(err: unknown, adapter: string, url: string): null {
 async function pagePostDelivery(deps: BotDeps, post: PagePost, link: string, dir: string, signal: AbortSignal, platform: string, tz: string): Promise<MessagePlan> {
   // The account names the source; an unnamed one falls back to the host, so the text stays the body.
   const source = post.name ?? post.author ?? hostOf(link);
+  // ADR-027/028: the poster the schedule reads for an oversized clip, so both doors pick the same one.
+  const poster = async (): Promise<string | null> => (await pageMeta(deps.http, link)).image;
   let files: MediaFile[] = [];
   try {
-    files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal });
+    files = await prepareMedia(deps.media, post.items, dir, { maxMb: deps.cfg.limits.maxDownloadMb, signal, poster });
   } catch (err) {
     // Over the size cap the post still ships its words; the media is the part that is lost.
     log('warn', 'page_media_failed', { code: isCoded(err) ? err.code : 'unknown' });
   }
   // A page post's link-only clip is built outside stage 5, so its poster is added here too (ADR-027).
   const media = [...files, ...(post.links ?? [])];
-  return renderDownload([...media, ...(await withPosters(deps.media, media, dir, { signal }))], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
+  return renderDownload([...media, ...(await withPosters(deps.media, media, dir, { signal, poster }))], { title: post.text === '' ? null : post.text, artist: source, publishedAt: post.publishedAt, platform, tz }, link);
 }
 
 /** ADR-024: replace a truncated post with its full body, same message, media kept by file_id. */
@@ -1379,9 +1383,6 @@ function notModified(err: unknown): boolean {
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-/** One link must never hold a worker slot forever (M8 adds the job-level timeout). */
-const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 /** Naming the poster of a pasted link is a nicety; it never holds the chooser for long. */
 const OWNER_TIMEOUT_MS = 10_000;

@@ -100,11 +100,20 @@ export function s4Text(params: { platform: Platform; author: string; items: Arra
   return `${sourceBody(params)}\n\n${t(lang, 's4.question')}\n\n${t(lang, 's4.hint')}`;
 }
 
+/**
+ * One list line, not the post: five of them plus the question and its hint must fit the 1024-char
+ * caption of a preview photo, or the tail of the list is silently cut (`sourcePreviewView`).
+ */
+const PREVIEW_TITLE_MAX = 90;
+
+/** A caption line shows a post's opening; a long one would push the other four out of the preview. */
+const previewTitle = (title: string): string => (title.length <= PREVIEW_TITLE_MAX ? title : `${title.slice(0, PREVIEW_TITLE_MAX - 1).trimEnd()}…`);
+
 /** The author + items block S4 and S5 share; kept so S5 can rebuild the caption without refetching. */
 export function sourceBody(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string; section?: string | null; lang?: Lang }): string {
   const lines = params.items.map((item) => {
     const when = item.publishedAt === null ? null : mmddhhmm(item.publishedAt, params.tz);
-    return when === null ? `• — ${esc(item.title)}` : `• [${when}] — ${esc(item.title)}`;
+    return when === null ? `• — ${esc(previewTitle(item.title))}` : `• [${when}] — ${esc(previewTitle(item.title))}`;
   });
   // A category source says which category, so the preview cannot be mistaken for the whole site.
   const scope = params.section === null || params.section === undefined ? '' : `\n${t(params.lang ?? 'en', 's4.category', { name: esc(sectionLabel(params.section)) })}`;

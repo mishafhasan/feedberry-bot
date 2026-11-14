@@ -142,3 +142,37 @@ test('rich: every post gets the quote, even a one-liner', () => {
   assert.match(rich('one\n\ntwo', []).html, /<hr\/><blockquote expandable>one<br\/><br\/>two<\/blockquote><hr\/>$/);
   assert.match(rich('word '.repeat(300).trim(), []).html, /<blockquote expandable>/, 'a long single line too');
 });
+
+test('rich: a feed\'s own player line never prints as a raw URL beside the clip that rides', () => {
+  const clip = 'https://video.twimg.com/amplify/720/clip.mp4?tag=29';
+  const plan = rich(`the words\n\n🎬 ${clip}`, [{ path: 'v.mp4', kind: 'video', size: 2048, url: clip }]);
+
+  assert.match(plan.html, /<blockquote expandable>the words<\/blockquote>/, 'the words stay, the player line goes');
+  assert.ok(!plan.html.includes(clip), 'not one copy of the CDN URL: the slideshow carries the clip');
+  assert.ok(!plan.html.includes('🎬'), 'and no label either');
+});
+
+test('rich: an unresolved clip keeps the feed\'s URL as the label, never as text', () => {
+  const clip = 'https://video.twimg.com/amplify/720/clip.mp4?tag=29';
+  const plan = rich(`the words\n\n🎬 ${clip}`, []);
+
+  assert.match(plan.html, /<blockquote expandable>the words<\/blockquote><hr\/><p>🎬 <a href="https:\/\/video\.twimg\.com\/amplify\/720\/clip\.mp4\?tag=29">Video 1<\/a><\/p>$/);
+  assert.ok(!plan.html.includes(`>${clip}<`), 'the anchor label is Video 1, not the URL');
+});
+
+test('rich: two player lines are numbered, and an animated loop keeps its label', () => {
+  const one = 'https://cdn.test/one.mp4';
+  const two = 'https://cdn.test/two.mov';
+  const plan = rich(`words\n\n🎬 ${one}\n🎞️ ${two}`, []);
+
+  assert.ok(plan.html.includes(`<p>🎬 <a href="${one}">Video 1</a><br/>🎬 <a href="${two}">Video 2</a></p>`), `each clip keeps its number:\n${plan.html}`);
+  assert.ok(!plan.html.includes(`>${one}<`) && !plan.html.includes(`>${two}<`), 'no URL is visible text');
+});
+
+test('rich: a player line the post already carries as media is not linked twice', () => {
+  const clip = 'https://cdn.test/one.mp4';
+  const plan = rich(`words\n\n🎬 ${clip}`, [{ path: '', kind: 'video', size: 0, url: clip }]);
+
+  assert.equal((plan.html.match(/🎬/g) ?? []).length, 1, `one label, from the file:\n${plan.html}`);
+  assert.ok(!plan.html.includes(`>${clip}<`), 'still no raw URL');
+});

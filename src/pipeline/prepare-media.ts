@@ -41,6 +41,15 @@ export function mediaSignal(ms = 120_000): AbortSignal {
 }
 
 /**
+ * ADR-028: the transfer budget is sized by the ceiling, not by a feeling. A 50 MB clip on a 1.5 Mbps
+ * line needs ~4.5 minutes, so the old shared 120 s window turned a fine download into a `🎬` label at
+ * random — the same post attached or linked depending on the network of the moment. Extraction and
+ * metadata stay short, because those are small requests.
+ */
+export const EXTRACT_BUDGET_MS = 30_000;
+export const DOWNLOAD_BUDGET_MS = 300_000;
+
+/**
  * Stage 5: resolve metadata is already done by the caller; this downloads each item into `dir` and
  * enforces MAX_DOWNLOAD_MB.
  * A video is decided by its size, never by a download: past the upload ceiling it keeps a link
