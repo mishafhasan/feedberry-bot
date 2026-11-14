@@ -105,8 +105,18 @@ that URL in the quote *and* linked it from the label, so the reader saw the raw 
     (10.9 MB) — 1 upload each (clip inline), 0 labels, no raw URL.
   - YouTube Short (`/shorts/dkwMUhAsI6Q`) — 1 upload (inline), identical quote on both doors.
   - X `status/2083602508807569560` (491 MB) — 0 uploads of the clip, 1 poster upload, 1 label.
-- `npm test`: 414/414, including the five parity cases, the ADR-028 budget arithmetic
-  (`50 MB / DOWNLOAD_BUDGET_MS` ≥ 150 kB/s), the URL-dedupe case in `test/unit/video-label.test.ts`, and
-  the player-line cases in `test/unit/rich-render.test.ts`.
+- The deployed artifact, in Docker, on the real network: this worktree's `dist` mounted into the image,
+  a stand-in Bot API answering the protocol and recording every request, and a seeded database with one
+  real Tumblr subscription plus two X posts. The worker fetched the Tumblr feed on its own
+  (`fresh: 20, delivered: 20, failed: 0`); the paste door was driven by a queued `/download` + link.
+  All 24 rich messages the container produced: **0 with a URL as visible text**, 2 with a label, 3 with
+  an inline clip. The same X post through both doors recorded **byte-identical `html`**: 328/328 for the
+  2.2 MB clip (inline, no label) and 1012/1012 for the 491 MB one (poster + `Video 1` on the 720p URL).
+  A live YouTube community post could not be part of that run — the one id on hand answers 404 — so its
+  adapter is covered by the captured-page fixture and parity case (c).
+- `npm test`: 416/416, including the five parity cases, the ADR-028 budget arithmetic
+  (`50 MB / DOWNLOAD_BUDGET_MS` ≥ 150 kB/s), the URL-dedupe case in `test/unit/video-label.test.ts`, the
+  player-line cases in `test/unit/rich-render.test.ts`, and the add-flow preview cases in
+  `test/integration/preview-five-posts.test.ts`.
 - `test/unit/prepare-media.test.ts` keeps the gate, ladder, poster and idempotence cases green under the
   new budgets.
