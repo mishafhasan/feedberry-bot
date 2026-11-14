@@ -84,9 +84,11 @@ that URL in the quote *and* linked it from the label, so the reader saw the raw 
   - TikTok — paste 10 s / schedule 5 s, 1 upload (the clip inline), 0 labels.
   - YouTube community post — both doors 1 upload (derived `hqdefault` poster), 1 label on `youtu.be/…`,
     identical slideshow and identical quote+label body after the resolve skip.
-- A real subscription cycle on the deployed container (no probe process): a seeded YouTube channel was
-  fetched by the scheduler itself and delivered 12 posts (`status = sent`, messages 2053–2063): one
-  upload inline and eleven community posts.
+- A real subscription cycle on the deployed container (no probe process, the scheduler fetching on its
+  own): a seeded YouTube channel delivered 12 posts (messages 2053–2063, one upload inline and eleven
+  community posts); a seeded TikTok source delivered 10 videos (2066–2075) and a seeded Instagram source
+  10 posts (2076–2085), every row `status = sent`. X profiles cannot be followed without instance tokens
+  (ADR-017), so X is verified through both doors on a single post instead of a subscription.
 - `npm test`: 405/405, including the four parity cases and the ADR-028 budget arithmetic
   (`50 MB / DOWNLOAD_BUDGET_MS` ≥ 150 kB/s) and the URL-dedupe case in `test/unit/video-label.test.ts`.
 - `test/unit/prepare-media.test.ts` keeps the gate, ladder, poster and idempotence cases green under the
