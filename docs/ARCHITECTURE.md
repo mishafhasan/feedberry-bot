@@ -1,6 +1,6 @@
 # FeedBerry Bot — Architecture Design Document
 
-**Status:** implemented — M1–M9 complete, plus post-milestone work (Threads/YouTube post adapters, M10–M12 UX and schedule screen). 130 tests green. Runtime amended to Node 24 (ADR-001). Production deploy + the restore drill are pending operator steps (RUNBOOK).
+**Status:** implemented — M1–M9 complete, plus post-milestone work (Threads/YouTube post adapters, M10–M12 UX and schedule screen). 416 tests green. Runtime amended to Node 24 (ADR-001). Production deploy + the restore drill are pending operator steps (RUNBOOK).
 **Date:** 2026-10-29
 **Audience:** the sessions that implemented this (M1–M12), plus whoever operates it
 **Scope:** the design record. Application code, dependencies and scaffolding were added during implementation; progress is tracked in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) and [README.md](../README.md).
