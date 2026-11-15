@@ -74,9 +74,16 @@ the same in-memory rate limiter, so splitting them buys nothing at this scale an
 
 ### The pipeline
 
-```
-link ─► 1 resolve ─► 2 fetch feed ─► 3 classify ─► 4 dedupe ─► 5 media ─► 6 render ─► 7 deliver ─► 8 record ─► 9 cleanup
-       (platform)   (RSSHub/native)  (cobalt)      (posts)      (cobalt)   (plan)     (rate lim.)  (SQLite)
+```mermaid
+flowchart LR
+  S1["1 resolve<br/>(platform)"] --> S2["2 fetch feed<br/>(RSSHub/native)"]
+  S2 --> S3["3 classify<br/>(cobalt)"]
+  S3 --> S4["4 dedupe<br/>(posts)"]
+  S4 --> S5["5 media<br/>(cobalt)"]
+  S5 --> S6["6 render<br/>(plan)"]
+  S6 --> S7["7 deliver<br/>(rate lim.)"]
+  S7 --> S8["8 record<br/>(SQLite)"]
+  S8 --> S9["9 cleanup"]
 ```
 
 1. **resolve** — link → `SourceRef{platform, canonical_url, feed_url, strategy}` or a coded error. Pure, no network.
