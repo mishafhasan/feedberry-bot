@@ -22,6 +22,8 @@ const MAX_TITLE = 256;
 const MAX_AUTHOR = 128;
 const API = 'https://api.telegra.ph';
 const TIMEOUT_MS = 20_000;
+const FLOOD = /FLOOD_WAIT_(\d+)/;
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface TelegraphReply {
   ok?: boolean;
@@ -101,15 +103,22 @@ export const telegraphClient: TelegraphClient = {
       return_content: false,
     });
 
-    let reply = await callTelegraph('createPage', body(await accessToken()));
-    // A revoked or stale stored token is recoverable: mint one new account and retry once.
-    if (reply.error === 'ACCESS_TOKEN_INVALID') {
-      log('warn', 'telegraph_token_stale', {});
-      reply = await callTelegraph('createPage', body(await accessToken(true)));
+    // A digest publishes dozens of pages at once; Telegra.ph answers FLOOD_WAIT_n and the documented
+    // retry is to wait those seconds. Three waits, then the caller keeps the post's own URL.
+    for (let attempt = 1; ; attempt++) {
+      let reply = await callTelegraph('createPage', body(await accessToken()));
+      // A revoked or stale stored token is recoverable: mint one new account and retry once.
+      if (reply.error === 'ACCESS_TOKEN_INVALID') {
+        log('warn', 'telegraph_token_stale', {});
+        reply = await callTelegraph('createPage', body(await accessToken(true)));
+      }
+      const url = reply.result?.url;
+      if (reply.ok && url) return url;
+      const seconds = Number(FLOOD.exec(reply.error ?? '')?.[1] ?? NaN);
+      if (Number.isNaN(seconds) || attempt >= 4) throw new Coded(E.TELEGRAPH, reply.error ?? 'createPage failed');
+      log('warn', 'telegraph_flood_wait', { seconds, attempt });
+      await sleep(Math.min(seconds, 30) * 1000);
     }
-    const url = reply.result?.url;
-    if (!reply.ok || !url) throw new Coded(E.TELEGRAPH, reply.error ?? 'createPage failed');
-    return url;
   },
 };
 
