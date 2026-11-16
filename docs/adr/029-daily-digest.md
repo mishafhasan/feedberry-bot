@@ -53,11 +53,14 @@ Four questions decided the shape:
   rendered and the tick passes `digests: false`, so no job is ever queued.
 - **Each role walks a model ladder.** Quotas and capacity are per model, so a 429/5xx (or an answer
   with nothing usable in it) moves summaries and the script to the next text model and the voice to
-  the next TTS model: `gemini-3.8-flash → 3.6-flash → 3.5-flash-lite`, `gemini-3.8-flash-tts →
-  3.8-flash-lite-tts`. A network error or an abort ends the ladder at once; every step is logged
+  the next TTS model: `gemini-3.8-flash → 3.6-flash → 4-hydrogen → 3-flash-preview → 3.1-pro-preview →
+  3.5-flash-lite`, `gemini-3.8-flash-tts → 3.8-flash-lite-tts → 3.1-flash-tts-preview →
+  2.5-flash-preview-tts`. A network error or an abort ends the ladder at once; every step is logged
   (`gemini_model_fallback`). Both tails are config (`GEMINI_TEXT_FALLBACKS`, `GEMINI_TTS_FALLBACKS`).
-  The Live models are not part of it: they speak only over the Live API's stateful WebSocket, not the
-  unary interactions call this client uses, and Google positions them for conversation, not recitation.
+  The two legacy TTS previews predate the interactions audio format: they speak through
+  `models/{id}:generateContent` with the AUDIO modality and return raw L16 PCM, which joins the same
+  chunks. The Live models are not part of it: they speak only over the Live API's stateful WebSocket,
+  not the unary interactions call, and Google positions them for conversation, not recitation.
 - **Per-post summaries are cached by `(post_id, lang)`.** A retry, a second part or a Tamil run after
   an English one never pays twice for the same text. The cache holds the summary and the Telegraph URL;
   the pictures are downloaded per run, because files do not outlive a job.
@@ -80,12 +83,17 @@ Four questions decided the shape:
 - **The voice is chunked.** The TTS model takes 8 192 input tokens, so the script is split on
   paragraph → sentence → word boundaries into pieces of at most 2 500 characters, each requested as
   raw PCM (`audio/l16`, 24 kHz, mono). The pieces concatenate, and `ffmpeg` writes one 64 kbps MP3
-  with the digest's title in its own tags. Duration is `PCM bytes / 48 000`.
+  with the digest's title in its own tags. Duration is `PCM bytes / 48 000`. The encode runs
+  `atempo=1.1`, so the same words play 10% faster (no pitch shift) and a fixed-length script fits
+  more of the day; the reported duration is scaled to match.
 - **The message splits under the Bot API caps.** Greedy in digest order, a part closes before an item
   would pass 49 media (the audio takes the 50th slot in Part 1), 30 000 characters of HTML or 480
   blocks — under 50 / 32 768 / 500. Numbering continues across parts; the player is Part 1's; the
-  footer is the last part's. Posts past `DIGEST_MAX_POSTS` (60) are numbered headline links under
-  "Also today" instead of being summarised: a cost guard, not a summary.
+  footer is the last part's. Posts past `DIGEST_MAX_POSTS` (20) are numbered headline links under
+  "Also today" instead of being summarised: a cost guard, not a summary. Twenty summarised posts with
+  their pictures exceed one message, so the split above lands them in two balanced parts.
+- **The read-full link is a label, not a URL.** Each item ends with
+  `<a href="telegraph">📖 Read full article</a>`; the raw address never appears as visible text.
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
   run that outlived `STALE_LOCK_MS` (10 min) could be handed to a second worker. Gemini calls run
   three at a time. If the budget is gone before the message is built, the run throws and retries on
@@ -131,7 +139,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **457/457 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **460/460 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -143,7 +151,9 @@ Four questions decided the shape:
   run instant is in *this* digest; the empty-window message; every summary failing leaves the window
   pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
   `digest-gemini` (a 429/5xx or an unusable answer moves the summary, script or voice to the next
-  model; an abort never does; a repeated fallback is not called twice), and
+  model; an abort never does; a repeated fallback is not called twice; a legacy voice speaks through
+  `generateContent`, its WAV container is stripped to PCM, and a rate-limited legacy voice falls to
+  the next model), and
   `digest-menu` (button hidden without a key; sources/language/time/on-off; a foreign digest and a
   foreign subscription refused; "on" without a source stays off; removing the last source switches
   the digest off).
@@ -171,7 +181,9 @@ Four questions decided the shape:
   and 503, so four `gemini_model_fallback` lines moved the three summaries and the script to
   `gemini-3.6-flash`, and the digest still sent
   `{"code":"digest_sent","posts":43,"parts":1,"images":2,"audioSec":93}`.
-- The audio artifact, through `audioOverview` with the real voice: `{"seconds":9,"bytes":75555,
-  "codec":"mp3","sampleRate":"24000","channels":1,"containerDuration":"9.360000",
-  "title":"FeedBerry digest check","meanVolumeDb":"-17.1","maxVolumeDb":"-1.5"}` — a decodable,
-  non-silent MP3 with the digest's title in its own tags (ffprobe + volumedetect).
+- The audio artifact, through `audioOverview` with the real voice: `{"seconds":9,"bytes":69603,
+  "codec":"mp3","sampleRate":"24000","channels":1,"containerDuration":"8.593958",
+  "title":"FeedBerry digest check","meanVolumeDb":"-18.2","maxVolumeDb":"-2.1"}` — a decodable,
+  non-silent MP3 with the digest's title in its own tags (ffprobe + volumedetect), 8.59 s against the
+  9.36 s the same words took before `atempo=1.1`. The same run logged the voice fallback:
+  `gemini-3.8-flash-tts` answered 503 and `gemini-3.8-flash-lite-tts` spoke.
