@@ -57,6 +57,9 @@ Four questions decided the shape:
 - **The article is the Telegraph path.** `extractArticle` (Readability) gives the text and the page's
   pictures; `publishArticle` gives the "Read full article" link. A thin page or a failed fetch falls
   back to the feed's own words, and the item still ships.
+- **Article pictures are asked for politely:** with the page as `referer` and a browser user-agent.
+  Hotlink-protected CDNs (TechCrunch's among them) answer 403 to the extractor's bot agent; with the
+  two headers the same URL downloads, verified live. A picture still failing only costs that picture.
 - **The model's output is untrusted.** `cleanSummary` flattens every string, drops empty ones and
   clamps headline 120 / description 600 / point 240 / six points; the renderer escapes everything and
   only our own Telegraph link is an anchor (`skip_entity_detection` is already on). A summary with no
@@ -144,6 +147,8 @@ Four questions decided the shape:
   post, an `en` row and a `ta` row — the Tamil headlines in Tamil script with the brands in English
   ("Las Vegas-இல் Uber app வழியாக Zoox robotaxi சேவை அறிமுகம்") — and every row carried its Telegraph URL.
   `gemini-3.8-flash` answered 503/429 at check time, so the live runs named `gemini-3.6-flash`; model
-  ids are config and the default is unchanged. Neither live item had a downloadable feed photo (the
-  article image URLs were refused by the extractor), so the sent layout carried no slideshow; the
-  slideshow path is covered by the renderer and summary tests.
+  ids are config and the default is unchanged. Neither direct run carried a picture: the article CDN
+  answered 403 to the extractor's bot agent. With the page as `referer` and a browser user-agent the
+  same URL downloads, and a run through the real `src/main.ts` (polling → tick → queue → digest) then
+  sent `{"code":"digest_sent","posts":42,"parts":1,"images":3,"audioSec":83}` — three article photos
+  riding in the slideshow beside the player.
