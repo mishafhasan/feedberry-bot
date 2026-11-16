@@ -143,7 +143,10 @@ async function articleOf(http: Http, url: string | null): Promise<Article | null
 /** An overflow story's Instant View page, written without the model; null keeps the post's own URL. */
 export async function publishPage(http: Http, telegraph: TelegraphClient | undefined, url: string | null): Promise<string | null> {
   const article = await articleOf(http, url);
-  return article === null ? null : pageLink(telegraph, article);
+  if (article === null) return null;
+  const page = await pageLink(telegraph, article);
+  if (page !== null) log('info', 'digest_page', { url: article.url, page });
+  return page;
 }
 
 /** The Instant View page is the item's "read full article" link; a failed publish keeps the post URL. */

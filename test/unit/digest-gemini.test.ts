@@ -75,6 +75,24 @@ test('an abort ends the ladder at once — no other model is called', async () =
   assert.deepEqual(models, ['text-primary']);
 });
 
+test('the per-call cap is a model failure: the voice moves down the ladder', async () => {
+  const models: string[] = [];
+  const doFetch: typeof fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { model: string };
+    models.push(body.model);
+    if (body.model === 'tts-primary') {
+      // A hung model: the request only settles when the per-call signal aborts it.
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      });
+    }
+    return ok(audioReply(64));
+  };
+  const pcm = await geminiClient(cfg(), doFetch, 10).speak('hello', new AbortController().signal);
+  assert.deepEqual(models, ['tts-primary', 'tts-fallback']);
+  assert.equal(pcm.length, 64, 'the fallback voice still speaks');
+});
+
 test('a legacy voice speaks through generateContent and yields raw PCM', async () => {
   const pcm = Buffer.alloc(2_400, 7);
   const calls: string[] = [];

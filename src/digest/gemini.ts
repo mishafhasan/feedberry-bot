@@ -47,17 +47,30 @@ function pcmOf(base64: string, mime: string): Buffer {
   throw new Coded(E.FEED_DOWN, `unsupported audio type ${mime}`);
 }
 
-export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch): Gemini {
+export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, timeoutMs = CALL_TIMEOUT_MS): Gemini {
   /** Primary first, deduped; an empty id never enters a ladder. */
   const ladder = (primary: string, fallbacks: string[]): string[] => [primary, ...fallbacks].filter((model, index, all) => model !== '' && all.indexOf(model) === index);
 
+  /**
+   * The caller's abort (the job's budget) stays fatal; the per-call cap is the model hanging, so it is a
+   * model failure and the ladder moves on — a silent voice is worse than a slower one.
+   */
+  const request = async (url: string, init: RequestInit, signal: AbortSignal): Promise<Response> => {
+    const timed = mediaSignal(timeoutMs);
+    try {
+      return await doFetch(url, { ...init, signal: AbortSignal.any([signal, timed]) });
+    } catch (err) {
+      if (timed.aborted && !signal.aborted) throw new Coded(E.FEED_DOWN, 'gemini call timed out');
+      throw err;
+    }
+  };
+
   const call = async (body: unknown, signal: AbortSignal): Promise<InteractionReply> => {
-    const res = await doFetch(API, {
+    const res = await request(API, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey, 'Api-Revision': API_REVISION },
       body: JSON.stringify(body),
-      signal: AbortSignal.any([signal, mediaSignal(CALL_TIMEOUT_MS)]),
-    });
+    }, signal);
     const reply = (await res.json().catch(() => ({}))) as InteractionReply;
     if (!res.ok) throw new Coded(res.status === 429 ? E.RATE_LIMIT : E.FEED_DOWN, `gemini ${res.status}: ${reply.error?.message ?? ''}`);
     return reply;
@@ -96,15 +109,14 @@ export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch): 
 
   /** A legacy voice's only audio door: generateContent with the AUDIO modality. */
   const speakLegacy = async (text: string, model: string, signal: AbortSignal): Promise<Buffer> => {
-    const res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    const res = await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
         generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE } } } },
       }),
-      signal: AbortSignal.any([signal, mediaSignal(CALL_TIMEOUT_MS)]),
-    });
+    }, signal);
     const reply = (await res.json().catch(() => ({}))) as LegacyReply;
     if (!res.ok) throw new Coded(res.status === 429 ? E.RATE_LIMIT : E.FEED_DOWN, `gemini ${res.status}: ${reply.error?.message ?? ''}`);
     const inline = (reply.candidates ?? []).flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data)?.inlineData;
