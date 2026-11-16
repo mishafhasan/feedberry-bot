@@ -12,8 +12,8 @@ export const LANGUAGES: Array<{ code: Lang; label: string }> = [
 ];
 
 /** One button per feature on S1, two per row as in the reference screenshot. */
-export function s1Keyboard(lang: Lang = 'en'): InlineKeyboard {
-  return new InlineKeyboard()
+export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
     .text(t(lang, 'btn.add'), 'menu:add')
     .text(t(lang, 'btn.sources'), 'menu:sources')
     .row()
@@ -24,6 +24,9 @@ export function s1Keyboard(lang: Lang = 'en'): InlineKeyboard {
     .text(t(lang, 'btn.download'), 'menu:download')
     .row()
     .text(t(lang, 'btn.schedule'), 'menu:schedule');
+  // ADR-029: no Gemini key, no digest; the button would open a screen that cannot run.
+  if (digest) keyboard.row().text(t(lang, 'btn.digest'), 'menu:digest');
+  return keyboard;
 }
 
 /** Screens that are one message deep: Supported Sites, Help, About, Language. */

@@ -5,6 +5,7 @@ import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } fr
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
 import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, setSourceInterval } from '../db/repos/sources.ts';
 import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
+import { digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
@@ -33,7 +34,7 @@ import { menuLabels, replyMenu } from './reply-menu.ts';
 import { recordDelivery } from '../pipeline/record-delivery.ts';
 import { cleanupWorkDir, workDirFor } from '../pipeline/cleanup.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
-import { slotAfter } from '../scheduler/slots.ts';
+import { digestSlot, slotAfter } from '../scheduler/slots.ts';
 import type { TelegramSender } from '../telegram/api.ts';
 import { morePayload } from '../telegram/more.ts';
 import { targetOf } from '../telegram/target.ts';
@@ -53,6 +54,7 @@ import { mySourcesView, PAGE_SIZE } from './screens/my-sources.ts';
 import { supportedSitesView } from './screens/supported-sites.ts';
 import { helpView, aboutView, languageView } from './screens/static-screens.ts';
 import { scheduleListView, schedulePickerView, SCHEDULE_OPTIONS } from './screens/schedule.ts';
+import { digestChatView, digestLanguageView, digestSourcesView, digestTimeView, digestView } from './screens/digest.ts';
 import { contentTypePickerView } from './screens/content-type-picker.ts';
 import { ADM } from './screens/admin-screens.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
@@ -102,6 +104,17 @@ export const cb = {
   kwDefault: 'kw:def',
   kwClearDefault: 'kw:cleardef',
   kwPage: 'kw:page:',
+  digest: 'menu:digest',
+  djChat: 'dg:chat:',
+  djOpen: 'dg:open:',
+  djSources: 'dg:src:',
+  djPage: 'dg:page:',
+  djToggle: 'dg:tg:',
+  djLang: 'dg:lang:',
+  djSetLang: 'dg:setlang:',
+  djTime: 'dg:time:',
+  djSetHour: 'dg:sethour:',
+  djOn: 'dg:on:',
 } as const;
 
 export interface BotDeps {
@@ -181,6 +194,18 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data.startsWith(cb.kwPage)) return openFilterFor(ctx, deps, userId, idOf(data, cb.kwPage));
 
   if (data.startsWith(cb.dest)) return pickDest(ctx, deps, userId, idOf(data, cb.dest));
+
+  // ADR-029: every digest tap re-checks ownership inside its handler, never here.
+  if (data.startsWith(cb.djChat)) return chooseDigestChat(ctx, deps, userId, idOf(data, cb.djChat), lang);
+  if (data.startsWith(cb.djOpen)) return openDigestScreen(ctx, deps, userId, idOf(data, cb.djOpen), lang);
+  if (data.startsWith(cb.djSources) || data.startsWith(cb.djPage)) return renderDigestSourcesPage(ctx, deps, userId, data, lang);
+  if (data.startsWith(cb.djToggle)) return toggleDigestSourceOf(ctx, deps, userId, data, lang);
+  if (data.startsWith(cb.djLang)) return openDigestLanguage(ctx, deps, userId, idOf(data, cb.djLang), lang);
+  if (data.startsWith(cb.djSetLang)) return setDigestLanguageOf(ctx, deps, userId, data, lang);
+  if (data.startsWith(cb.djTime)) return openDigestTime(ctx, deps, userId, idOf(data, cb.djTime), lang);
+  if (data.startsWith(cb.djSetHour)) return setDigestHourOf(ctx, deps, userId, data, lang);
+  if (data.startsWith(cb.djOn)) return switchDigest(ctx, deps, userId, idOf(data, cb.djOn), lang);
+
   if (data.startsWith(cb.page)) return renderS7(ctx, deps, userId, idOf(data, cb.page), getSession(userId).s7?.platform ?? null, getSession(userId).s7?.headerId ?? null);
   if (data.startsWith(cb.filter)) return changeFilter(ctx, deps, userId, data.slice(cb.filter.length));
   if (data.startsWith(cb.on) || data.startsWith(cb.off)) return toggle(ctx, deps, userId, data);
@@ -211,6 +236,8 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return paint(ctx, languageView(lang));
     case cb.schedule:
       return renderSchedule(ctx, deps, userId, getSession(userId).s16?.page ?? 0);
+    case cb.digest:
+      return openDigest(ctx, deps, userId, lang);
     case cb.back:
       return goBack(ctx, deps, userId);
     case cb.home:
@@ -1252,8 +1279,116 @@ async function restarted(ctx: Context, deps: BotDeps, userId: number): Promise<v
   await ctx.reply(errorText(E.TG_UNKNOWN, undefined, lang), { parse_mode: 'HTML', reply_markup: errorKeyboard(lang) });
 }
 
+/** `menu:digest`: one destination for a single-chat user, the chooser for anybody else. */
+async function openDigest(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  const chats = [personalChat(deps.db, user.id), ...destinations(deps.db, user.id)];
+  const only = chats[0];
+  if (chats.length === 1 && only !== undefined) return openDigestScreen(ctx, deps, userId, ensureDigest(deps.db, user.id, only.id).id, lang);
+  await paint(ctx, digestChatView({ chats, lang }));
+}
+
+/** `dg:chat:<chatId>`: the chat is checked against its owner before a digest row is created for it. */
+async function chooseDigestChat(ctx: Context, deps: BotDeps, userId: number, chatId: number, lang: Lang): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  const chat = ownChat(deps.db, user.id, chatId);
+  if (chat === undefined) return;
+  await openDigestScreen(ctx, deps, userId, ensureDigest(deps.db, user.id, chat.id).id, lang);
+}
+
+/** The settings home. Every digest route ends here, so one screen always shows the whole state. */
+async function openDigestScreen(ctx: Context, deps: BotDeps, userId: number, digestId: number, lang: Lang, notice?: string): Promise<void> {
+  const user = ensureUser(deps.db, userId);
+  const digest = ownDigest(deps.db, user.id, digestId);
+  if (digest === undefined) return;
+  const chat = ownChat(deps.db, user.id, digest.chat_id);
+  if (chat === undefined) return;
+  await paint(
+    ctx,
+    digestView({
+      digest,
+      chatTitle: chat.title ?? t(lang, 'btn.personal'),
+      sourceCount: digestSourceCount(deps.db, digest.id),
+      lang,
+      ...(notice === undefined ? {} : { notice }),
+    }),
+  );
+}
+
+/** `dg:src:<d>:<page>` and `dg:page:<d>:<page>` both land on the same list. */
+async function renderDigestSourcesPage(ctx: Context, deps: BotDeps, userId: number, data: string, lang: Lang): Promise<void> {
+  const [, , rawId, rawPage] = data.split(':');
+  const user = ensureUser(deps.db, userId);
+  const digest = ownDigest(deps.db, user.id, Number(rawId));
+  if (digest === undefined) return;
+  const page = Math.max(0, Number(rawPage) || 0);
+  const { rows, total } = digestSourceCards(deps.db, user.id, digest.id, PAGE_SIZE, page * PAGE_SIZE);
+  await paint(ctx, digestSourcesView({ cards: rows, total, page, digestId: digest.id, lang }));
+}
+
+/** `dg:tg:<d>:<sub>`: the repo proves both the digest and the subscription belong to the tapper. */
+async function toggleDigestSourceOf(ctx: Context, deps: BotDeps, userId: number, data: string, lang: Lang): Promise<void> {
+  const [, , rawId, rawSub] = data.split(':');
+  const user = ensureUser(deps.db, userId);
+  const toggled = toggleDigestSource(deps.db, user.id, Number(rawId), Number(rawSub));
+  if (toggled === null) return;
+  // The list keeps its order, so the row's position names the page to repaint.
+  const index = digestSourceIndex(deps.db, user.id, Number(rawSub)) ?? 0;
+  await renderDigestSourcesPage(ctx, deps, userId, `${cb.djSources}${Number(rawId)}:${Math.floor(index / PAGE_SIZE)}`, lang);
+}
+
+async function openDigestLanguage(ctx: Context, deps: BotDeps, userId: number, digestId: number, lang: Lang): Promise<void> {
+  const digest = ownDigest(deps.db, ensureUser(deps.db, userId).id, digestId);
+  if (digest === undefined) return;
+  await paint(ctx, digestLanguageView({ digestId: digest.id, current: digest.lang, lang }));
+}
+
+async function setDigestLanguageOf(ctx: Context, deps: BotDeps, userId: number, data: string, lang: Lang): Promise<void> {
+  const [, , rawId, code] = data.split(':');
+  if (code !== 'en' && code !== 'ta') return;
+  const digest = ownDigest(deps.db, ensureUser(deps.db, userId).id, Number(rawId));
+  if (digest === undefined) return;
+  setDigestLang(deps.db, digest.id, code);
+  await paint(ctx, digestLanguageView({ digestId: digest.id, current: code, lang }));
+}
+
+async function openDigestTime(ctx: Context, deps: BotDeps, userId: number, digestId: number, lang: Lang): Promise<void> {
+  const digest = ownDigest(deps.db, ensureUser(deps.db, userId).id, digestId);
+  if (digest === undefined) return;
+  await paint(ctx, digestTimeView({ digest, tz: digestTimezone(deps.db, digest.id), lang }));
+}
+
+async function setDigestHourOf(ctx: Context, deps: BotDeps, userId: number, data: string, lang: Lang): Promise<void> {
+  const [, , rawId, rawHour] = data.split(':');
+  const hour = Number(rawHour);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return;
+  const digest = ownDigest(deps.db, ensureUser(deps.db, userId).id, Number(rawId));
+  if (digest === undefined) return;
+  const tz = digestTimezone(deps.db, digest.id);
+  // An enabled digest moves to its next slot at the new hour; a disabled one waits for the switch.
+  setDigestHour(deps.db, digest.id, hour, digest.enabled === 1 ? digestSlot(Date.now(), tz, hour) : null);
+  await paint(ctx, digestTimeView({ digest: { ...digest, hour }, tz, lang }));
+}
+
+/** `dg:on:<d>`: on needs a source first; off always works and clears the slot. */
+async function switchDigest(ctx: Context, deps: BotDeps, userId: number, digestId: number, lang: Lang): Promise<void> {
+  const digest = ownDigest(deps.db, ensureUser(deps.db, userId).id, digestId);
+  if (digest === undefined) return;
+  if (digest.enabled === 1) {
+    setDigestEnabled(deps.db, digest.id, false, null);
+    return openDigestScreen(ctx, deps, userId, digest.id, lang);
+  }
+  if (digestSourceCount(deps.db, digest.id) === 0) {
+    return openDigestScreen(ctx, deps, userId, digest.id, lang, t(lang, 'digest.needSources'));
+  }
+  setDigestEnabled(deps.db, digest.id, true, digestSlot(Date.now(), digestTimezone(deps.db, digest.id), digest.hour));
+  return openDigestScreen(ctx, deps, userId, digest.id, lang);
+}
+
 function toastFor(data: string, lang: Lang): string | undefined {
   const toast = actionToast(lang);
+  // The digest screens repaint themselves; none of their taps deserves a toast (ADR-029).
+  if (data === cb.digest || data.startsWith('dg:')) return undefined;
   if (data.startsWith(cb.on)) return toast.enabled;
   if (data.startsWith(cb.off)) return toast.disabled;
   if (data.startsWith(cb.check)) return toast.checkQueued;
@@ -1296,6 +1431,7 @@ export function mainMenu(userId: number, deps: BotDeps): RichView {
     sourceCount: countSubscriptionsForUser(deps.db, user.id),
     limit: deps.cfg.limits.maxSourcesPerUser,
     trialEnabled: deps.cfg.trialEnabled,
+    digest: deps.cfg.digest !== undefined,
     lang: langFor(user.locale),
   });
 }
