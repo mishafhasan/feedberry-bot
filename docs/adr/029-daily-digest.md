@@ -104,7 +104,10 @@ Four questions decided the shape:
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
   run that outlived `STALE_LOCK_MS` (10 min) could be handed to a second worker. Gemini calls run
   three at a time. If the budget is gone before the message is built, the run throws and retries on
-  the pinned window instead of shipping a half-planned digest.
+  the pinned window instead of shipping a half-planned digest. Inside that budget each call has its
+  own 120 s cap; the cap is a model failure, not a job failure, so a hung model walks the ladder
+  while the caller's own abort (the budget) stays fatal. Verified live: the primary voice hung past
+  the cap and the digest had no audio until the cap was made to fall through.
 - **A running job keeps its claim alive.** The worker now refreshes `locked_at` every minute
   (`queue.touch`), so a long run — a digest over many sources, or any slow job — is never mistaken for
   a crashed one and re-claimed. `recoverStale` then only reclaims jobs whose process really died, which
@@ -146,7 +149,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **463/463 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **464/464 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -161,7 +164,8 @@ Four questions decided the shape:
   ladder so the digest still ships with its voice; the empty-window message; every summary failing
   leaves the window pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
   `digest-gemini` (a 429/5xx or an unusable answer moves the summary, script or voice to the next
-  model; an abort never does; a repeated fallback is not called twice; a legacy voice speaks through
+  model; an abort never does; a repeated fallback is not called twice; the per-call cap is a model
+  failure and the voice moves on; a legacy voice speaks through
   `generateContent`, its WAV container is stripped to PCM, and a rate-limited legacy voice falls to
   the next model), and
   `digest-menu` (button hidden without a key; sources/language/time/on-off; a foreign digest and a
@@ -205,5 +209,12 @@ Four questions decided the shape:
   per-call ceiling working — one summary was aborted at 120 s (`This operation was aborted`) and its
   retry completed — and the daily-capped 3.8 rung handing every text call to `gemini-3.6-flash`.
 - After the overflow-link, per-post-folder and two-summary-cap change: `npm run typecheck`, `npm test`
-  (**463/463**) and `npm run build` re-ran green. The live runs above predate that change; the
-  overflow Telegraph path is proven offline against a recording client, not yet on a real run.
+  (**464/464**) and `npm run build` re-ran green.
+- The same code, live, with the local cap (`DIGEST_MAX_POSTS=2`) over a 46-post window:
+  `{"code":"digest_sent","posts":46,"parts":1,"images":0,"audioSec":59}`. It logged two
+  `digest_page` lines — `telegra.ph/Apple-reveals-new-Mac-security-controls-…-11-16-8` and
+  `telegra.ph/Houthi-rebel-advance-in-Yemen-…-11-16-5` — so the two overflow stories linked to their
+  own Instant View pages while the other 42 stayed inside the two full summaries; a `503` on
+  `gemini-3.8-flash` moved the text to `gemini-3.6-flash` and the digest still shipped. The run
+  before the per-call-cap fix lost its audio to that abort (`digest_audio_failed … This operation was
+  aborted`); this one sent with its voice.
