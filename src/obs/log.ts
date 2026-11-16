@@ -4,9 +4,15 @@
 const BOT_TOKEN = /\d{6,}:[A-Za-z0-9_-]{30,}/g;
 const COOKIE_HEADER = /(cookie["']?\s*[:=]\s*)[^\n"']+/gi;
 const RSSHUB_KEY = /(access_?key=)[^&\s"']+/gi;
+// ADR-029: the Gemini key travels in this header; it must never reach a log line.
+const GOOGLE_KEY = /(x-goog-api-key["']?\s*[:=]\s*)[^\n"',}]+/gi;
 
 export function redact(line: string): string {
-  return line.replace(BOT_TOKEN, '[redacted-token]').replace(COOKIE_HEADER, '$1[redacted]').replace(RSSHUB_KEY, '$1[redacted]');
+  return line
+    .replace(BOT_TOKEN, '[redacted-token]')
+    .replace(COOKIE_HEADER, '$1[redacted]')
+    .replace(RSSHUB_KEY, '$1[redacted]')
+    .replace(GOOGLE_KEY, '$1[redacted]');
 }
 
 export type Level = 'info' | 'warn' | 'error';

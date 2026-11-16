@@ -30,6 +30,17 @@ export interface Config {
   xProfiles: boolean;
   /** The X `auth_token` itself: RSSHub's feed route and the media extractor both authenticate with it. */
   twitterAuthToken: string | undefined;
+  /** ADR-029: the daily digest exists only when a Gemini key is configured. */
+  digest: DigestConfig | undefined;
+}
+
+/** One key for both halves of the digest: the text models and the speech model (ADR-029). */
+export interface DigestConfig {
+  apiKey: string;
+  textModel: string;
+  ttsModel: string;
+  /** Cost guard: posts beyond it are listed as headline links instead of being summarised. */
+  maxPosts: number;
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
@@ -41,6 +52,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   const adminChatId = int(env.ADMIN_CHAT_ID, undefined, 'ADMIN_CHAT_ID');
 
   const twitterAuthToken = (env.TWITTER_AUTH_TOKEN ?? '').trim() || undefined;
+  const geminiApiKey = (env.GEMINI_API_KEY ?? '').trim();
 
   const rsshubBase = (env.RSSHUB_BASE ?? '').trim().replace(/\/+$/, '');
   if (!rsshubBase) throw new Error('RSSHUB_BASE is missing. Set it to your self-hosted RSSHub, e.g. http://rsshub:1200.');
@@ -69,6 +81,15 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     // The same token the RSSHub sidecar needs; its presence is what makes an X profile addable.
     xProfiles: twitterAuthToken !== undefined,
     twitterAuthToken,
+    // Model ids rotate, so both are config; the key's presence is the feature switch (ADR-029).
+    digest: geminiApiKey === ''
+      ? undefined
+      : {
+          apiKey: geminiApiKey,
+          textModel: (env.GEMINI_TEXT_MODEL ?? '').trim() || 'gemini-3.8-flash',
+          ttsModel: (env.GEMINI_TTS_MODEL ?? '').trim() || 'gemini-3.8-flash-tts',
+          maxPosts: int(env.DIGEST_MAX_POSTS, 60, 'DIGEST_MAX_POSTS'),
+        },
   };
 }
 
