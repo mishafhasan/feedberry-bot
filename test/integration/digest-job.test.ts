@@ -230,23 +230,30 @@ test('digest job: a second run inside the same day sends the empty-window messag
   }
 });
 
-test('digest job: an overflow story links to its Telegraph page, not the raw post', async () => {
+test('digest job: every overflow story links to its Telegraph page, not the raw post', async () => {
   const api = await fakeBotApi();
-  const { dir, db, digest } = seed();
+  const { dir, db, digest, sourceIds } = seed();
   const now = Date.UTC(2026, 10, 16, 8, 0);
   const { gemini } = fakeGemini();
-  const article = `<html><head><title>Inside B story</title></head><body><article><h1>Inside B story</h1><p>${'word '.repeat(200)}</p></article></body></html>`;
+  // A second overflow story: the cap on summaries must not cap the Instant View pages.
+  insertPosts(db, sourceIds[0] as number, [{ guid: 'inside-c', link: 'https://blog.test/inside-c', title: 'Feed title inside-c', summary: 'Feed body inside-c', publishedAt: null, media: [] }], now - 4 * HOUR);
+  const page = (title: string): string => `<html><head><title>${title}</title></head><body><article><h1>${title}</h1><p>${'word '.repeat(200)}</p></article></body></html>`;
+  const articles: Record<string, string> = {
+    'https://blog.test/inside-b': page('Inside B story'),
+    'https://blog.test/inside-c': page('Inside C story'),
+  };
   const pages: string[] = [];
   const deps = {
     ...workerDeps(db, api.apiRoot, gemini, api),
     http: (async (url: string) => {
-      if (url === 'https://blog.test/inside-b') return { status: 200, url, contentType: 'text/html', body: article };
+      const body = articles[url];
+      if (body !== undefined) return { status: 200, url, contentType: 'text/html', body };
       throw new Error(`offline: ${url}`);
     }) as Http,
     telegraph: {
-      async createPage(page: { title: string }) {
-        pages.push(page.title);
-        return 'https://telegra.ph/Inside-B-story';
+      async createPage(entry: { title: string }) {
+        pages.push(entry.title);
+        return `https://telegra.ph/${entry.title.replaceAll(' ', '-')}`;
       },
     },
   };
@@ -255,9 +262,10 @@ test('digest job: an overflow story links to its Telegraph page, not the raw pos
     await runDigest(deps, digest.id, now);
 
     const html = String((api.last('sendRichMessage')?.body.rich_message as { html?: string } | undefined)?.html ?? '');
-    assert.deepEqual(pages, ['Inside B story'], 'only the overflow story is published, and without a model');
-    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B-story">3\. Feed title inside-b<\/a>/, 'the Also today link is the Instant View page');
-    assert.doesNotMatch(html, /href="https:\/\/blog\.test\/inside-b"/, 'the raw post URL is not printed');
+    assert.deepEqual([...pages].sort(), ['Inside B story', 'Inside C story'], 'both overflow stories are published, without a model');
+    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B-story">3\. Feed title inside-b<\/a>/, 'the first overflow link is its Instant View page');
+    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-C-story">4\. Feed title inside-c<\/a>/, 'the second overflow link is its Instant View page too');
+    assert.doesNotMatch(html, /href="https:\/\/blog\.test\/inside-[bc]"/, 'no raw post URL is printed');
   } finally {
     db.close();
     await api.close();
