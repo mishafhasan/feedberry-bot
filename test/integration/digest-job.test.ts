@@ -14,7 +14,7 @@ import { parseConfig, type Config } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { advanceDigest, ensureDigest, getDigest, setDigestEnabled, toggleDigestSource, type DigestRow } from '../../src/db/repos/digests.ts';
-import { insertPosts } from '../../src/db/repos/posts.ts';
+import { insertPosts, postByGuid, setPostTelegraphUrl } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
@@ -181,7 +181,7 @@ test('digest job: one rich message with the player, the numbered items and the a
     assert.match(html, /<a href="https:\/\/blog\.test\/inside-b">3\. Feed title inside-b<\/a>/, 'the overflow story is a numbered link at the end');
     assert.match(html, /🔑 Key points<\/b><\/p><ul><li>point one<\/li><li>point two<\/li><\/ul>/);
     assert.match(html, /<a href="https:\/\/blog\.test\/[^"]+">📖 Read full article<\/a>/, 'no Telegraph client: the post is the link, labelled');
-    assert.match(html, /<footer>🤖 AI-generated summary of 3 posts/);
+    assert.match(html, /<footer><b><i>By FeedBerry Bot<\/i><\/b><\/footer>/);
 
     const media = rich?.media ?? [];
     assert.equal(media.length, 1, 'the MP3 is the only attachment');
@@ -266,6 +266,40 @@ test('digest job: every overflow story links to its Telegraph page, not the raw 
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B-story">3\. Feed title inside-b<\/a>/, 'the first overflow link is its Instant View page');
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-C-story">4\. Feed title inside-c<\/a>/, 'the second overflow link is its Instant View page too');
     assert.doesNotMatch(html, /href="https:\/\/blog\.test\/inside-[bc]"/, 'no raw post URL is printed');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest job: the link delivery already published is reused, then cleared', async () => {
+  const api = await fakeBotApi();
+  const { dir, db, digest, sourceIds } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const insideA = postByGuid(db, sourceIds[0] as number, 'inside-a');
+  const insideB = postByGuid(db, sourceIds[1] as number, 'inside-b');
+  assert.ok(insideA && insideB);
+  setPostTelegraphUrl(db, insideA.id, 'https://telegra.ph/Inside-A');
+  setPostTelegraphUrl(db, insideB.id, 'https://telegra.ph/Inside-B');
+  const { gemini } = fakeGemini();
+  const deps = {
+    ...workerDeps(db, api.apiRoot, gemini, api),
+    telegraph: {
+      async createPage(): Promise<string> {
+        throw new Error('a cached link must not be published again');
+      },
+    },
+  };
+
+  try {
+    await runDigest(deps, digest.id, now);
+
+    const html = String((api.last('sendRichMessage')?.body.rich_message as { html?: string } | undefined)?.html ?? '');
+    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-A">📖 Read full article<\/a>/, 'the item reuses the delivery page');
+    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B">3\. Feed title inside-b<\/a>/, 'so does the overflow story');
+    assert.equal(postByGuid(db, sourceIds[0] as number, 'inside-a')?.telegraph_url, null, 'the digest clears the cached link');
+    assert.equal(postByGuid(db, sourceIds[1] as number, 'inside-b')?.telegraph_url, null);
   } finally {
     db.close();
     await api.close();

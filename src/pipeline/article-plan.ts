@@ -25,6 +25,8 @@ export interface ArticleInput {
 export interface ArticleDeps {
   http: Http;
   telegraph?: TelegraphClient;
+  /** The page just published, so the caller can cache it for the digest (ADR-029). */
+  onPage?: (url: string) => void;
 }
 
 /**
@@ -49,6 +51,7 @@ export async function planArticle(deps: ArticleDeps, input: ArticleInput): Promi
       return { kind: 'link_only', text: `${header}\n\n${esc(article.title || input.title || '')}\n\n${esc(input.url)}` };
     }
     const ivUrl = await publishArticle(deps.telegraph ?? telegraphClient, article);
+    deps.onPage?.(ivUrl);
     return renderArticle(article, ivUrl, header);
   } catch (err) {
     log('warn', 'article_failed', { url: input.url, code: isCoded(err) ? err.code : 'unknown' });

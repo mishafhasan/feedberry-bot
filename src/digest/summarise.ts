@@ -92,7 +92,7 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   // images than the first run; upgrade when a retry must reproduce the article's pictures.
   const article = cached === undefined ? await articleOf(deps.http, post.url) : null;
   const text = clamp(article === null ? feedText : textOf(article.html), MAX_ARTICLE_CHARS);
-  const telegraphUrl = cached?.telegraph_url ?? (article === null ? null : await pageLink(deps.telegraph, article));
+  const telegraphUrl = cached?.telegraph_url ?? post.telegraph_url ?? (article === null ? null : await pageLink(deps.telegraph, article));
   const images = await pictures(deps, post, article, dir, signal);
 
   const summary = cached === undefined ? await askSummary(deps.gemini, lang, article?.title || payload.title, text, signal) : parseSummary(cached.json);
@@ -140,11 +140,13 @@ async function articleOf(http: Http, url: string | null): Promise<Article | null
   }
 }
 
-/** An overflow story's Instant View page, written without the model; null keeps the post's own URL. */
-export async function publishPage(http: Http, telegraph: TelegraphClient | undefined, url: string | null): Promise<string | null> {
-  const article = await articleOf(http, url);
+/** An overflow story's Instant View page: the one delivery already published, else a fresh page with no model involved. */
+export async function publishPage(deps: Pick<SummariseDeps, 'http' | 'telegraph'>, post: PostRow, signal: AbortSignal): Promise<string | null> {
+  if (post.telegraph_url !== null) return post.telegraph_url;
+  if (signal.aborted) return null;
+  const article = await articleOf(deps.http, post.url);
   if (article === null) return null;
-  const page = await pageLink(telegraph, article);
+  const page = await pageLink(deps.telegraph, article);
   if (page !== null) log('info', 'digest_page', { url: article.url, page });
   return page;
 }

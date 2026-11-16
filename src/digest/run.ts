@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { ownChat } from '../db/repos/chats.ts';
 import { commitDigestWindow, digestPosts, digestSourceCount, digestSourceIds, digestTimezone, dropStaleWindow, getDigest, pinDigestWindow } from '../db/repos/digests.ts';
 import { recordEvent } from '../db/repos/events.ts';
+import { clearPostTelegraphUrls } from '../db/repos/posts.ts';
 import { getSource } from '../db/repos/sources.ts';
 import { log } from '../obs/log.ts';
 import { Coded, E } from '../platform/errors.ts';
@@ -82,7 +83,7 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     // Over the job budget: retry on the pinned window instead of shipping a half-planned digest.
     if (signal.aborted) throw new Coded(E.FEED_DOWN, 'digest over budget');
 
-    const date = dateLabel(windowEnd, tz, lang);
+    const date = dateLabel(windowEnd, tz, 'en');
     const built =
       posts.length === 0
         ? { plans: renderDigest({ lang, date, tz, sourceCount: digestSourceCount(deps.db, digestId), items: [], extra: [], postCount: 0, audio: null }), audioSec: 0 }
@@ -92,6 +93,8 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
     commitDigestWindow(deps.db, digestId, windowEnd);
+    // Delivery's Instant View links exist for the digest; the posts need them no longer.
+    clearPostTelegraphUrls(deps.db, posts.map((post) => post.id));
 
     log('info', 'digest_sent', {
       digest: digestId,
@@ -133,8 +136,8 @@ async function plansFor(
   }
 
   // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
-  // shortcut: a retry republishes them (no cache); cache the pages if a retry must not repeat writes.
-  const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => (input.signal.aborted ? Promise.resolve(null) : publishPage(deps.http, deps.telegraph, post.url)));
+  // shortcut: a retry republishes the ones delivery left uncached; cache them if a retry must not repeat writes.
+  const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => publishPage({ http: deps.http, telegraph: deps.telegraph }, post, input.signal));
   const extra = input.overflow.map((post, index) => ({
     headline: payloadOf(post.payload_json).title || post.url || 'Post',
     url: pages[index] ?? post.url,

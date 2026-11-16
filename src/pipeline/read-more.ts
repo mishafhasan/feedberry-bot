@@ -16,6 +16,8 @@ const MIN_BODY = 200;
 export interface ReadMoreCtx {
   telegraph?: TelegraphClient;
   sourceTitle: string | null;
+  /** The page just published, so the caller can cache it for the digest (ADR-029). */
+  onPage?: (postId: number, url: string) => void;
 }
 
 /** What an Instant View page is built from: a scheduled post, or a Download Mode resolve. */
@@ -96,6 +98,7 @@ async function pageUrl(client: TelegraphClient, ctx: ReadMoreCtx, page: ReadMore
     ].join('');
     const published = await publishArticle(client, { title, byline: ctx.sourceTitle ?? 'FeedBerry', siteName: null, html, textLength: 0, url: page.url ?? '', publishedAt: page.publishedAt });
     log('info', 'readmore_published', { post: page.id, images: images.length });
+    if (page.id > 0) ctx.onPage?.(page.id, published);
     return published;
   } catch (err) {
     log('warn', 'readmore_failed', { post: page.id, cause: err instanceof Error ? err.message : String(err) });

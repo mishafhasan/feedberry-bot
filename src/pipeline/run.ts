@@ -1,7 +1,7 @@
 import type { Config } from '../config.ts';
 import { tx, type Db } from '../db/index.ts';
 import { listPendingForSource, markPendingDelivery } from '../db/repos/deliveries.ts';
-import { getPost, insertPosts, type PostRow } from '../db/repos/posts.ts';
+import { getPost, insertPosts, setPostTelegraphUrl, type PostRow } from '../db/repos/posts.ts';
 import { getSource, setSourceFeedUrl, type SourceRow } from '../db/repos/sources.ts';
 import { demoteChat } from '../db/repos/chats.ts';
 import { deliveryTargets, sourceContentKinds } from '../db/repos/subscriptions.ts';
@@ -195,7 +195,7 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
       try {
         const hookContext: HookContext = { sourceId, chatId: row.chat_id, postId: post.id, url: post.url };
-        const planned = await withReadMore(await planForDelivery(deps, post, dir, platform, sourceTitle, row.tz), pageOfPost(post), { telegraph: deps.telegraph, sourceTitle }, pages);
+        const planned = await withReadMore(await planForDelivery(deps, post, dir, platform, sourceTitle, row.tz), pageOfPost(post), { telegraph: deps.telegraph, sourceTitle, onPage: (id, url) => setPostTelegraphUrl(deps.db, id, url) }, pages);
         const plan = await applyHooks('render', hookContext, planned);
         const ids = await deliver(deps.sender, plan, target);
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
@@ -234,7 +234,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   // R12: a website or blog post is an article when the page yields readable text. Trying this first
   // also skips cobalt, whose og:image made every blog post look like a photo with a headline.
   if (platform === 'rss' && post.url) {
-    const article = await planArticle({ http: deps.http, telegraph: deps.telegraph }, {
+    const article = await planArticle({ http: deps.http, telegraph: deps.telegraph, onPage: (url) => setPostTelegraphUrl(deps.db, post.id, url) }, {
       url: post.url,
       title: payload.title || null,
       publishedAt: post.published_at,

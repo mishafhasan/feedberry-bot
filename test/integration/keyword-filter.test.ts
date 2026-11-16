@@ -218,6 +218,7 @@ test('a v4 file migrates to v5 with every row intact', () => {
         locale TEXT, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
       CREATE TABLE subscriptions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, source_id INTEGER NOT NULL, chat_id INTEGER NOT NULL,
         deliver INTEGER NOT NULL DEFAULT 1, next_slot_at INTEGER, created_at INTEGER NOT NULL, content_types TEXT, UNIQUE (source_id, chat_id));
+      CREATE TABLE posts (id INTEGER PRIMARY KEY, guid TEXT NOT NULL);
       INSERT INTO users (tg_user_id, created_at, status) VALUES (777, 1, 'allowed');
       INSERT INTO subscriptions (user_id, source_id, chat_id, created_at, content_types) VALUES (1, 3, 4, 1, 'video');
       PRAGMA user_version = 4;

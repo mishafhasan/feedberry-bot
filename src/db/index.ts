@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -83,6 +83,14 @@ const MIGRATION_V6 = `
   CREATE INDEX IF NOT EXISTS digests_due ON digests (enabled, next_run_at);
 `;
 
+/**
+ * v6 → v7: the Instant View page a post already got at delivery time, so the digest reuses it instead
+ * of asking Telegra.ph (and its flood control) again (ADR-029).
+ */
+const MIGRATION_V7 = `
+  ALTER TABLE posts ADD COLUMN telegraph_url TEXT;
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -109,6 +117,7 @@ function migrate(db: Db): void {
       if (current <= 3) db.exec(MIGRATION_V4);
       if (current <= 4) db.exec(MIGRATION_V5);
       if (current <= 5) db.exec(MIGRATION_V6);
+      if (current <= 6) db.exec(MIGRATION_V7);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

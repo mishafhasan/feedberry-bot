@@ -15,7 +15,7 @@ import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { markPendingDelivery } from '../../src/db/repos/deliveries.ts';
-import { insertPosts } from '../../src/db/repos/posts.ts';
+import { getPost, insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
@@ -188,6 +188,7 @@ test('M5 read more: an over-long caption keeps the photo and links the rest to a
     assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
     assert.ok(!api.calls.some((call) => call.method === 'sendMessage'), 'no (2/2) continuation is sent');
     assert.equal(pages.length, 1, 'one page, published once');
+    assert.equal(getPost(db, posts[0]!.id)?.telegraph_url, 'https://telegra.ph/page-1', 'the page is cached on the post for the digest');
     assert.match(pages[0]?.content ?? '', /cdn\.test\/one\.jpg/, 'the post photo rides along');
   } finally {
     db.close();

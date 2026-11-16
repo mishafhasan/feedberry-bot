@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS posts (
   kind          TEXT,
   payload_json  TEXT,
   first_seen_at INTEGER NOT NULL,
+  -- The Instant View page delivery already published; the digest reuses it instead of republishing.
+  telegraph_url TEXT,
   UNIQUE (source_id, guid)
 );
 

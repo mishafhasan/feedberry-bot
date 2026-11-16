@@ -358,6 +358,8 @@ test('migration v2 → v4 keeps old users but sets them to pending, so they need
       deliver INTEGER NOT NULL DEFAULT 1, next_slot_at INTEGER, created_at INTEGER NOT NULL,
       UNIQUE (source_id, chat_id)
     );
+    -- v7 adds a column to this table too.
+    CREATE TABLE posts (id INTEGER PRIMARY KEY, guid TEXT NOT NULL);
     INSERT INTO users (tg_user_id, created_at) VALUES (${OLD_USER}, 1);
     PRAGMA user_version = 2;
   `);
