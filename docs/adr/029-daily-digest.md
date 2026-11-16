@@ -112,6 +112,9 @@ Four questions decided the shape:
   acknowledged exactly once.
 - Removing the last source from an enabled digest switches it off, so nobody receives "no new posts"
   every day with no way to tell why.
+- A free-tier Gemini key allows only ~5 requests a minute: a digest over many posts hits 429 and waits
+  on the rate-limit ladder (30 min → 8 h), so a busy day on a free key can arrive late. A paid tier
+  removes the limit; the code needs no change.
 
 ## Evidence
 
@@ -134,5 +137,13 @@ Four questions decided the shape:
 - The deployed artifact, on a fresh volume, against a stand-in Bot API: the container logged
   `{"level":"info","code":"boot","schema":6,…}` and then `polling_started`, and inside it
   `PRAGMA user_version` read `6` with `digest_sources, digests, post_summaries` present.
-- Live Gemini + Telegram: pending; requires a throwaway @BotFather token and a real
-  `GEMINI_API_KEY` (the local check must never use the production token).
+- **Live**, a throwaway bot (`feedberrytestbot`) and real Gemini: two BBC News / TechCrunch sources
+  fetched 41 items, the digest summarised the 2 newest and listed the rest, and Telegram accepted the
+  rich message with the uploaded MP3 — English `{"code":"digest_sent","posts":42,"parts":1,"audioSec":68}`
+  and Tamil `{"code":"digest_sent","posts":42,"parts":1,"audioSec":61}`. The cache then held, per
+  post, an `en` row and a `ta` row — the Tamil headlines in Tamil script with the brands in English
+  ("Las Vegas-இல் Uber app வழியாக Zoox robotaxi சேவை அறிமுகம்") — and every row carried its Telegraph URL.
+  `gemini-3.8-flash` answered 503/429 at check time, so the live runs named `gemini-3.6-flash`; model
+  ids are config and the default is unchanged. Neither live item had a downloadable feed photo (the
+  article image URLs were refused by the extractor), so the sent layout carried no slideshow; the
+  slideshow path is covered by the renderer and summary tests.
