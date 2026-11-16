@@ -3,7 +3,7 @@
  * no Gemini call, and a dead model falls back to the feed's own words without poisoning the cache.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -13,7 +13,7 @@ import { getPost, insertPosts, type PostRow } from '../../src/db/repos/posts.ts'
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import type { Gemini } from '../../src/digest/gemini.ts';
 import { cleanSummary, summarisePost, summaryPrompt } from '../../src/digest/summarise.ts';
-import type { MediaEngine } from '../../src/media/media-engine.ts';
+import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 
 const http: Http = async (url) => {
@@ -49,7 +49,26 @@ function countingGemini(answer: () => unknown): { gemini: Gemini; calls: () => n
   };
 }
 
-function seedPost(): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
+/** An engine that records what it was asked to fetch and hands back a real file. */
+function recordingEngine(dir: string): { engine: MediaEngine; items: MediaItem[] } {
+  const items: MediaItem[] = [];
+  return {
+    items,
+    engine: {
+      async resolve() {
+        throw new Error('no resolve in a summary test');
+      },
+      async download(item) {
+        items.push(item);
+        const path = join(dir, 'photo.jpg');
+        writeFileSync(path, 'x');
+        return path;
+      },
+    },
+  };
+}
+
+function seedPost(media: Array<{ url: string; type: string }> = []): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-digest-summary-'));
   const db = openDb(join(dir, 'bot.db'));
   const source = upsertSource(db, {
@@ -61,7 +80,7 @@ function seedPost(): { dir: string; db: ReturnType<typeof openDb>; post: PostRow
     title: 'Blog',
     avatarUrl: null,
   });
-  const rows = insertPosts(db, source.id, [{ guid: 'g1', link: 'https://blog.test/one', title: 'Feed title', summary: 'The feed body of the post.', publishedAt: null, media: [] }]);
+  const rows = insertPosts(db, source.id, [{ guid: 'g1', link: 'https://blog.test/one', title: 'Feed title', summary: 'The feed body of the post.', publishedAt: null, media }]);
   const post = rows[0];
   assert.ok(post);
   return { dir, db, post };
@@ -140,6 +159,23 @@ test('a dead model twice falls back to the feed and writes no cache', async () =
     assert.deepEqual(item.points, []);
     assert.equal(getSummary(db, post.id, 'en'), undefined, 'a fallback is never cached');
     assert.equal(getPost(db, post.id)?.id, post.id);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('pictures ask for the page as referer with a browser user-agent', async () => {
+  const { dir, db, post } = seedPost([{ url: 'https://cdn.test/a.jpg', type: 'photo' }]);
+  const { engine, items } = recordingEngine(dir);
+  const { gemini, calls } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const summary = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(summary.images.length, 1);
+    assert.equal(calls(), 1);
+    // Hotlink-protected CDNs answer 403 without these two; the referer names the page that showed it.
+    assert.equal(items[0]?.headers?.referer, 'https://blog.test/one');
+    assert.match(String(items[0]?.headers?.['user-agent'] ?? ''), /^Mozilla\/5\.0/);
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

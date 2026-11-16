@@ -37,6 +37,12 @@ export interface SummarisedItem extends DigestItem {
   fellBack: boolean;
 }
 
+/**
+ * Hotlink-protected image CDNs (TechCrunch's among them) answer 403 to a bot user-agent; the page that
+ * served the picture is the referer they expect. Verified live: the same URL fails without both.
+ */
+const IMAGE_HEADERS = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36' };
+
 export interface SummariseDeps {
   db: Db;
   http: Http;
@@ -152,7 +158,10 @@ async function pictures(deps: SummariseDeps, post: PostRow, article: Article | n
   if (urls.length === 0) return [];
 
   try {
-    const files = await prepareMedia(deps.media, urls.map((url) => ({ kind: 'photo' as const, url, picker: false })), dir, { maxMb: deps.maxMb, signal });
+    // The picture is only served back to the page that showed it; the referer names that page.
+    const referer = article?.url ?? post.url ?? undefined;
+    const items = urls.map((url) => ({ kind: 'photo' as const, url, picker: false, ...(referer === undefined ? {} : { headers: { ...IMAGE_HEADERS, referer } }) }));
+    const files = await prepareMedia(deps.media, items, dir, { maxMb: deps.maxMb, signal });
     return files.filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path);
   } catch (err) {
     log('warn', 'digest_images_failed', { post: post.id, cause: message(err) });

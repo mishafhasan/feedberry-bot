@@ -93,7 +93,13 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     for (const plan of built.plans) await deps.sender.send(plan, target);
     commitDigestWindow(deps.db, digestId, windowEnd);
 
-    log('info', 'digest_sent', { digest: digestId, posts: posts.length, parts: built.plans.length, audioSec: built.audioSec });
+    log('info', 'digest_sent', {
+      digest: digestId,
+      posts: posts.length,
+      parts: built.plans.length,
+      images: built.plans.reduce((sum, plan) => sum + (plan.kind === 'rich' ? plan.media.filter((entry) => entry.kind === 'photo').length : 0), 0),
+      audioSec: built.audioSec,
+    });
     recordEvent(deps.db, { level: 'info', code: 'digest_sent', chatId: chat.id, detail: `${posts.length} posts, ${built.plans.length} parts`, at: now });
   } finally {
     // Stage 9: every path deletes the work files, images and PCM included.
