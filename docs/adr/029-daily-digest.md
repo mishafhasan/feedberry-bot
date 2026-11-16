@@ -149,7 +149,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **464/464 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **466/466 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -171,7 +171,8 @@ Four questions decided the shape:
   the next model), and
   `digest-menu` (button hidden without a key; sources/language/time/on-off; a foreign digest and a
   foreign subscription refused; "on" without a source stays off; removing the last source switches
-  the digest off).
+  the digest off), and `telegraph-flood` (a page answered `FLOOD_WAIT_n` is retried after the wait
+  the API names; four floods in a row give up and throw).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
 - The deployed artifact, on a fresh volume, against a stand-in Bot API: the container logged
@@ -210,12 +211,10 @@ Four questions decided the shape:
   per-call ceiling working — one summary was aborted at 120 s (`This operation was aborted`) and its
   retry completed — and the daily-capped 3.8 rung handing every text call to `gemini-3.6-flash`.
 - After the overflow-link, per-post-folder and two-summary-cap change: `npm run typecheck`, `npm test`
-  (**464/464**) and `npm run build` re-ran green.
+  and `npm run build` re-ran green (464/464 at that point).
 - The same code, live, with the local cap (`DIGEST_MAX_POSTS=2`) over a 46-post window:
-  `{"code":"digest_sent","posts":46,"parts":1,"images":0,"audioSec":59}`. It logged two
-  `digest_page` lines — `telegra.ph/Apple-reveals-new-Mac-security-controls-…-11-16-8` and
-  `telegra.ph/Houthi-rebel-advance-in-Yemen-…-11-16-5` — so the two overflow stories linked to their
-  own Instant View pages while the other 42 stayed inside the two full summaries; a `503` on
-  `gemini-3.8-flash` moved the text to `gemini-3.6-flash` and the digest still shipped. The run
-  before the per-call-cap fix lost its audio to that abort (`digest_audio_failed … This operation was
-  aborted`); this one sent with its voice.
+  `{"code":"digest_sent","posts":46,"parts":1,"images":0,"audioSec":60}`, Telegram answering
+  `{"delivered":[2199]}`. Every overflow story got its own page: **44 `digest_page` lines, 0
+  failures**, after the client absorbed 13 `FLOOD_WAIT_n` answers with the wait Telegra.ph names
+  (`telegraph_flood_wait`). Before the flood retry the same run left 24 of 44 pages unpublished, and
+  before the page cap was lifted only the first two overflow stories had a page.
