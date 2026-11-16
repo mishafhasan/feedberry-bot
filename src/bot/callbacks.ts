@@ -1332,6 +1332,11 @@ async function toggleDigestSourceOf(ctx: Context, deps: BotDeps, userId: number,
   const user = ensureUser(deps.db, userId);
   const toggled = toggleDigestSource(deps.db, user.id, Number(rawId), Number(rawSub));
   if (toggled === null) return;
+  // An enabled digest with no source would send "no new posts" every day: switch it off instead.
+  const digest = ownDigest(deps.db, user.id, Number(rawId));
+  if (toggled === 'removed' && digest?.enabled === 1 && digestSourceCount(deps.db, digest.id) === 0) {
+    setDigestEnabled(deps.db, digest.id, false, null);
+  }
   // The list keeps its order, so the row's position names the page to repaint.
   const index = digestSourceIndex(deps.db, user.id, Number(rawSub)) ?? 0;
   await renderDigestSourcesPage(ctx, deps, userId, `${cb.djSources}${Number(rawId)}:${Math.floor(index / PAGE_SIZE)}`, lang);

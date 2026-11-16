@@ -182,6 +182,15 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `dg:on:${empty.id}`));
     assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', empty.id).enabled, 0);
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Pick at least one source/);
+
+    // With one source it turns on; removing that last source switches the digest off again.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `dg:tg:${empty.id}:${rssSub}`));
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `dg:on:${empty.id}`));
+    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', empty.id).enabled, 1);
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `dg:tg:${empty.id}:${rssSub}`));
+    const emptied = row<{ enabled: number; next_run_at: number | null }>(db, 'SELECT enabled, next_run_at FROM digests WHERE id = ?', empty.id);
+    assert.equal(emptied.enabled, 0, 'a digest with no source switches itself off');
+    assert.equal(emptied.next_run_at, null);
   } finally {
     db.close();
     await api.close();
