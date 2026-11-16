@@ -55,28 +55,30 @@ test('digest: the English layout carries every block in order', () => {
   assert.match(html, /🔑 Key points<\/b><\/p><ul><li>first fact<\/li><li>second fact<\/li><\/ul>/);
   assert.match(html, /<a href="https:\/\/telegra\.ph\/Post-11-16">📖 Read full article<\/a>/);
   assert.doesNotMatch(html, />https:\/\/telegra\.ph\/Post-11-16</, 'the raw URL is never the visible label');
-  assert.match(html, /<footer>🤖 AI-generated summary of 1 posts/);
+  assert.match(html, /<footer><b><i>By FeedBerry Bot<\/i><\/b><\/footer>/);
   assert.doesNotMatch(html, /<p><i>A quiet headline<\/i><\/p>/, 'the original title is Tamil-only');
   const plan = plans[0];
   assert.deepEqual(plan?.kind === 'rich' ? plan.media : [], [{ id: 'overview', file: '/tmp/a.mp3', kind: 'audio' }]);
 });
 
-test('digest: Tamil swaps every label and prints the original title under the headline', () => {
+test('digest: Tamil translates the content but keeps every label in English', () => {
   const html = htmlOf(
     renderDigest(
       input({
         lang: 'ta',
         items: [item({ headline: 'புதிய GPU திட்டம்', originalTitle: 'A new GPU plan' })],
-        date: 'திங்கள், 16 நவ., 2026',
+        date: 'Mon, 16 Nov 2026',
       }),
     ),
   );
-  assert.match(html, /🫐 தினசரி சுருக்கம்/);
-  assert.match(html, /இடுகைகள்/);
+  assert.match(html, /^<h2>🫐 Daily Digest<\/h2>/);
+  assert.match(html, /📅 Mon, 16 Nov 2026 · 🗞 1 posts · 1 sources/);
+  assert.match(html, /<h3>1\. புதிய GPU திட்டம்<\/h3>/, 'the headline itself is Tamil');
   assert.match(html, /<p><i>A new GPU plan<\/i><\/p>/);
-  assert.match(html, /🔑 முக்கிய குறிப்புகள்/);
-  assert.match(html, /📖 முழு கட்டுரையைப் படிக்க/);
-  assert.match(html, /🤖 1 இடுகைகளின் AI சுருக்கம்/);
+  assert.match(html, /🔑 Key points/);
+  assert.match(html, /📖 Read full article/);
+  assert.match(html, /<footer><b><i>By FeedBerry Bot<\/i><\/b><\/footer>/);
+  assert.doesNotMatch(html, /முக்கிய குறிப்புகள்|முழு கட்டுரையைப் படிக்க/);
 });
 
 test('digest: one image is a bare img, three ride in a slideshow, a fourth is dropped', () => {
@@ -175,5 +177,5 @@ test('digest: posts past the cap are numbered headline links under "Also today"'
     ),
   );
   assert.match(html, /Also today<\/b><\/p><ul><li><a href="https:\/\/blog\.test\/older">2\. Older story<\/a><\/li><\/ul>/);
-  assert.match(html, /<footer>🤖 AI-generated summary of 2 posts/);
+  assert.match(html, /<footer><b><i>By FeedBerry Bot<\/i><\/b><\/footer>/);
 });

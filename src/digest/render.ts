@@ -61,7 +61,7 @@ export function renderDigest(input: RenderInput): MessagePlan[] {
     const last = part === total;
     const items = group.map((piece) => piece.html).join('');
     // The footer closes the digest, after the "Also today" list when there is one.
-    const tail = last ? `<footer>${esc(t(input.lang, 'digest.footer', { posts: input.postCount }))}</footer>` : '';
+    const tail = last ? `<footer><b><i>${esc(t(input.lang, 'digest.footer'))}</i></b></footer>` : '';
     const media = group.flatMap((piece) => piece.media);
     // The player is Part 1's, and it takes the slot item images never use: 50 in total.
     if (part === 1 && input.audio !== null) media.push({ id: 'overview', file: input.audio.file, kind: 'audio' });
