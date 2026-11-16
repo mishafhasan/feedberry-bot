@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { ownChat } from '../db/repos/chats.ts';
 import { commitDigestWindow, digestPosts, digestSourceCount, digestSourceIds, digestTimezone, getDigest, pinDigestWindow } from '../db/repos/digests.ts';
 import { recordEvent } from '../db/repos/events.ts';
@@ -43,6 +44,8 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
   const dir = workDirFor(`digest-${digestId}-${process.pid}`);
 
   try {
+    // The audio and the pictures land here; a download would create it, a text-only digest would not.
+    await mkdir(dir, { recursive: true });
     // A post published minutes before the digest belongs to it: one last check per source.
     if (digest.window_end === null) {
       for (const sourceId of digestSourceIds(deps.db, digestId)) {
@@ -109,7 +112,7 @@ async function plansFor(
   let audio: { file: string; seconds: number } | null = null;
   try {
     const script = await writeScript(input.gemini, { lang: input.lang, date: input.date, items: input.items }, input.signal);
-    audio = await audioOverview(input.gemini, script, input.dir, `FeedBerry Daily Digest · ${input.date}`, input.signal);
+    audio = await audioOverview(input.gemini, script, input.dir, `FeedBerry Daily Digest · ${input.date}`, input.signal, deps.encodeAudio);
   } catch (err) {
     // The stories are already summarised; the message is worth more than the voice.
     log('warn', 'digest_audio_failed', { digest: input.digestId, cause: message(err) });
