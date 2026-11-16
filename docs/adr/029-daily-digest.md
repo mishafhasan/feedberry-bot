@@ -114,6 +114,6 @@ Four questions decided the shape:
   window pinned and the job queued), `digest-menu` (button hidden without a key; sources/language/time/
   on-off; a foreign digest and a foreign subscription refused; "on" without a source stays off).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
-- `docker compose build bot`: pending in this branch's record (see the final run report).
+- `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
 - Live Gemini + Telegram: pending; requires a throwaway @BotFather token and a real
   `GEMINI_API_KEY` (the local check must never use the production token).
