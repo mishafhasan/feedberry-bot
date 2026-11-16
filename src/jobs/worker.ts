@@ -6,7 +6,7 @@ import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts
 import { runRetention } from '../pipeline/cleanup.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { tick } from '../scheduler/tick.ts';
-import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, type JobRow } from './queue.ts';
+import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, touch, LOCK_HEARTBEAT_MS, type JobRow } from './queue.ts';
 
 /** §9.2: a flood wait longer than the inline limit frees the worker and retries later. */
 const FLOOD_REQUEUE_MS = 5 * 60_000;
@@ -20,6 +20,10 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
   recoverStale(deps.db, now);
   const job = claim(deps.db, now);
   if (!job) return false;
+
+  // ADR-029: a digest can outrun the stale window; the beat keeps its claim alive while it works.
+  const beat = setInterval(() => touch(deps.db, job.id), LOCK_HEARTBEAT_MS);
+  beat.unref?.();
 
   try {
     await execute(deps, job, now);
@@ -45,6 +49,8 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
       // The cause is the only thing that tells a 5xx, a login wall and a timeout apart.
       log('warn', 'job_retry', { job: job.id, kind: job.kind, code, inMs: delay, cause });
     }
+  } finally {
+    clearInterval(beat);
   }
   return true;
 }

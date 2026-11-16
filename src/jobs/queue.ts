@@ -23,6 +23,9 @@ export const PRIORITY = { manual: 100, scheduled: 50, backfill: 40, retry: 10 } 
 /** A crash mid-job loses one attempt: `running` older than 10 min goes back to `queued`. */
 export const STALE_LOCK_MS = 10 * 60 * 1000;
 
+/** How often a live worker refreshes its claim, so a slow job is never mistaken for a dead one. */
+export const LOCK_HEARTBEAT_MS = 60_000;
+
 export interface EnqueueInput {
   kind: JobKind;
   targetId: number;
@@ -52,6 +55,14 @@ export function claim(db: Db, now = Date.now()): JobRow | undefined {
 
 export function recoverStale(db: Db, now = Date.now()): number {
   return Number(db.prepare("UPDATE jobs SET state = 'queued', locked_at = NULL WHERE state = 'running' AND locked_at < ?").run(now - STALE_LOCK_MS).changes);
+}
+
+/**
+ * Keeps a running job's claim fresh (ADR-029): without it a digest longer than the stale window would
+ * be handed to a second worker while still sending, and the user would get the digest twice.
+ */
+export function touch(db: Db, id: number, now = Date.now()): void {
+  db.prepare("UPDATE jobs SET locked_at = ? WHERE id = ? AND state = 'running'").run(now, id);
 }
 
 export function complete(db: Db, id: number): void {
