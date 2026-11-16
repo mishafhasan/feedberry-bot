@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { ownChat } from '../db/repos/chats.ts';
-import { commitDigestWindow, digestPosts, digestSourceCount, digestSourceIds, digestTimezone, getDigest, pinDigestWindow } from '../db/repos/digests.ts';
+import { commitDigestWindow, digestPosts, digestSourceCount, digestSourceIds, digestTimezone, dropStaleWindow, getDigest, pinDigestWindow } from '../db/repos/digests.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { getSource } from '../db/repos/sources.ts';
 import { log } from '../obs/log.ts';
@@ -46,8 +46,11 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
   try {
     // The audio and the pictures land here; a download would create it, a text-only digest would not.
     await mkdir(dir, { recursive: true });
+    // A pin left by a run that died is a day old: drop it, so this run checks its sources again.
+    dropStaleWindow(deps.db, digestId, now);
+    const pinned = getDigest(deps.db, digestId)?.window_end ?? null;
     // A post published minutes before the digest belongs to it: one last check per source.
-    if (digest.window_end === null) {
+    if (pinned === null) {
       for (const sourceId of digestSourceIds(deps.db, digestId)) {
         try {
           await runFetchSource(deps, sourceId, now);
@@ -58,7 +61,9 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
       }
     }
 
-    const windowEnd = pinDigestWindow(deps.db, digestId, now);
+    // +1 ms: the pre-check records its new posts with first_seen_at === now, and the window's upper
+    // bound is strict, so pinning at `now` would push every one of them into tomorrow's digest.
+    const windowEnd = pinDigestWindow(deps.db, digestId, now + 1);
     const from = Math.max(digest.last_window_end ?? 0, windowEnd - DIGEST_WINDOW_MS);
     const posts = digestPosts(deps.db, digestId, from, windowEnd);
     const summarised = posts.slice(0, cfg.maxPosts);
@@ -74,6 +79,8 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     );
     // Every story falling back means Gemini itself is down: leave the window pinned and retry later.
     if (items.length > 0 && items.every((item) => item.fellBack)) throw new Coded(E.FEED_DOWN, 'every digest summary failed');
+    // Over the job budget: retry on the pinned window instead of shipping a half-planned digest.
+    if (signal.aborted) throw new Coded(E.FEED_DOWN, 'digest over budget');
 
     const date = dateLabel(windowEnd, tz, lang);
     const built =
@@ -84,7 +91,7 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
     // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
-    commitDigestWindow(deps.db, digestId);
+    commitDigestWindow(deps.db, digestId, windowEnd);
 
     log('info', 'digest_sent', { digest: digestId, posts: posts.length, parts: built.plans.length, audioSec: built.audioSec });
     recordEvent(deps.db, { level: 'info', code: 'digest_sent', chatId: chat.id, detail: `${posts.length} posts, ${built.plans.length} parts`, at: now });

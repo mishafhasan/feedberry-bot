@@ -50,7 +50,8 @@ export function setDigestHour(db: Db, id: number, hour: number, nextRunAt: numbe
 }
 
 export function setDigestEnabled(db: Db, id: number, enabled: boolean, nextRunAt: number | null): void {
-  db.prepare('UPDATE digests SET enabled = ?, next_run_at = ? WHERE id = ?').run(enabled ? 1 : 0, nextRunAt, id);
+  // A toggle is the user intervening: any pin left by a dead or in-flight run stops applying.
+  db.prepare('UPDATE digests SET enabled = ?, next_run_at = ?, window_end = NULL WHERE id = ?').run(enabled ? 1 : 0, nextRunAt, id);
 }
 
 /** The distinct sources a digest covers; one source followed from two chats still counts once. */
@@ -139,9 +140,19 @@ export function pinDigestWindow(db: Db, id: number, at: number): number {
   return row?.window_end ?? at;
 }
 
+/**
+ * A pin older than a day can only come from a run that died: dropping it makes the next run check its
+ * sources again, instead of serving a day-old window with no fresh posts.
+ */
+export function dropStaleWindow(db: Db, id: number, now: number): void {
+  db.prepare('UPDATE digests SET window_end = NULL WHERE id = ? AND window_end IS NOT NULL AND window_end < ?').run(id, now - 24 * 60 * 60 * 1000);
+}
+
 /** One statement, after the last part is sent: the next window starts where this one ended. */
-export function commitDigestWindow(db: Db, id: number): void {
-  db.prepare('UPDATE digests SET last_window_end = window_end, window_end = NULL WHERE id = ?').run(id);
+export function commitDigestWindow(db: Db, id: number, windowEnd: number): void {
+  // The value is passed in, not re-read: a toggle during the run clears the column, and the tile
+  // must still end where this run's window ended.
+  db.prepare('UPDATE digests SET last_window_end = ?, window_end = NULL WHERE id = ?').run(windowEnd, id);
 }
 
 export interface SummaryRow {

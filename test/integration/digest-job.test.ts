@@ -126,6 +126,9 @@ function seed(): Seeded {
   seedPost(sourceIds[0] as number, 'inside-a', now - 2 * HOUR);
   seedPost(sourceIds[0] as number, 'too-old', now - 30 * HOUR);
   seedPost(sourceIds[1] as number, 'inside-b', now - 3 * HOUR);
+  // Stamped at the run instant, the way the pre-run check records what it just found: it must be in
+  // this digest, not in tomorrow's (the window's upper bound is strict).
+  seedPost(sourceIds[0] as number, 'found-by-the-check', now);
 
   const digest = ensureDigest(db, user.id, chat.id);
   setDigestEnabled(db, digest.id, true, now - 1000);
@@ -165,14 +168,15 @@ test('digest job: one rich message with the player, the numbered items and the a
     const rich = api.last('sendRichMessage')?.body.rich_message as { html?: string; media?: Array<{ id: string; media: { type: string } }> };
     const html = String(rich?.html ?? '');
     assert.match(html, /🫐 Daily Digest/);
-    assert.match(html, /📅 .* · 🗞 2 posts · 2 sources/, 'the window holds exactly the two fresh posts');
+    assert.match(html, /📅 .* · 🗞 3 posts · 2 sources/, 'the window holds the two fresh posts and the one the check just found');
     assert.match(html, /<audio src="tg:\/\/audio\?id=overview"><\/audio>/);
     assert.match(html, /🎧 Audio overview · 1 min/);
     assert.match(html, /<h3>1\. Model headline<\/h3>/);
     assert.match(html, /<h3>2\. Model headline<\/h3>/);
+    assert.match(html, /<h3>3\. Model headline<\/h3>/);
     assert.match(html, /🔑 Key points<\/b><\/p><ul><li>point one<\/li><li>point two<\/li><\/ul>/);
     assert.match(html, /📖 Read full article — <a href="https:\/\/blog.test\//, 'no Telegraph client: the post is the link');
-    assert.match(html, /<footer>🤖 AI-generated summary of 2 posts/);
+    assert.match(html, /<footer>🤖 AI-generated summary of 3 posts/);
 
     const media = rich?.media ?? [];
     assert.equal(media.length, 1, 'the MP3 is the only attachment');
@@ -185,7 +189,7 @@ test('digest job: one rich message with the player, the numbered items and the a
 
     const after = getDigest(db, digest.id);
     assert.equal(after?.window_end, null, 'the pin is released after the last part');
-    assert.equal(after?.last_window_end, now, 'the window ended at the pinned instant');
+    assert.equal(after?.last_window_end, now + 1, 'the window ended just after the pre-check stamped its posts');
     assert.equal(sourceIds.length, 2);
   } finally {
     db.close();
@@ -212,7 +216,7 @@ test('digest job: a second run inside the same day sends the empty-window messag
     assert.equal(second.length, 1, 'no new posts, still one message');
     assert.match(String(second[0]?.body.rich_message?.html ?? ''), /No new posts from your digest sources in the last 24 hours\./);
     assert.doesNotMatch(String(second[0]?.body.rich_message?.html ?? ''), /tg:\/\/audio/);
-    assert.equal(getDigest(db, digest.id)?.last_window_end, now + 60_000, 'the empty window is committed too');
+    assert.equal(getDigest(db, digest.id)?.last_window_end, now + 60_000 + 1, 'the empty window is committed too, one instant past its run clock');
   } finally {
     db.close();
     await api.close();
@@ -238,7 +242,7 @@ test('digest job: every summary failing leaves the window pinned and the job que
     assert.match(String(job.last_error), /E_FEED_DOWN/);
 
     const after = getDigest(db, digest.id);
-    assert.equal(after?.window_end, now, 'the retry must select the same posts');
+    assert.equal(after?.window_end, now + 1, 'the retry must select the same posts');
     assert.equal(after?.last_window_end, null);
   } finally {
     db.close();

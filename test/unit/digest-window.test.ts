@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { openDb } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
-import { commitDigestWindow, digestPosts, ensureDigest, pinDigestWindow, toggleDigestSource } from '../../src/db/repos/digests.ts';
+import { commitDigestWindow, digestPosts, dropStaleWindow, ensureDigest, pinDigestWindow, toggleDigestSource } from '../../src/db/repos/digests.ts';
 import { insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
@@ -36,6 +36,25 @@ test('digestSlot: the hour stays a wall clock across a DST change', () => {
 
   // Tamil Nadu keeps one offset, so the same hour is the same UTC time every day.
   assert.equal(digestSlot(Date.UTC(2026, 4, 1, 0, 0), 'Asia/Kolkata', 7), Date.UTC(2026, 4, 1, 1, 30));
+});
+
+test('dropStaleWindow: a day-old pin is dropped, a fresh one is kept', () => {
+  const db = openDb(':memory:');
+  const user = ensureUser(db, 901);
+  const chat = ensurePrivateChat(db, user.id, 901);
+  const digest = ensureDigest(db, user.id, chat.id);
+  const t0 = Date.UTC(2026, 10, 16, 8, 0);
+
+  try {
+    const pinned = pinDigestWindow(db, digest.id, t0);
+    dropStaleWindow(db, digest.id, t0 + 2 * HOUR);
+    assert.equal(db.prepare('SELECT window_end AS w FROM digests WHERE id = ?').get(digest.id)?.w, pinned, 'a fresh retry keeps its pin');
+
+    dropStaleWindow(db, digest.id, t0 + DAY + 1);
+    assert.equal(db.prepare('SELECT window_end AS w FROM digests WHERE id = ?').get(digest.id)?.w, null, 'a pin left by a dead run is dropped');
+  } finally {
+    db.close();
+  }
 });
 
 test('the window query tiles two runs and never reaches past 24 hours', () => {
@@ -87,7 +106,7 @@ test('the window query tiles two runs and never reaches past 24 hours', () => {
     const first = digestPosts(db, digest.id, Math.max(digest.last_window_end ?? 0, pin1 - DAY), pin1);
     assert.deepEqual(first.map((post) => post.id), [insideFirst], 'only the selected source, only the last 24 h');
     assert.ok(!first.some((post) => post.id === notSelected), 'a source outside digest_sources never appears');
-    commitDigestWindow(db, digest.id);
+    commitDigestWindow(db, digest.id, pin1);
 
     // Run 2: the window starts where run 1 ended.
     const t1 = t0 + HOUR;
@@ -100,7 +119,7 @@ test('the window query tiles two runs and never reaches past 24 hours', () => {
     assert.deepEqual(second.map((post) => post.id), [late], 'a post after t0 belongs to run 2 only');
     assert.ok(!second.some((post) => post.id === insideFirst), 'and run 2 never repeats run 1');
     assert.ok(!second.some((post) => post.id === tooOld), 'nothing older than a day is ever selected');
-    commitDigestWindow(db, digest.id);
+    commitDigestWindow(db, digest.id, pin2);
 
     // Run 3: a last_window_end older than 24 h is clamped to the 24 h lookback.
     db.prepare('UPDATE digests SET last_window_end = ? WHERE id = ?').run(t0 - 48 * HOUR, digest.id);
