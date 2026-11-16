@@ -9,16 +9,14 @@ no inbound port. The only other container is RSSHub, the feed sidecar.
 
 - **Idle costs nothing.** A 30 s tick runs two cheap queries; work starts only from a due source, a user
   tap, or a retry.
-- **No user credentials are stored.** Login-gated sources are refused instead of half-working (ADR-017).
+- **No user credentials are stored.** Login-gated sources are refused instead of half-working.
 - **Deterministic and testable.** 416 tests (unit + integration) run offline against fixtures and a fake
   Bot API.
 
-Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) ·
-Decisions: [docs/adr/](docs/adr/) (001–028) · Runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) ·
 Screens: [UI-Refference/](UI-Refference/)
 
 **Status:** milestones M1–M12 shipped, including Download Mode, the schedule screen, keyword filters and the
-rich-post layout. Production deploy and the restore drill are operator steps in the runbook.
+rich-post layout. Production deploy and the restore drill are operator steps.
 
 ---
 
@@ -67,10 +65,10 @@ flowchart LR
 | **Media** | cobalt wrapper, ffprobe duration probe, thumbnail frames | `src/media/` |
 | **Articles** | Readability → sanitize → Telegra.ph page (Instant View) | `src/article/` |
 | **Observability** | JSON-line logs with secret redaction, alerts, `/status` | `src/obs/` |
-| **RSSHub** | The locked feed engine for routes without a native feed (ADR-006) | `docker-compose.yml` |
+| **RSSHub** | The locked feed engine for routes without a native feed | `docker-compose.yml` |
 
 Why one process and not three services: the FSM, the scheduler and the worker share the same SQLite file and
-the same in-memory rate limiter, so splitting them buys nothing at this scale and only costs IPC (ADR-002).
+the same in-memory rate limiter, so splitting them buys nothing at this scale and only costs IPC.
 
 ### The pipeline
 
@@ -99,8 +97,7 @@ flowchart LR
 9. **cleanup** — the temp dir is purged on every path, including failures.
 
 A scheduled check is stages 2–9 for every subscriber. A pasted link (Download Mode) is stages 3–7 into the
-current chat — the same code, the same decisions; a parity test compares both doors' output byte for byte
-(ADR-013, ADR-028).
+current chat — the same code, the same decisions; a parity test compares both doors' output byte for byte.
 
 ### Scheduling, queue and retries
 
@@ -140,9 +137,9 @@ S18 (content kinds) were added afterwards.
 
 1. `➕ Add Source`, `/addsource`, or simply paste a link → state `awaiting_source_link`. One link per message.
 2. `⚪ Checking source:` — stage 1 detects the platform, stage 2 fetches the feed. A category page resolves
-   to its own section feed; a page with no feed is offered as an article source (ADR-018, ADR-021).
+   to its own section feed; a page with no feed is offered as an article source.
 3. **Preview** — the source's last 5 items, plus the destination list: the personal chat first, then every
-   chat or channel where the bot's posting rights were verified (ADR-014). A forum topic is its own row.
+   chat or channel where the bot's posting rights were verified. A forum topic is its own row.
 4. **How to add** — `🚀 Add and send latest posts` (sends `BACKFILL_COUNT` newest, oldest → newest),
    `➕ Add without sending` (records everything as seen), or `🔑 Keywords` to filter before saving.
    A YouTube channel asks for its content kinds first.
@@ -151,7 +148,7 @@ S18 (content kinds) were added afterwards.
 ### Download Mode
 
 Paste a post link and the bot answers with one prompt: `⬇️ Download`, and `➕ Add source` when the account
-behind the link is known. The download reuses stages 3–7 (ADR-013), is capped by `MAX_DOWNLOADS_PER_DAY`, and
+behind the link is known. The download reuses stages 3–7, is capped by `MAX_DOWNLOADS_PER_DAY`, and
 ends with `⬇️ Download more` and `➕ @handle` when the account is known. A YouTube community post and a
 Threads thread are read from their own page, so the whole text, every photo of an album and the author
 survive; any other platform's post goes through cobalt. Inside Download Mode a profile link is answered with
@@ -167,7 +164,7 @@ without touching the list.
 ### Keyword filters, schedule, language
 
 - `/filter` (or `📇 Filter`): a default list plus a per-source list. Matching runs on the parsed payload
-  **before** any media download, so a skipped post costs nothing (ADR-020).
+  **before** any media download, so a skipped post costs nothing.
 - `/schedule` (or `⏰ Schedule`): pick a source (or all sources) and choose default 08:00/20:00, or every
   15 min / 30 min / 1 h / 3 h / 6 h / 12 h / 24 h. A source keeps one schedule for all its subscribers.
 - `/language`: six interface languages; a partial translation falls back to English, never to a blank screen.
@@ -183,7 +180,7 @@ bypasses the table and is the only id that `/status` answers.
 ## Supported platforms
 
 Legend — the bot prefers the cheapest route that works: a native feed, then RSSHub, then the platform's own
-post page, then cobalt for the media. Full matrix with failure modes: ARCHITECTURE §10.
+post page, then cobalt for the media.
 
 | Platform | Profile source | Single post |
 |---|---|---|
@@ -211,7 +208,7 @@ Two layouts, chosen by platform:
 - **Social posts (non-RSS)** ship as **one rich message** (Bot API 10.x `sendRichMessage`): an `<h5>` source
   line, `⏱️` bold `DD/MM HH:MM` in the reader's timezone, an in-message `<tg-slideshow>` of up to 50 media,
   then the whole body inside a `<blockquote expandable>` framed by two rules — one native tap expands it, with
-  no stored payload and no callback. A clip that cannot upload is one `🎬 Video n` link (ADR-023, ADR-025).
+  no stored payload and no callback. A clip that cannot upload is one `🎬 Video n` link.
 - **RSS/blog posts** use the classic rows: text split on word boundaries at 4096 chars (captions at 1024 with
   `(i/n)`), albums of 2–10 via `sendMediaGroup` with sequential messages past 10, mixed kinds sent one by one,
   and articles as a Telegra.ph page opened in Instant View.
@@ -220,11 +217,11 @@ Hard limits, all enforced:
 
 | Limit | Behavior |
 |---|---|
-| 50 MB upload | above it: poster/thumbnail + caption + link. Nothing is transcoded (ADR-012) |
+| 50 MB upload | above it: poster/thumbnail + caption + link. Nothing is transcoded |
 | 3 minutes of video | same thumbnail route, whatever the size |
-| Over-sized clip inside an album | an ffmpeg frame takes its slot, the caption gains one labelled `🎬` link; the clip is never uploaded and never silently dropped (ADR-022) |
+| Over-sized clip inside an album | an ffmpeg frame takes its slot, the caption gains one labelled `🎬` link; the clip is never uploaded and never silently dropped |
 | 100 MB per post | `MAX_DOWNLOAD_MB` pre-check before any transfer |
-| 30 s / 300 s budgets | extraction (resolve, probes, posters) vs. transfer — one budget per kind of operation, shared by both doors (ADR-028) |
+| 30 s / 300 s budgets | extraction (resolve, probes, posters) vs. transfer — one budget per kind of operation, shared by both doors |
 | 1 msg/s per chat, 20/min per group, 30/s global | token buckets in a shared limiter; `429` honors `retry_after` + 1 s, and a `retry_after` over 300 s requeues the job |
 | 4096 / 1024 characters | split on a word boundary, never inside an HTML tag; a client that rejects the entities gets plain text instead |
 
@@ -239,10 +236,10 @@ Hard limits, all enforced:
 | Bot framework | grammY 1.46 | Long polling, `allowed_updates: message, callback_query, my_chat_member` |
 | Storage | SQLite (WAL) via the built-in `node:sqlite` | No native build step; migrations on boot |
 | Queue | Own `jobs` table | One writer, atomic claim, backoff in `run_after` |
-| Feeds | RSSHub (sidecar), native RSS/Atom/RDF, Bluesky AppView | No public RSSHub instance (ADR-006) |
-| Media | `cobalt-engine` vendored and imported as a library | In-process, no media service (ADR-005) |
+| Feeds | RSSHub (sidecar), native RSS/Atom/RDF, Bluesky AppView | No public RSSHub instance |
+| Media | `cobalt-engine` vendored and imported as a library | In-process, no media service |
 | Video | ffmpeg / ffprobe | In the image; muxing and the 1 s thumbnail frame |
-| Articles | `@mozilla/readability`, `jsdom`, `sanitize-html` → Telegra.ph | The ported formatbot1 path (ADR-007) |
+| Articles | `@mozilla/readability`, `jsdom`, `sanitize-html` → Telegra.ph | The ported formatbot1 path |
 | Logs | JSON lines to stdout, `events` table | Tokens, cookies and access keys redacted |
 | Container | `node:24-alpine` + ffmpeg, `diygod/rsshub:latest` | No Chromium in either image |
 
@@ -267,7 +264,6 @@ test/
   unit/          pure functions, fixtures, no network
   integration/   the real handlers over a fake Bot API (test/fake-api.ts)
 cobalt-engine/   the locked media engine, imported as a library
-docs/            ARCHITECTURE, IMPLEMENTATION_PLAN, RUNBOOK, expandable-quotes, adr/001–028
 UI-Refference/   normative screen screenshots
 data/            the SQLite file at runtime (git-ignored)
 ```
@@ -314,8 +310,6 @@ docker compose logs -f bot   # wait for {"code":"polling_started"}
   compose explicitly clears the two cookies from the bot's environment.
 - Update with `git pull && docker compose build bot && docker compose up -d`; a rebuild is only needed when
   `package.json`, `Dockerfile`, `cobalt-engine` or `schema.sql` changed.
-- First-start procedure, backups, the restore drill, Oracle caveats and the platform smoke list live in
-  [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ---
 
@@ -330,7 +324,7 @@ a readable message instead of guessing.
 |---|---|
 | `BOT_TOKEN` | Bot token. Never logged, never stored. |
 | `ADMIN_CHAT_ID` | Operator's numeric Telegram id: alerts, `/status`, the admin panel. |
-| `RSSHUB_BASE` | Your RSSHub, e.g. `http://rsshub:1200`. Public instances are not used (ADR-006). |
+| `RSSHUB_BASE` | Your RSSHub, e.g. `http://rsshub:1200`. Public instances are not used. |
 
 ### Paths and optional services
 
@@ -359,8 +353,8 @@ a readable message instead of guessing.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TRIAL_ENABLED` | false | Shows the cosmetic trial line on the main menu (OQ-7). |
-| `TELEGRAM_BETA` | false | Telegram channel sources through the public `t.me/s` page (OQ-3). |
+| `TRIAL_ENABLED` | false | Shows the cosmetic trial line on the main menu. |
+| `TELEGRAM_BETA` | false | Telegram channel sources through the public `t.me/s` page. |
 | `TWITTER_AUTH_TOKEN` | — | The `auth_token` of a logged-in X account. Present: X profiles become subscribable and gated X media downloads work. Absent: only public X posts. Also passed to the RSSHub sidecar. |
 | `INSTAGRAM_COOKIE` | — | `sessionid=…; ds_user_id=…`. **RSSHub container only** — compose clears it from the bot. |
 | `FACEBOOK_COOKIE` | — | The whole `Cookie` header of a logged-in Facebook session. **RSSHub container only.** |
@@ -401,23 +395,22 @@ database and reading it back.
   claims a pixel-identical copy.
 - **"Instant View" is a Telegra.ph rewrite.** Telegram's IV works per domain and a bot cannot register a
   template, so articles become a Telegra.ph page (which already has one) and the link is sent. On failure the
-  original link goes instead (ADR-007). The Cocoon AI summary above such a page is Telegram's, not the bot's.
+  original link goes instead. The Cocoon AI summary above such a page is Telegram's, not the bot's.
 - **No credentials, ever.** A login-gated profile is refused at add time (`E_COOKIE_REQUIRED`) or fails its
   fetch; single posts still work in Download Mode. Instance-wide RSSHub cookies belong to the sidecar.
 - **No transcoding, no CAPTCHA solving, no proxy pools.** Above 50 MB, or on a clipping 3-minute video, the
   post arrives as poster + caption + link.
-- **A datacenter IP is throttled first** by the platforms in ARCHITECTURE §10. Expect more `E_RATE_LIMIT` and
+- **A datacenter IP is throttled first** by the platforms. Expect more `E_RATE_LIMIT` and
   `E_COOKIE_REQUIRED` on a cloud host than on a home connection.
-- **One host, one writer.** SQLite and a single process are the design (ADR-009); the queue is meant for
+- **One host, one writer.** SQLite and a single process are the design; the queue is meant for
   hundreds of sources, not for horizontal scaling.
 - **No AI features ship.** The pipeline exposes a hook point after `render`; nothing is registered in it.
 
 ## Legal
 
 FeedBerry prefers official feeds, stores no user credentials, and never resells or shares content. Some
-platforms (notably X) forbid automated scraping without written permission; per-platform risk is documented
-in ARCHITECTURE §10. Read the current terms of a platform before enabling it. This is a risk statement, not
-legal advice.
+platforms (notably X) forbid automated scraping without written permission. Read the current terms of a
+platform before enabling it. This is a risk statement, not legal advice.
 
 ## License
 
