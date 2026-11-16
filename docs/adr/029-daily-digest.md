@@ -152,4 +152,11 @@ Four questions decided the shape:
   answered 403 to the extractor's bot agent. With the page as `referer` and a browser user-agent the
   same URL downloads, and a run through the real `src/main.ts` (polling → tick → queue → digest) then
   sent `{"code":"digest_sent","posts":42,"parts":1,"images":3,"audioSec":83}` — three article photos
-  riding in the slideshow beside the player.
+  riding in the slideshow beside the player. The same scheduled path in Tamil, with its summaries
+  regenerated, sent `{"code":"digest_sent","posts":42,"parts":1,"images":3,"audioSec":102}` and the
+  cache then held three Tamil headlines ("Dreamteam $53M நிதி திரட்டியது: AI-native CRM சந்தையில் புதிய
+  போட்டி") with the brands in English.
+- The audio artifact, through `audioOverview` with the real voice: `{"seconds":9,"bytes":75555,
+  "codec":"mp3","sampleRate":"24000","channels":1,"containerDuration":"9.360000",
+  "title":"FeedBerry digest check","meanVolumeDb":"-17.1","maxVolumeDb":"-1.5"}` — a decodable,
+  non-silent MP3 with the digest's title in its own tags (ffprobe + volumedetect).
