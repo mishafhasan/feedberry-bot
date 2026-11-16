@@ -82,6 +82,7 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
         : await plansFor(deps, { lang, date, tz, digestId, items, overflow, postCount: posts.length, dir, signal, gemini });
 
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
+    // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
     commitDigestWindow(deps.db, digestId);
 
