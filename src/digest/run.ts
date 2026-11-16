@@ -133,7 +133,8 @@ async function plansFor(
   }
 
   // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
-  // shortcut: at most maxPosts overflow stories get a page per run; raise it if a feed brings 40+ new posts a day.
+  // shortcut: at most maxPosts overflow stories get a page per run, and a retry republishes them (no
+  // cache); raise the cap and cache the pages if a feed brings 40+ new posts a day.
   const pageCap = deps.cfg.digest?.maxPosts ?? 0;
   const pages = await mapLimit(input.overflow.slice(0, pageCap), SUMMARY_CONCURRENCY, (post) => publishPage(deps.http, deps.telegraph, post.url));
   const extra = input.overflow.map((post, index) => ({
