@@ -51,6 +51,13 @@ Four questions decided the shape:
   **before** enqueueing (§4.2) and skips a slot older than `LATE_SLOT_MS`.
 - **No key, no feature.** `GEMINI_API_KEY` unset makes `cfg.digest` undefined: the S1 button is not
   rendered and the tick passes `digests: false`, so no job is ever queued.
+- **Each role walks a model ladder.** Quotas and capacity are per model, so a 429/5xx (or an answer
+  with nothing usable in it) moves summaries and the script to the next text model and the voice to
+  the next TTS model: `gemini-3.8-flash → 3.6-flash → 3.5-flash-lite`, `gemini-3.8-flash-tts →
+  3.8-flash-lite-tts`. A network error or an abort ends the ladder at once; every step is logged
+  (`gemini_model_fallback`). Both tails are config (`GEMINI_TEXT_FALLBACKS`, `GEMINI_TTS_FALLBACKS`).
+  The Live models are not part of it: they speak only over the Live API's stateful WebSocket, not the
+  unary interactions call this client uses, and Google positions them for conversation, not recitation.
 - **Per-post summaries are cached by `(post_id, lang)`.** A retry, a second part or a Tamil run after
   an English one never pays twice for the same text. The cache holds the summary and the Telegraph URL;
   the pictures are downloaded per run, because files do not outlive a job.
@@ -115,9 +122,11 @@ Four questions decided the shape:
   acknowledged exactly once.
 - Removing the last source from an enabled digest switches it off, so nobody receives "no new posts"
   every day with no way to tell why.
-- A free-tier Gemini key allows only ~5 requests a minute: a digest over many posts hits 429 and waits
-  on the rate-limit ladder (30 min → 8 h), so a busy day on a free key can arrive late. A paid tier
-  removes the limit; the code needs no change.
+- A free-tier Gemini key allows only ~5 requests a minute, and `gemini-3.8-flash` is capped at 20
+  requests **per day** on the current free tier: a busy day exhausts that rung and the model ladder
+  carries the digest to `gemini-3.6-flash` (or the lite model). When every rung is spent the digest
+  waits on the rate-limit ladder (30 min → 8 h). A paid tier removes the limits; the code needs no
+  change.
 
 ## Evidence
 
@@ -156,6 +165,10 @@ Four questions decided the shape:
   regenerated, sent `{"code":"digest_sent","posts":42,"parts":1,"images":3,"audioSec":102}` and the
   cache then held three Tamil headlines ("Dreamteam $53M நிதி திரட்டியது: AI-native CRM சந்தையில் புதிய
   போட்டி") with the brands in English.
+- The ladder, live: `gemini-3.8-flash` was both rate-limited for the day (`429 … 20 requests per day`)
+  and 503, so four `gemini_model_fallback` lines moved the three summaries and the script to
+  `gemini-3.6-flash`, and the digest still sent
+  `{"code":"digest_sent","posts":43,"parts":1,"images":2,"audioSec":93}`.
 - The audio artifact, through `audioOverview` with the real voice: `{"seconds":9,"bytes":75555,
   "codec":"mp3","sampleRate":"24000","channels":1,"containerDuration":"9.360000",
   "title":"FeedBerry digest check","meanVolumeDb":"-17.1","maxVolumeDb":"-1.5"}` — a decodable,

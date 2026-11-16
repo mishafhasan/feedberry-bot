@@ -379,7 +379,8 @@ delivery. Once a day at the owner's hour (`digestSlot`, the same wall-clock arit
    in `post_summaries(post_id, lang)`; the feed's own words stand in when the page or the model
    fails. At most three pictures per post are downloaded through stage 5.
 4. One Gemini text call writes the spoken script from the summaries; the TTS model speaks it in
-   ≤2 500-character chunks as raw 24 kHz PCM, and `ffmpeg` writes one MP3 with an ID3 title.
+   ≤2 500-character chunks as raw 24 kHz PCM, and `ffmpeg` writes one MP3 with an ID3 title. Quotas
+   are per model, so a 429/5xx walks the configured model ladder before the job gives up.
 5. One `kind: 'rich'` plan per part: header, player in Part 1, numbered items with slideshow, key
    points and the Telegraph link, footer in the last part. Split under 49 media / 30 000 chars /
    480 blocks; posts past `DIGEST_MAX_POSTS` become numbered headline links under "Also today".
@@ -460,6 +461,8 @@ N per source for the operator.
 | `GEMINI_API_KEY` | unset | the whole digest feature (ADR-029); unset hides it |
 | `GEMINI_TEXT_MODEL` | `gemini-3.8-flash` | summaries and the script |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | the audio overview |
+| `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-3.5-flash-lite` | tried in order after the primary on 429/5xx |
+| `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts` | same ladder, for the voice |
 | `DIGEST_MAX_POSTS` | 60 | posts beyond it are headline links, not summaries |
 
 `250` matches the screenshot; it is a config default, not a promise.
