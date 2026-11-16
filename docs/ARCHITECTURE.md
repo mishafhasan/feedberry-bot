@@ -385,7 +385,8 @@ delivery. Once a day at the owner's hour (`digestSlot`, the same wall-clock arit
    `generateContent` audio path and return the same raw PCM.
 5. One `kind: 'rich'` plan per part: header, player in Part 1, numbered items with slideshow, key
    points and the Telegraph link, footer in the last part. Split under 49 media / 30 000 chars /
-   480 blocks; posts past `DIGEST_MAX_POSTS` become numbered headline links under "Also today".
+   480 blocks; posts past `DIGEST_MAX_POSTS` become numbered headline links under "Also today",
+   linked to a Telegraph page of their own (no model call) or the post URL when that page fails.
 6. No `GEMINI_API_KEY` → `cfg.digest` is undefined → the button is hidden and the tick passes
    `digests: false`, so no job exists. The whole run has an 8-minute budget, under the queue's
    10-minute stale lock.
@@ -465,7 +466,7 @@ N per source for the operator.
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | the audio overview |
 | `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-4-hydrogen,gemini-3-flash-preview,gemini-3.1-pro-preview,gemini-3.5-flash-lite` | tried in order after the primary on 429/5xx |
 | `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts` | same ladder, for the voice (the legacy two use `generateContent`) |
-| `DIGEST_MAX_POSTS` | 20 | posts beyond it are headline links, not summaries |
+| `DIGEST_MAX_POSTS` | 20 | posts beyond it are headline links, not summaries; a local run sets 2 |
 
 `250` matches the screenshot; it is a config default, not a promise.
 

@@ -70,6 +70,9 @@ Four questions decided the shape:
 - **Article pictures are asked for politely:** with the page as `referer` and a browser user-agent.
   Hotlink-protected CDNs (TechCrunch's among them) answer 403 to the extractor's bot agent; with the
   two headers the same URL downloads, verified live. A picture still failing only costs that picture.
+- **Pictures live in a per-post folder.** Three summaries download at once and the downloader names
+  files by index, so a shared work folder could let one post's picture land on another's item; each
+  post now downloads into `post-<id>/` and the renderer reads each item's own list.
 - **The model's output is untrusted.** `cleanSummary` flattens every string, drops empty ones and
   clamps headline 120 / description 600 / point 240 / six points; the renderer escapes everything and
   only our own Telegraph link is an anchor (`skip_entity_detection` is already on). A summary with no
@@ -89,9 +92,13 @@ Four questions decided the shape:
 - **The message splits under the Bot API caps.** Greedy in digest order, a part closes before an item
   would pass 49 media (the audio takes the 50th slot in Part 1), 30 000 characters of HTML or 480
   blocks — under 50 / 32 768 / 500. Numbering continues across parts; the player is Part 1's; the
-  footer is the last part's. Posts past `DIGEST_MAX_POSTS` (20) are numbered headline links under
-  "Also today" instead of being summarised: a cost guard, not a summary. Twenty summarised posts with
-  their pictures exceed one message, so the split above lands them in two balanced parts.
+  footer is the last part's. Posts past `DIGEST_MAX_POSTS` are numbered headline links under
+  "Also today" instead of being summarised: a cost guard on the model, not a summary. Their link is
+  the post's own Telegraph page, published from the extracted article with no model call, so the
+  section reads like the items above; a story whose page cannot be read or published keeps its
+  original URL, and at most `DIGEST_MAX_POSTS` overflow pages are written per run. The cap defaults
+  to 20 for production; a local run sets `DIGEST_MAX_POSTS=2`. Twenty summarised posts with their
+  pictures exceed one message, so the split above lands them in two balanced parts.
 - **The read-full link is a label, not a URL.** Each item ends with
   `<a href="telegraph">📖 Read full article</a>`; the raw address never appears as visible text.
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
@@ -139,17 +146,20 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **460/460 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **463/463 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
   (chunk sizes, word integrity, Tamil, duration, a failed voice returning null, and the real ffmpeg
   encode where the host has it), `digest-summary` (clamps, empty strings, cache hit with zero Gemini
   calls, per-language cache, the two-attempt fallback, and the referer/user-agent headers a
-  hotlink-protected CDN needs), `digest-job` (tick → job → one
+  hotlink-protected CDN needs, and two posts with the same picture filename landing in two
+  folders), `digest-job` (tick → job → one
   `sendRichMessage` with `tg://audio`, the numbered items, the window committed; a post stamped at the
-  run instant is in *this* digest; the empty-window message; every summary failing leaves the window
-  pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
+  run instant is in *this* digest; the two-summary cap leaving the third story under "Also today",
+  first with the post URL and then with its Telegraph page; a 429 on both primaries carried by the
+  ladder so the digest still ships with its voice; the empty-window message; every summary failing
+  leaves the window pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
   `digest-gemini` (a 429/5xx or an unusable answer moves the summary, script or voice to the next
   model; an abort never does; a repeated fallback is not called twice; a legacy voice speaks through
   `generateContent`, its WAV container is stripped to PCM, and a rate-limited legacy voice falls to
@@ -194,3 +204,6 @@ Four questions decided the shape:
   `{"code":"digest_sent","posts":44,"parts":1,"images":4,"audioSec":79}`. That run also showed the
   per-call ceiling working — one summary was aborted at 120 s (`This operation was aborted`) and its
   retry completed — and the daily-capped 3.8 rung handing every text call to `gemini-3.6-flash`.
+- After the overflow-link, per-post-folder and two-summary-cap change: `npm run typecheck`, `npm test`
+  (**463/463**) and `npm run build` re-ran green. The live runs above predate that change; the
+  overflow Telegraph path is proven offline against a recording client, not yet on a real run.
