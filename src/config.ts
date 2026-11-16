@@ -92,9 +92,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
           apiKey: geminiApiKey,
           textModel: (env.GEMINI_TEXT_MODEL ?? '').trim() || 'gemini-3.8-flash',
           ttsModel: (env.GEMINI_TTS_MODEL ?? '').trim() || 'gemini-3.8-flash-tts',
-          textFallbacks: modelList(env.GEMINI_TEXT_FALLBACKS, ['gemini-3.6-flash', 'gemini-3.5-flash-lite']),
-          ttsFallbacks: modelList(env.GEMINI_TTS_FALLBACKS, ['gemini-3.8-flash-lite-tts']),
-          maxPosts: int(env.DIGEST_MAX_POSTS, 60, 'DIGEST_MAX_POSTS'),
+          textFallbacks: modelList(env.GEMINI_TEXT_FALLBACKS, ['gemini-3.6-flash', 'gemini-4-hydrogen', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.5-flash-lite']),
+          ttsFallbacks: modelList(env.GEMINI_TTS_FALLBACKS, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']),
+          maxPosts: int(env.DIGEST_MAX_POSTS, 20, 'DIGEST_MAX_POSTS'),
         },
   };
 }

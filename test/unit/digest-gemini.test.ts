@@ -75,6 +75,42 @@ test('an abort ends the ladder at once — no other model is called', async () =
   assert.deepEqual(models, ['text-primary']);
 });
 
+test('a legacy voice speaks through generateContent and yields raw PCM', async () => {
+  const pcm = Buffer.alloc(2_400, 7);
+  const calls: string[] = [];
+  const doFetch: typeof fetch = async (url) => {
+    calls.push(String(url));
+    return ok({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: pcm.toString('base64') } }] } }] });
+  };
+  const voice = await geminiClient(cfg({ ttsModel: 'gemini-2.5-flash-preview-tts', ttsFallbacks: [] }), doFetch).speak('Good morning.', new AbortController().signal);
+  assert.deepEqual(voice, pcm);
+  assert.match(calls[0] ?? '', /gemini-2\.5-flash-preview-tts:generateContent$/);
+});
+
+test('a WAV container from a legacy voice is stripped to its PCM', async () => {
+  const body = Buffer.from([1, 2, 3, 4, 5, 6]);
+  const header = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(16), Buffer.from('data'), Buffer.from([6, 0, 0, 0])]);
+  const wav = Buffer.concat([header, body]);
+  const doFetch: typeof fetch = async () => ok({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } }] } }] });
+  const voice = await geminiClient(cfg({ ttsModel: 'gemini-3.1-flash-tts-preview', ttsFallbacks: [] }), doFetch).speak('Hello.', new AbortController().signal);
+  assert.deepEqual(voice, body);
+});
+
+test('a rate-limited legacy voice falls to the next model on the interactions call', async () => {
+  const seen: string[] = [];
+  const doFetch: typeof fetch = async (url, init) => {
+    if (String(url).includes(':generateContent')) {
+      seen.push('legacy');
+      return fail(429);
+    }
+    seen.push((JSON.parse(String(init?.body)) as { model: string }).model);
+    return ok(audioReply(1_200));
+  };
+  const voice = await geminiClient(cfg({ ttsModel: 'gemini-3.1-flash-tts-preview', ttsFallbacks: ['gemini-3.8-flash-tts'] }), doFetch).speak('Hello.', new AbortController().signal);
+  assert.equal(voice.length, 1_200);
+  assert.deepEqual(seen, ['legacy', 'gemini-3.8-flash-tts']);
+});
+
 test('a fallback that repeats the primary is not called twice', async () => {
   const { doFetch, models } = recorder((model) => (model === 'text-primary' ? fail(503) : ok(textReply('ok'))));
   await geminiClient(cfg({ textFallbacks: ['text-primary', 'text-fallback'] }), doFetch).text('prompt', new AbortController().signal);
