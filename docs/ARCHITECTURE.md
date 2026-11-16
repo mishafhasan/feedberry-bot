@@ -422,6 +422,7 @@ subscriptions(id PK, user_id FK, source_id FK, chat_id FK,
 
 posts(id PK, source_id FK, guid TEXT, url TEXT, published_at INTEGER,
       kind TEXT, payload_json TEXT, first_seen_at INTEGER,
+      telegraph_url TEXT,   -- v7: the Instant View page delivery published; the digest reuses it
       UNIQUE(source_id, guid))
 
 deliveries(id PK, post_id FK, chat_id FK, status TEXT,          -- sent|failed|skipped
