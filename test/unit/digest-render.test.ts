@@ -53,7 +53,8 @@ test('digest: the English layout carries every block in order', () => {
   assert.match(html, /⏱️ <b>Time<\/b>: 16\/11 04:40/);
   assert.match(html, /Two sentences about what happened\./);
   assert.match(html, /🔑 Key points<\/b><\/p><ul><li>first fact<\/li><li>second fact<\/li><\/ul>/);
-  assert.match(html, /📖 Read full article — <a href="https:\/\/telegra\.ph\/Post-11-16">/);
+  assert.match(html, /<a href="https:\/\/telegra\.ph\/Post-11-16">📖 Read full article<\/a>/);
+  assert.doesNotMatch(html, />https:\/\/telegra\.ph\/Post-11-16</, 'the raw URL is never the visible label');
   assert.match(html, /<footer>🤖 AI-generated summary of 1 posts/);
   assert.doesNotMatch(html, /<p><i>A quiet headline<\/i><\/p>/, 'the original title is Tamil-only');
   const plan = plans[0];

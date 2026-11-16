@@ -97,7 +97,7 @@ function itemPiece(input: RenderInput, item: DigestItem, number: number): Piece 
     item.points.length === 0
       ? ''
       : `<p><b>${esc(t(input.lang, 'digest.points'))}</b></p><ul>${item.points.map((point) => `<li>${esc(point)}</li>`).join('')}</ul>`;
-  const link = item.link === null ? '' : `<p>${esc(t(input.lang, 'digest.readFull'))} — <a href="${esc(item.link)}">${esc(item.link)}</a></p>`;
+  const link = item.link === null ? '' : `<p><a href="${esc(item.link)}">${esc(t(input.lang, 'digest.readFull'))}</a></p>`;
 
   // Headline first, then the source/time line the rest of the bot prints, then the story.
   const html = `<h3>${number}. ${esc(item.headline)}</h3>${original}${header}${slideshow}<p>${esc(item.description)}</p>${points}${link}<hr/>`;

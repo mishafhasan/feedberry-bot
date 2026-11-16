@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { hasFFmpeg } from 'cobalt-engine';
-import { AUDIO_CHUNK_CHARS, audioOverview, chunkScript, ffmpegEncode, secondsOf } from '../../src/digest/audio.ts';
+import { AUDIO_CHUNK_CHARS, audioOverview, chunkScript, ffmpegEncode, secondsOf, SPEECH_RATE } from '../../src/digest/audio.ts';
 import type { Gemini } from '../../src/digest/gemini.ts';
 
 const words = (text: string): string[] => text.split(/\s+/).filter((word) => word !== '');
@@ -73,7 +73,7 @@ test('audioOverview: chunks are spoken in order and the duration comes from the 
 
     assert.ok(overview);
     assert.equal(spoken.length, chunkScript(script).length, 'one call per chunk');
-    assert.equal(overview?.seconds, spoken.length, 'one second of PCM per chunk');
+    assert.ok(Math.abs((overview?.seconds ?? 0) - spoken.length / SPEECH_RATE) < 1e-9, 'one second of PCM per chunk, played 10% faster');
     assert.ok(statSync(overview?.file ?? '').size > 0);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

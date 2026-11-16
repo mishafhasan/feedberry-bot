@@ -9,6 +9,8 @@ const run = promisify(execFile);
 
 /** The TTS model takes 8 192 input tokens, so the script goes out in pieces (ADR-029). */
 export const AUDIO_CHUNK_CHARS = 2_500;
+/** +10% keeps a long script inside a shorter file; atempo time-stretches without shifting pitch. */
+export const SPEECH_RATE = 1.1;
 const SAMPLE_RATE = 24_000;
 const BYTES_PER_SAMPLE = 2;
 
@@ -26,7 +28,19 @@ export const ffmpegEncode: AudioEncoder = async (pcm, file, title) => {
   await writeFile(pcmPath, pcm);
   await run(
     'ffmpeg',
-    ['-y', '-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', '1', '-i', pcmPath, '-c:a', 'libmp3lame', '-b:a', '64k', '-metadata', `title=${title}`, '-metadata', 'artist=FeedBerry', file],
+    [
+      '-y',
+      '-f', 's16le',
+      '-ar', String(SAMPLE_RATE),
+      '-ac', '1',
+      '-i', pcmPath,
+      '-filter:a', `atempo=${SPEECH_RATE}`,
+      '-c:a', 'libmp3lame',
+      '-b:a', '64k',
+      '-metadata', `title=${title}`,
+      '-metadata', 'artist=FeedBerry',
+      file,
+    ],
     { timeout: 60_000 },
   );
 };
@@ -118,7 +132,7 @@ export async function audioOverview(gemini: Gemini, script: string, dir: string,
 
     const file = join(dir, 'overview.mp3');
     await encode(pcm, file, title);
-    return { file, seconds: secondsOf(pcm.length) };
+    return { file, seconds: secondsOf(pcm.length) / SPEECH_RATE };
   } catch (err) {
     log('warn', 'digest_audio_failed', { cause: err instanceof Error ? err.message : String(err) });
     return null;

@@ -175,7 +175,7 @@ test('digest job: one rich message with the player, the numbered items and the a
     assert.match(html, /<h3>2\. Model headline<\/h3>/);
     assert.match(html, /<h3>3\. Model headline<\/h3>/);
     assert.match(html, /🔑 Key points<\/b><\/p><ul><li>point one<\/li><li>point two<\/li><\/ul>/);
-    assert.match(html, /📖 Read full article — <a href="https:\/\/blog.test\//, 'no Telegraph client: the post is the link');
+    assert.match(html, /<a href="https:\/\/blog\.test\/[^"]+">📖 Read full article<\/a>/, 'no Telegraph client: the post is the link, labelled');
     assert.match(html, /<footer>🤖 AI-generated summary of 3 posts/);
 
     const media = rich?.media ?? [];
