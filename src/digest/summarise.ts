@@ -94,7 +94,8 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   if (summary === null) {
     // The digest still ships: a headline and the feed's opening beat a missing story.
     headline = clamp(article?.title || payload.title || post.url || 'Post', MAX_HEADLINE);
-    description = clamp(feedText, 300);
+    // The headline already carries the title, so the description starts at the feed's own words.
+    description = clamp(payload.summary?.trim() || feedText, 300);
     points = [];
     log('warn', 'digest_item_fallback', { post: post.id });
   } else {
