@@ -39,6 +39,9 @@ export interface DigestConfig {
   apiKey: string;
   textModel: string;
   ttsModel: string;
+  /** Tried after the primary when a model answers 429/5xx; the primary always goes first. */
+  textFallbacks: string[];
+  ttsFallbacks: string[];
   /** Cost guard: posts beyond it are listed as headline links instead of being summarised. */
   maxPosts: number;
 }
@@ -82,15 +85,24 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     xProfiles: twitterAuthToken !== undefined,
     twitterAuthToken,
     // Model ids rotate, so both are config; the key's presence is the feature switch (ADR-029).
+    // Quotas are per model on the free tier, so each role carries a ladder of fallbacks.
     digest: geminiApiKey === ''
       ? undefined
       : {
           apiKey: geminiApiKey,
           textModel: (env.GEMINI_TEXT_MODEL ?? '').trim() || 'gemini-3.8-flash',
           ttsModel: (env.GEMINI_TTS_MODEL ?? '').trim() || 'gemini-3.8-flash-tts',
+          textFallbacks: modelList(env.GEMINI_TEXT_FALLBACKS, ['gemini-3.6-flash', 'gemini-3.5-flash-lite']),
+          ttsFallbacks: modelList(env.GEMINI_TTS_FALLBACKS, ['gemini-3.8-flash-lite-tts']),
           maxPosts: int(env.DIGEST_MAX_POSTS, 60, 'DIGEST_MAX_POSTS'),
         },
   };
+}
+
+/** A comma-separated model ladder; unset or blank keeps the built-in tail. */
+function modelList(raw: string | undefined, fallback: string[]): string[] {
+  const models = (raw ?? '').split(',').map((model) => model.trim()).filter((model) => model !== '');
+  return models.length > 0 ? models : fallback;
 }
 
 /** Positive integer from env, or `fallback` when unset; throws on garbage rather than guessing. */
