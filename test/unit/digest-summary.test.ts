@@ -34,9 +34,10 @@ function countingGemini(answer: () => unknown): { gemini: Gemini; calls: () => n
   return {
     calls: () => calls,
     gemini: {
-      async json() {
+      // The stub's payload is untyped; T is the caller's claim, and cleanSummary treats it as unknown.
+      async json<T>(): Promise<T> {
         calls++;
-        return answer();
+        return answer() as T;
       },
       async text() {
         throw new Error('no text in a summary test');
