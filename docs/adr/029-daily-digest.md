@@ -187,3 +187,10 @@ Four questions decided the shape:
   non-silent MP3 with the digest's title in its own tags (ffprobe + volumedetect), 8.59 s against the
   9.36 s the same words took before `atempo=1.1`. The same run logged the voice fallback:
   `gemini-3.8-flash-tts` answered 503 and `gemini-3.8-flash-lite-tts` spoke.
+- Both legacy voices, end to end through `audioOverview` (generateContent → L16 PCM → atempo → MP3):
+  `gemini-3.1-flash-tts-preview` → 8.597 s, mean −16.7 dB; `gemini-2.5-flash-preview-tts` → 8.966 s,
+  mean −19.6 dB; both 24 kHz mono MP3 with the ID3 title.
+- The final code, live through `src/main.ts` (polling → tick → queue → digest):
+  `{"code":"digest_sent","posts":44,"parts":1,"images":4,"audioSec":79}`. That run also showed the
+  per-call ceiling working — one summary was aborted at 120 s (`This operation was aborted`) and its
+  retry completed — and the daily-capped 3.8 rung handing every text call to `gemini-3.6-flash`.
