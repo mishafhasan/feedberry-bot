@@ -131,5 +131,8 @@ Four questions decided the shape:
   the digest off).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
+- The deployed artifact, on a fresh volume, against a stand-in Bot API: the container logged
+  `{"level":"info","code":"boot","schema":6,…}` and then `polling_started`, and inside it
+  `PRAGMA user_version` read `6` with `digest_sources, digests, post_summaries` present.
 - Live Gemini + Telegram: pending; requires a throwaway @BotFather token and a real
   `GEMINI_API_KEY` (the local check must never use the production token).
