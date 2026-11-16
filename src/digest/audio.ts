@@ -17,6 +17,20 @@ export interface AudioOverview {
   seconds: number;
 }
 
+/** The MP3 step, injectable like the thumbnailer: tests never depend on a host ffmpeg. */
+export type AudioEncoder = (pcm: Buffer, file: string, title: string) => Promise<void>;
+
+/** PCM → 64 kbps MP3 with the digest's title in the file's own tags. */
+export const ffmpegEncode: AudioEncoder = async (pcm, file, title) => {
+  const pcmPath = `${file}.pcm`;
+  await writeFile(pcmPath, pcm);
+  await run(
+    'ffmpeg',
+    ['-y', '-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', '1', '-i', pcmPath, '-c:a', 'libmp3lame', '-b:a', '64k', '-metadata', `title=${title}`, '-metadata', 'artist=FeedBerry', file],
+    { timeout: 60_000 },
+  );
+};
+
 /** PCM length → seconds: 24 kHz, 16-bit, mono. */
 export function secondsOf(pcmBytes: number): number {
   return pcmBytes / (SAMPLE_RATE * BYTES_PER_SAMPLE);
@@ -95,21 +109,15 @@ function wrapWords(sentence: string, limit: number): string[] {
  * Script → one MP3 with its title in the file's own tags. Any failure returns null: the digest still
  * ships, with the "audio unavailable" line instead of a player (ADR-029).
  */
-export async function audioOverview(gemini: Gemini, script: string, dir: string, title: string, signal: AbortSignal): Promise<AudioOverview | null> {
+export async function audioOverview(gemini: Gemini, script: string, dir: string, title: string, signal: AbortSignal, encode: AudioEncoder = ffmpegEncode): Promise<AudioOverview | null> {
   try {
     const pieces: Buffer[] = [];
     for (const chunk of chunkScript(script)) pieces.push(await gemini.speak(chunk, signal));
     const pcm = Buffer.concat(pieces);
     if (pcm.length === 0) throw new Error('no audio bytes');
 
-    const pcmPath = join(dir, 'overview.pcm');
     const file = join(dir, 'overview.mp3');
-    await writeFile(pcmPath, pcm);
-    await run(
-      'ffmpeg',
-      ['-y', '-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', '1', '-i', pcmPath, '-c:a', 'libmp3lame', '-b:a', '64k', '-metadata', `title=${title}`, '-metadata', 'artist=FeedBerry', file],
-      { timeout: 60_000 },
-    );
+    await encode(pcm, file, title);
     return { file, seconds: secondsOf(pcm.length) };
   } catch (err) {
     log('warn', 'digest_audio_failed', { cause: err instanceof Error ? err.message : String(err) });

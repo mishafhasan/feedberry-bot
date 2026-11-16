@@ -10,6 +10,7 @@ import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
 import type { Gemini } from '../digest/gemini.ts';
+import type { AudioEncoder } from '../digest/audio.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
 import { probeDuration } from '../media/video-probe.ts';
 import { standInFrames, type Thumbnailer } from '../media/thumbnail.ts';
@@ -51,6 +52,8 @@ export interface RunDeps {
   notifier?: Notifier;
   /** ADR-029: Gemini for the daily digest; absent when no key is configured. */
   gemini?: Gemini;
+  /** ADR-029: the MP3 step; tests inject a stub, production keeps ffmpeg. */
+  encodeAudio?: AudioEncoder;
 }
 
 export interface RunResult {
