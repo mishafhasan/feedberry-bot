@@ -39,6 +39,12 @@ Four questions decided the shape:
   newest first. After the last part is sent, one statement sets `last_window_end = window_end` and
   clears the pin. A retry reuses the pin, so it selects the posts the failed attempt selected; two
   consecutive digests never show the same post; nothing older than a day is ever selected.
+- **The pin is one instant after the source check.** The check records what it finds with the run's
+  clock, and the window's upper bound is strict, so pinning at that same instant would push every
+  just-found post into tomorrow's digest. A pin older than a day (only a run that died can leave one)
+  is dropped, so it cannot hold back the next day's posts, and switching the digest off clears the pin.
+  The commit writes the run's own `window_end` value rather than re-reading the row, so a toggle during
+  a run cannot turn `last_window_end` into NULL and re-send a day.
 - **The time is an hour (0-23) in the owner's zone.** `digestSlot` reuses the source slots'
   wall-clock arithmetic (`wallToUtc`), so a DST change moves the digest with the clock. Enabling or
   changing the hour writes `next_run_at`; disabling sets it to NULL. The tick advances every due slot
@@ -72,7 +78,12 @@ Four questions decided the shape:
   "Also today" instead of being summarised: a cost guard, not a summary.
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
   run that outlived `STALE_LOCK_MS` (10 min) could be handed to a second worker. Gemini calls run
-  three at a time.
+  three at a time. If the budget is gone before the message is built, the run throws and retries on
+  the pinned window instead of shipping a half-planned digest.
+- **A running job keeps its claim alive.** The worker now refreshes `locked_at` every minute
+  (`queue.touch`), so a long run — a digest over many sources, or any slow job — is never mistaken for
+  a crashed one and re-claimed. `recoverStale` then only reclaims jobs whose process really died, which
+  is what the `shortcut:` on resend-on-retry assumes.
 - **The digest is extra.** No existing user's delivery changes: the job only reads `posts`, never
   marks a delivery, and the sources keep fetching on their own slots.
 - **Tamil mode** writes headline, description, key points and audio in simple spoken Tamil, keeps
@@ -99,20 +110,25 @@ Four questions decided the shape:
   failed is only logged, and `DIGEST_MAX_POSTS` silently trades summaries for headline links.
 - A digest with no posts still sends the one-line message and commits the window, so an empty day is
   acknowledged exactly once.
+- Removing the last source from an enabled digest switches it off, so nobody receives "no new posts"
+  every day with no way to tell why.
 
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **446/446 pass**, including the six new files — `digest-render` (English and Tamil
+- `npm test`: **448/448 pass**, including the seven new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
-  the 24 h clamp over a stale `last_window_end`), `digest-audio` (chunk sizes, word integrity, Tamil,
-  duration, a failed voice returning null, and the real ffmpeg encode where the host has it),
-  `digest-summary` (clamps, empty strings, cache hit with zero Gemini calls, per-language cache, the
-  two-attempt fallback), `digest-job` (tick → job → one `sendRichMessage` with `tg://audio`, the
-  numbered items, the window committed; the empty-window message; every summary failing leaves the
-  window pinned and the job queued), `digest-menu` (button hidden without a key; sources/language/time/
-  on-off; a foreign digest and a foreign subscription refused; "on" without a source stays off).
+  the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
+  (chunk sizes, word integrity, Tamil, duration, a failed voice returning null, and the real ffmpeg
+  encode where the host has it), `digest-summary` (clamps, empty strings, cache hit with zero Gemini
+  calls, per-language cache, the two-attempt fallback), `digest-job` (tick → job → one
+  `sendRichMessage` with `tg://audio`, the numbered items, the window committed; a post stamped at the
+  run instant is in *this* digest; the empty-window message; every summary failing leaves the window
+  pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not), and
+  `digest-menu` (button hidden without a key; sources/language/time/on-off; a foreign digest and a
+  foreign subscription refused; "on" without a source stays off; removing the last source switches
+  the digest off).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
 - Live Gemini + Telegram: pending; requires a throwaway @BotFather token and a real
