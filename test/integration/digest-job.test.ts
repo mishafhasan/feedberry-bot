@@ -40,7 +40,7 @@ const config = (): Config => {
     ADMIN_CHAT_ID: '1',
     RSSHUB_BASE: 'http://rsshub.test',
     GEMINI_API_KEY: 'test-key',
-    DIGEST_MAX_POSTS: '10',
+    DIGEST_MAX_POSTS: '2',
     CALLBACK_INTERVAL_MS: '0',
     ADD_INTERVAL_MS: '0',
   });
@@ -67,13 +67,16 @@ const writeOnly: AudioEncoder = (pcm, file) => writeFile(file, pcm);
 const json = (payload: unknown, status = 200): Response => new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
 
 /** Answers the interactions API: JSON for summaries, text for the script, PCM for the voice. */
-function fakeGemini(options: { failJson?: boolean } = {}): { gemini: Gemini; bodies: Array<Record<string, any>>; headers: string[] } {
+function fakeGemini(options: { failJson?: boolean; rateLimitPrimaries?: boolean } = {}): { gemini: Gemini; bodies: Array<Record<string, any>>; headers: string[] } {
+  const digest = config().digest as NonNullable<Config['digest']>;
   const bodies: Array<Record<string, any>> = [];
   const headers: string[] = [];
   const doFetch: typeof fetch = async (_url, init) => {
     bodies.push(JSON.parse(String(init?.body)));
     headers.push(String((init?.headers as Record<string, string> | undefined)?.['x-goog-api-key'] ?? ''));
     const body = bodies[bodies.length - 1] as Record<string, any>;
+    // What a free-tier day looks like: the primaries answer 429, the ladder has to carry the job.
+    if (options.rateLimitPrimaries === true && (body.model === digest.textModel || body.model === digest.ttsModel)) return json({ error: { message: 'quota' } }, 429);
     if (body.response_format?.type === 'audio') {
       return json({ steps: [{ type: 'model_output', content: [{ type: 'audio', data: Buffer.alloc(48_000).toString('base64') }] }] });
     }
@@ -173,7 +176,9 @@ test('digest job: one rich message with the player, the numbered items and the a
     assert.match(html, /🎧 Audio overview · 1 min/);
     assert.match(html, /<h3>1\. Model headline<\/h3>/);
     assert.match(html, /<h3>2\. Model headline<\/h3>/);
-    assert.match(html, /<h3>3\. Model headline<\/h3>/);
+    assert.doesNotMatch(html, /<h3>3\./, 'the two-summary cap keeps the third story out of the summaries');
+    assert.match(html, /<b>Also today<\/b>/);
+    assert.match(html, /<a href="https:\/\/blog\.test\/inside-b">3\. Feed title inside-b<\/a>/, 'the overflow story is a numbered link at the end');
     assert.match(html, /🔑 Key points<\/b><\/p><ul><li>point one<\/li><li>point two<\/li><\/ul>/);
     assert.match(html, /<a href="https:\/\/blog\.test\/[^"]+">📖 Read full article<\/a>/, 'no Telegraph client: the post is the link, labelled');
     assert.match(html, /<footer>🤖 AI-generated summary of 3 posts/);
@@ -184,6 +189,7 @@ test('digest job: one rich message with the player, the numbered items and the a
 
     assert.ok(bodies.some((body) => typeof body.input === 'string' && body.input.includes('<<<ARTICLE')), 'the article text is wrapped as data');
     assert.ok(bodies.some((body) => typeof body.input === 'string' && body.input.includes('Feed title inside-a')), 'the feed title reaches the prompt');
+    assert.equal(bodies.filter((body) => body.response_format?.mime_type === 'application/json').length, 2, 'two summaries for the two posts the cap allows');
     assert.ok(bodies.every((body) => body.model !== undefined), 'both models are named');
     assert.equal(headers.every((value) => value === 'test-key'), true, 'the key travels in its header');
 
@@ -217,6 +223,64 @@ test('digest job: a second run inside the same day sends the empty-window messag
     assert.match(String(second[0]?.body.rich_message?.html ?? ''), /No new posts from your digest sources in the last 24 hours\./);
     assert.doesNotMatch(String(second[0]?.body.rich_message?.html ?? ''), /tg:\/\/audio/);
     assert.equal(getDigest(db, digest.id)?.last_window_end, now + 60_000 + 1, 'the empty window is committed too, one instant past its run clock');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest job: an overflow story links to its Telegraph page, not the raw post', async () => {
+  const api = await fakeBotApi();
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const article = `<html><head><title>Inside B story</title></head><body><article><h1>Inside B story</h1><p>${'word '.repeat(200)}</p></article></body></html>`;
+  const pages: string[] = [];
+  const deps = {
+    ...workerDeps(db, api.apiRoot, gemini, api),
+    http: (async (url: string) => {
+      if (url === 'https://blog.test/inside-b') return { status: 200, url, contentType: 'text/html', body: article };
+      throw new Error(`offline: ${url}`);
+    }) as Http,
+    telegraph: {
+      async createPage(page: { title: string }) {
+        pages.push(page.title);
+        return 'https://telegra.ph/Inside-B-story';
+      },
+    },
+  };
+
+  try {
+    await runDigest(deps, digest.id, now);
+
+    const html = String((api.last('sendRichMessage')?.body.rich_message as { html?: string } | undefined)?.html ?? '');
+    assert.deepEqual(pages, ['Inside B story'], 'only the overflow story is published, and without a model');
+    assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B-story">3\. Feed title inside-b<\/a>/, 'the Also today link is the Instant View page');
+    assert.doesNotMatch(html, /href="https:\/\/blog\.test\/inside-b"/, 'the raw post URL is not printed');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest job: a quota error walks the model ladder instead of failing the job', async () => {
+  const api = await fakeBotApi();
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini, bodies } = fakeGemini({ rateLimitPrimaries: true });
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+
+  try {
+    await runDigest(deps, digest.id, now);
+
+    const rich = api.last('sendRichMessage')?.body.rich_message as { html?: string } | undefined;
+    assert.ok(rich, 'the digest ships on the fallback models');
+    assert.match(String(rich?.html ?? ''), /tg:\/\/audio\?id=overview/, 'the voice survives its primary being out of quota');
+    const models = new Set(bodies.map((body) => body.model));
+    assert.ok(models.has('gemini-3.6-flash'), 'summaries and script moved to the first text fallback');
+    assert.ok(models.has('gemini-3.8-flash-lite-tts'), 'the voice moved to the first TTS fallback');
   } finally {
     db.close();
     await api.close();

@@ -14,7 +14,7 @@ import { audioOverview } from './audio.ts';
 import { geminiClient } from './gemini.ts';
 import { renderDigest } from './render.ts';
 import { writeScript } from './script.ts';
-import { summarisePost, type DigestLang } from './summarise.ts';
+import { publishPage, summarisePost, type DigestLang } from './summarise.ts';
 
 /**
  * ADR-029: one digest run. The job ends before the queue's stale-lock window, so the same digest can
@@ -132,13 +132,22 @@ async function plansFor(
     log('warn', 'digest_audio_failed', { digest: input.digestId, cause: message(err) });
   }
 
+  // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
+  // shortcut: at most maxPosts overflow stories get a page per run; raise it if a feed brings 40+ new posts a day.
+  const pageCap = deps.cfg.digest?.maxPosts ?? 0;
+  const pages = await mapLimit(input.overflow.slice(0, pageCap), SUMMARY_CONCURRENCY, (post) => publishPage(deps.http, deps.telegraph, post.url));
+  const extra = input.overflow.map((post, index) => ({
+    headline: payloadOf(post.payload_json).title || post.url || 'Post',
+    url: pages[index] ?? post.url,
+  }));
+
   const plans = renderDigest({
     lang: input.lang,
     date: input.date,
     tz: input.tz,
     sourceCount: digestSourceCount(deps.db, input.digestId),
     items: input.items,
-    extra: input.overflow.map((post) => ({ headline: payloadOf(post.payload_json).title || post.url || 'Post', url: post.url })),
+    extra,
     postCount: input.postCount,
     audio,
   });

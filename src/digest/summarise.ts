@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Db } from '../db/index.ts';
 import { getSummary, putSummary } from '../db/repos/digests.ts';
 import type { PostRow } from '../db/repos/posts.ts';
@@ -138,6 +140,12 @@ async function articleOf(http: Http, url: string | null): Promise<Article | null
   }
 }
 
+/** An overflow story's Instant View page, written without the model; null keeps the post's own URL. */
+export async function publishPage(http: Http, telegraph: TelegraphClient | undefined, url: string | null): Promise<string | null> {
+  const article = await articleOf(http, url);
+  return article === null ? null : pageLink(telegraph, article);
+}
+
 /** The Instant View page is the item's "read full article" link; a failed publish keeps the post URL. */
 async function pageLink(telegraph: TelegraphClient | undefined, article: Article): Promise<string | null> {
   if (telegraph === undefined) return null;
@@ -157,11 +165,16 @@ async function pictures(deps: SummariseDeps, post: PostRow, article: Article | n
   const urls = [...new Set([...fromFeed, ...fromPage])].filter(isHttp).slice(0, MAX_IMAGES);
   if (urls.length === 0) return [];
 
+  // Its own folder: three summaries download at once, and the downloader names files by index, so a
+  // shared folder lets one post's picture land on another.
+  const own = join(dir, `post-${post.id}`);
+
   try {
+    await mkdir(own, { recursive: true });
     // The picture is only served back to the page that showed it; the referer names that page.
     const referer = article?.url ?? post.url ?? undefined;
     const items = urls.map((url) => ({ kind: 'photo' as const, url, picker: false, ...(referer === undefined ? {} : { headers: { ...IMAGE_HEADERS, referer } }) }));
-    const files = await prepareMedia(deps.media, items, dir, { maxMb: deps.maxMb, signal });
+    const files = await prepareMedia(deps.media, items, own, { maxMb: deps.maxMb, signal });
     return files.filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path);
   } catch (err) {
     log('warn', 'digest_images_failed', { post: post.id, cause: message(err) });

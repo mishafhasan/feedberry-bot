@@ -49,8 +49,8 @@ function countingGemini(answer: () => unknown): { gemini: Gemini; calls: () => n
   };
 }
 
-/** An engine that records what it was asked to fetch and hands back a real file. */
-function recordingEngine(dir: string): { engine: MediaEngine; items: MediaItem[] } {
+/** An engine that records what it was asked to fetch and hands back a real file in the folder it was given. */
+function recordingEngine(): { engine: MediaEngine; items: MediaItem[] } {
   const items: MediaItem[] = [];
   return {
     items,
@@ -58,7 +58,7 @@ function recordingEngine(dir: string): { engine: MediaEngine; items: MediaItem[]
       async resolve() {
         throw new Error('no resolve in a summary test');
       },
-      async download(item) {
+      async download(item, dir) {
         items.push(item);
         const path = join(dir, 'photo.jpg');
         writeFileSync(path, 'x');
@@ -167,7 +167,7 @@ test('a dead model twice falls back to the feed and writes no cache', async () =
 
 test('pictures ask for the page as referer with a browser user-agent', async () => {
   const { dir, db, post } = seedPost([{ url: 'https://cdn.test/a.jpg', type: 'photo' }]);
-  const { engine, items } = recordingEngine(dir);
+  const { engine, items } = recordingEngine();
   const { gemini, calls } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
   try {
     const summary = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
@@ -176,6 +176,27 @@ test('pictures ask for the page as referer with a browser user-agent', async () 
     // Hotlink-protected CDNs answer 403 without these two; the referer names the page that showed it.
     assert.equal(items[0]?.headers?.referer, 'https://blog.test/one');
     assert.match(String(items[0]?.headers?.['user-agent'] ?? ''), /^Mozilla\/5\.0/);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('each post keeps its pictures in its own folder', async () => {
+  const { dir, db, post } = seedPost([{ url: 'https://cdn.test/a.jpg', type: 'photo' }]);
+  // The same media filename in two posts is the mixup this folder prevents.
+  const second = insertPosts(db, post.source_id, [{ guid: 'g2', link: 'https://blog.test/two', title: 'Second title', summary: 'Second body.', publishedAt: null, media: [{ url: 'https://cdn.test/b.jpg', type: 'photo' }] }])[0];
+  assert.ok(second);
+  const { engine } = recordingEngine();
+  const { gemini } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const one = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    const two = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, second, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(one.images.length, 1);
+    assert.equal(two.images.length, 1);
+    assert.notEqual(one.images[0], two.images[0], 'a shared filename cannot attach one post\'s picture to another');
+    assert.ok(String(one.images[0]).includes(`post-${post.id}`));
+    assert.ok(String(two.images[0]).includes(`post-${second.id}`));
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

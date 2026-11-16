@@ -35,6 +35,7 @@ test('parseConfig gives each digest role a model ladder', () => {
   assert.deepEqual(cfg.digest?.textFallbacks, ['gemini-3.6-flash', 'gemini-4-hydrogen', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.5-flash-lite']);
   assert.deepEqual(cfg.digest?.ttsFallbacks, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']);
   assert.equal(cfg.digest?.maxPosts, 20, 'the digest summarises at most 20 posts');
+  assert.equal(parseConfig({ ...base, GEMINI_API_KEY: 'k', DIGEST_MAX_POSTS: '2' }).digest?.maxPosts, 2, 'a local run caps the summaries at two');
 
   const custom = parseConfig({ ...base, GEMINI_API_KEY: 'k', GEMINI_TEXT_FALLBACKS: ' a , b ,', GEMINI_TTS_FALLBACKS: 'c' });
   assert.deepEqual(custom.digest?.textFallbacks, ['a', 'b'], 'a comma list is trimmed');
