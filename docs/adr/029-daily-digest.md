@@ -93,12 +93,12 @@ Four questions decided the shape:
   would pass 49 media (the audio takes the 50th slot in Part 1), 30 000 characters of HTML or 480
   blocks — under 50 / 32 768 / 500. Numbering continues across parts; the player is Part 1's; the
   footer is the last part's. Posts past `DIGEST_MAX_POSTS` are numbered headline links under
-  "Also today" instead of being summarised: a cost guard on the model, not a summary. Their link is
-  the post's own Telegraph page, published from the extracted article with no model call, so the
-  section reads like the items above; a story whose page cannot be read or published keeps its
-  original URL, and at most `DIGEST_MAX_POSTS` overflow pages are written per run. The cap defaults
-  to 20 for production; a local run sets `DIGEST_MAX_POSTS=2`. Twenty summarised posts with their
-  pictures exceed one message, so the split above lands them in two balanced parts.
+  "Also today" instead of being summarised: a cost guard on the model, not a summary. Every one of
+  them links to its own Telegraph page, published from the extracted article with no model call, so
+  the section reads like the items above; a story whose page cannot be read or published keeps its
+  original URL, and a story skipped because the job budget is spent does too. The cap defaults to 20
+  for production; a local run sets `DIGEST_MAX_POSTS=2`. Twenty summarised posts with their pictures
+  exceed one message, so the split above lands them in two balanced parts.
 - **The read-full link is a label, not a URL.** Each item ends with
   `<a href="telegraph">📖 Read full article</a>`; the raw address never appears as visible text.
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
@@ -160,7 +160,8 @@ Four questions decided the shape:
   folders), `digest-job` (tick → job → one
   `sendRichMessage` with `tg://audio`, the numbered items, the window committed; a post stamped at the
   run instant is in *this* digest; the two-summary cap leaving the third story under "Also today",
-  first with the post URL and then with its Telegraph page; a 429 on both primaries carried by the
+  first with the post URL and then, with a readable page, its Telegraph URL while a second overflow
+  story gets its own page too; a 429 on both primaries carried by the
   ladder so the digest still ships with its voice; the empty-window message; every summary failing
   leaves the window pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
   `digest-gemini` (a 429/5xx or an unusable answer moves the summary, script or voice to the next
