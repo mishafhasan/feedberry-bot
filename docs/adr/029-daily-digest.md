@@ -131,7 +131,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **449/449 pass**, including the seven new files — `digest-render` (English and Tamil
+- `npm test`: **457/457 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -141,7 +141,9 @@ Four questions decided the shape:
   hotlink-protected CDN needs), `digest-job` (tick → job → one
   `sendRichMessage` with `tg://audio`, the numbered items, the window committed; a post stamped at the
   run instant is in *this* digest; the empty-window message; every summary failing leaves the window
-  pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not), and
+  pinned and the job queued), `job-lock` (a running claim is refreshed, a finished one is not),
+  `digest-gemini` (a 429/5xx or an unusable answer moves the summary, script or voice to the next
+  model; an abort never does; a repeated fallback is not called twice), and
   `digest-menu` (button hidden without a key; sources/language/time/on-off; a foreign digest and a
   foreign subscription refused; "on" without a source stays off; removing the last source switches
   the digest off).
