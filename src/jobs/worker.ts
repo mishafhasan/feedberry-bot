@@ -1,6 +1,7 @@
 import { log } from '../obs/log.ts';
 import { alerts } from '../obs/alerts.ts';
 import { E, isCoded } from '../platform/errors.ts';
+import { runDigest } from '../digest/run.ts';
 import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts';
 import { runRetention } from '../pipeline/cleanup.ts';
 import { recordEvent } from '../db/repos/events.ts';
@@ -58,6 +59,10 @@ async function execute(deps: WorkerDeps, job: JobRow, now: number): Promise<void
     case 'deliver_post':
       await deliverPending(deps, job.target_id, now);
       return;
+    case 'digest':
+      // ADR-029: a run pins its own window, so a retry selects the same posts.
+      await runDigest(deps, job.target_id, now);
+      return;
     case 'cleanup': {
       // §13.1 retention; the event also marks the daily run for the scheduler.
       const result = runRetention(deps.db, deps.cfg.limits.maxSourceAgeDays, now);
@@ -87,7 +92,7 @@ export function startWorker(deps: WorkerDeps, options: { pollMs?: number; slotMs
         const now = Date.now();
         if (now - lastSlot >= slotMs) {
           lastSlot = now;
-          tick(deps.db, now);
+          tick(deps.db, now, { digests: deps.cfg.digest !== undefined });
           // §13.1 alerts that are cheap to check once per slot.
           if (deps.notifier) {
             await alerts.silent(deps.db, deps.notifier, now).catch(() => false);

@@ -1,6 +1,7 @@
 import type { Db } from '../db/index.ts';
+import { advanceDigest, dueDigests } from '../db/repos/digests.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
-import { slotAfter } from './slots.ts';
+import { digestSlot, slotAfter } from './slots.ts';
 
 /** A slot older than this is skipped, not replayed: the bot was off, the feed moved on (ADR-010). */
 export const LATE_SLOT_MS = 12 * 60 * 60 * 1000;
@@ -17,6 +18,7 @@ export interface TickResult {
   sources: number;
   advanced: number;
   enqueued: number;
+  digests: number;
   cleanup: boolean;
 }
 
@@ -30,10 +32,25 @@ function enqueueCleanup(db: Db, now: number): boolean {
 }
 
 /**
+ * ADR-029: advance every due digest's slot *before* enqueueing, exactly as a source slot is handled.
+ * A slot older than the late window is skipped rather than replayed (ADR-010).
+ */
+function tickDigests(db: Db, now: number): number {
+  let enqueued = 0;
+  for (const row of dueDigests(db, now)) {
+    advanceDigest(db, row.id, digestSlot(now, row.tz, row.hour));
+    if (row.next_run_at !== null && now - row.next_run_at > LATE_SLOT_MS) continue;
+    if (enqueue(db, { kind: 'digest', targetId: row.id, priority: PRIORITY.scheduled, runAfter: now })) enqueued++;
+  }
+  return enqueued;
+}
+
+/**
  * §4.2: one query for due subscriptions, then advance every due slot **before** enqueueing, so a
  * crash can never produce a hot loop. One fetch per source, shared by all its subscribers (ADR-004).
+ * `digests` is false when the operator configured no Gemini key: the feature is off, its jobs stop.
  */
-export function tick(db: Db, now = Date.now()): TickResult {
+export function tick(db: Db, now = Date.now(), options: { digests?: boolean } = {}): TickResult {
   const due = db
     .prepare(
       `SELECT s.id AS source_id, sub.id AS subscription_id, sub.next_slot_at, u.tz, s.interval_minutes
@@ -66,5 +83,5 @@ export function tick(db: Db, now = Date.now()): TickResult {
     if (!late && enqueue(db, { kind: 'fetch_source', targetId: sourceId, priority: PRIORITY.scheduled, runAfter: now })) enqueued++;
   }
 
-  return { sources: perSource.size, advanced, enqueued, cleanup: enqueueCleanup(db, now) };
+  return { sources: perSource.size, advanced, enqueued, digests: options.digests === true ? tickDigests(db, now) : 0, cleanup: enqueueCleanup(db, now) };
 }

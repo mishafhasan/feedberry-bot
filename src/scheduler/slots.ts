@@ -19,6 +19,19 @@ export function slotAfter(now: number, tz: string, intervalMinutes: number | nul
   return wallToUtc(today.year, today.month, today.day + 2, 8, tz);
 }
 
+/**
+ * ADR-029: the next `hour:00` in the owner's zone. Same wall-clock arithmetic as the source slots,
+ * so a DST change shifts the digest with the clock instead of by a fixed 24 h.
+ */
+export function digestSlot(now: number, tz: string, hour: number): number {
+  const today = wallClock(now, tz);
+  for (const dayOffset of [0, 1]) {
+    const candidate = wallToUtc(today.year, today.month, today.day + dayOffset, hour, tz);
+    if (candidate > now) return candidate;
+  }
+  return wallToUtc(today.year, today.month, today.day + 2, hour, tz);
+}
+
 interface WallClock {
   year: number;
   month: number;

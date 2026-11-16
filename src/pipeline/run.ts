@@ -9,6 +9,7 @@ import { recordEvent } from '../db/repos/events.ts';
 import { alerts, type Notifier } from '../obs/alerts.ts';
 import { log } from '../obs/log.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
+import type { Gemini } from '../digest/gemini.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
 import { probeDuration } from '../media/video-probe.ts';
 import { standInFrames, type Thumbnailer } from '../media/thumbnail.ts';
@@ -48,6 +49,8 @@ export interface RunDeps {
   telegraph?: TelegraphClient;
   /** Operator DM for §13.1 alerts; absent means alerts are only logged. */
   notifier?: Notifier;
+  /** ADR-029: Gemini for the daily digest; absent when no key is configured. */
+  gemini?: Gemini;
 }
 
 export interface RunResult {

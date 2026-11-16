@@ -15,7 +15,7 @@ export interface JobRow {
   last_error: string | null;
 }
 
-export type JobKind = 'fetch_source' | 'deliver_post' | 'manual_check' | 'cleanup';
+export type JobKind = 'fetch_source' | 'deliver_post' | 'manual_check' | 'cleanup' | 'digest';
 
 /** §4.4 priorities. Backfill is below scheduled so live posts never wait behind history. */
 export const PRIORITY = { manual: 100, scheduled: 50, backfill: 40, retry: 10 } as const;
