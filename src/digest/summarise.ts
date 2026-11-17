@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Db } from '../db/index.ts';
 import { getSummary, putSummary } from '../db/repos/digests.ts';
 import type { PostRow } from '../db/repos/posts.ts';
+import { setPostTelegraphUrl } from '../db/repos/posts.ts';
 import { type Article, extractArticle, textOf } from '../article/readability.ts';
 import { publishArticle, type TelegraphClient } from '../article/telegraph.ts';
 import type { MediaEngine } from '../media/media-engine.ts';
@@ -92,7 +93,14 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   // summary still reads the page: a retry must ship the same pictures, not a text-only digest.
   const article = (await articleOf(deps.http, post.telegraph_url)) ?? (await articleOf(deps.http, post.url));
   const text = clamp(article === null ? feedText : textOf(article.html), MAX_ARTICLE_CHARS);
-  const telegraphUrl = cached?.telegraph_url ?? post.telegraph_url ?? (article === null ? null : await pageLink(deps.telegraph, article));
+  const stored = cached?.telegraph_url ?? post.telegraph_url ?? null;
+  let telegraphUrl = stored;
+  // A page written here is the post's page from now on: a retry, the other language or another digest
+  // reads it instead of writing it again. The page is not fetched back — `article` is what was written.
+  if (telegraphUrl === null && article !== null) {
+    telegraphUrl = await pageLink(deps.telegraph, article);
+    if (telegraphUrl !== null) setPostTelegraphUrl(deps.db, post.id, telegraphUrl);
+  }
   const images = await pictures(deps, post, article, dir, signal);
 
   const summary = cached === undefined ? await askSummary(deps.gemini, lang, article?.title || payload.title, text, signal) : parseSummary(cached.json);
@@ -140,14 +148,17 @@ async function articleOf(http: Http, url: string | null): Promise<Article | null
   }
 }
 
-/** An overflow story's Instant View page: the one delivery already published, else a fresh page with no model involved. */
-export async function publishPage(deps: Pick<SummariseDeps, 'http' | 'telegraph'>, post: PostRow, signal: AbortSignal): Promise<string | null> {
+/** An overflow story's Instant View page: the one delivery already published, else a fresh page, stored on the post. */
+export async function publishPage(deps: Pick<SummariseDeps, 'db' | 'http' | 'telegraph'>, post: PostRow, signal: AbortSignal): Promise<string | null> {
   if (post.telegraph_url !== null) return post.telegraph_url;
   if (signal.aborted) return null;
   const article = await articleOf(deps.http, post.url);
   if (article === null) return null;
   const page = await pageLink(deps.telegraph, article);
-  if (page !== null) log('info', 'digest_page', { url: article.url, page });
+  if (page !== null) {
+    setPostTelegraphUrl(deps.db, post.id, page);
+    log('info', 'digest_page', { url: article.url, page });
+  }
   return page;
 }
 
@@ -162,12 +173,12 @@ async function pageLink(telegraph: TelegraphClient | undefined, article: Article
   }
 }
 
-/** The feed's own photos first, then the page's; the first three are downloaded, never hotlinked. */
+/** The page's own figures first, then the feed's photos filling the rest; the first three are downloaded, never hotlinked. */
 async function pictures(deps: SummariseDeps, post: PostRow, article: Article | null, dir: string, signal: AbortSignal): Promise<string[]> {
   const payload = payloadOf(post.payload_json);
-  const fromFeed = payload.media.filter((item) => item.type === 'photo').map((item) => item.url);
   const fromPage = article === null ? [] : imageUrlsOf(article.html);
-  const urls = [...new Set([...fromFeed, ...fromPage])].filter(isHttp).slice(0, MAX_IMAGES);
+  const fromFeed = payload.media.filter((item) => item.type === 'photo').map((item) => item.url);
+  const urls = [...new Set([...fromPage, ...fromFeed])].filter(isHttp).slice(0, MAX_IMAGES);
   if (urls.length === 0) return [];
 
   // Its own folder: three summaries download at once, and the downloader names files by index, so a
@@ -180,16 +191,18 @@ async function pictures(deps: SummariseDeps, post: PostRow, article: Article | n
     // when the text came from the Instant View copy (its figures keep the original CDN URLs).
     const referer = post.url ?? article?.url ?? undefined;
     const items = urls.map((url) => ({ kind: 'photo' as const, url, picker: false, ...(referer === undefined ? {} : { headers: { ...IMAGE_HEADERS, referer } }) }));
-    // One failed picture costs that picture; the others still reach the item.
-    const files = await Promise.all(
-      items.map((item) =>
-        prepareMedia(deps.media, [item], own, { maxMb: deps.maxMb, signal }).catch((err: unknown) => {
-          log('warn', 'digest_images_failed', { post: post.id, url: item.url, cause: message(err) });
-          return [];
-        }),
-      ),
-    );
-    return files.flat().filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path);
+    // One at a time: two in-flight downloads would race for the same file name in the post's folder.
+    // A failure costs that picture only; the others still reach the item, in page order.
+    const paths: string[] = [];
+    for (const item of items) {
+      try {
+        const files = await prepareMedia(deps.media, [item], own, { maxMb: deps.maxMb, signal });
+        paths.push(...files.filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path));
+      } catch (err) {
+        log('warn', 'digest_images_failed', { post: post.id, url: item.url, cause: message(err) });
+      }
+    }
+    return paths;
   } catch (err) {
     log('warn', 'digest_images_failed', { post: post.id, cause: message(err) });
     return [];

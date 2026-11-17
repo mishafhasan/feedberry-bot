@@ -2,7 +2,6 @@ import { mkdir } from 'node:fs/promises';
 import { ownChat } from '../db/repos/chats.ts';
 import { commitDigestWindow, digestPosts, digestSourceCount, digestSourceIds, digestTimezone, dropStaleWindow, getDigest, pinDigestWindow } from '../db/repos/digests.ts';
 import { recordEvent } from '../db/repos/events.ts';
-import { clearPostTelegraphUrls } from '../db/repos/posts.ts';
 import { getSource } from '../db/repos/sources.ts';
 import { log } from '../obs/log.ts';
 import { Coded, E } from '../platform/errors.ts';
@@ -92,9 +91,9 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
     // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
+    // The stored links live as long as the post row (retention prunes posts): a retry, the other
+    // language or another user on the same source reads them instead of writing the page again.
     commitDigestWindow(deps.db, digestId, windowEnd);
-    // Delivery's Instant View links exist for the digest; the posts need them no longer.
-    clearPostTelegraphUrls(deps.db, posts.map((post) => post.id));
 
     log('info', 'digest_sent', {
       digest: digestId,
@@ -136,8 +135,7 @@ async function plansFor(
   }
 
   // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
-  // shortcut: a retry republishes the ones delivery left uncached; cache them if a retry must not repeat writes.
-  const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => publishPage({ http: deps.http, telegraph: deps.telegraph }, post, input.signal));
+  const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => publishPage({ db: deps.db, http: deps.http, telegraph: deps.telegraph }, post, input.signal));
   const extra = input.overflow.map((post, index) => ({
     headline: payloadOf(post.payload_json).title || post.url || 'Post',
     url: pages[index] ?? post.url,

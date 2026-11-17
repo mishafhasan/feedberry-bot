@@ -265,6 +265,62 @@ test('a dead Instant View page falls back to the post itself', async () => {
   }
 });
 
+test('a page the digest publishes is stored on the post and written once', async () => {
+  const { dir, db, post } = seedPost();
+  const seen: string[] = [];
+  let published = 0;
+  const serve: Http = async (url) => {
+    seen.push(url);
+    return { status: 200, url, contentType: 'text/html', body: `<html><head><title>Story</title></head><body><article><h1>Story</h1><p>${'word '.repeat(120)}</p></article></body></html>` };
+  };
+  const telegraph = {
+    async createPage(): Promise<string> {
+      published++;
+      return 'https://telegra.ph/New';
+    },
+  };
+  const { gemini } = countingGemini(() => ({ headline: 'H', description: 'D', key_points: [] }));
+  try {
+    await summarisePost({ db, http: serve, media: noEngine, telegraph, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(getPost(db, post.id)?.telegraph_url, 'https://telegra.ph/New', 'the page is stored on the post');
+    assert.equal(published, 1);
+    assert.deepEqual(seen, ['https://blog.test/one'], 'the page just written is not fetched back');
+
+    // The other language reads the stored page: one publish for the post, ever.
+    const { gemini: second } = countingGemini(() => ({ headline: 'H2', description: 'D2', key_points: [] }));
+    const again = await summarisePost({ db, http: serve, media: noEngine, telegraph, gemini: second, maxMb: 100 }, getPost(db, post.id) as PostRow, 'ta', dir, new AbortController().signal, 'Blog');
+    assert.equal(published, 1, 'no second publish');
+    assert.equal(again.link, 'https://telegra.ph/New');
+    assert.deepEqual(seen.slice(-1), ['https://telegra.ph/New'], 'the stored page is the source');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("the page's pictures come before the feed's, three at most", async () => {
+  const { dir, db, post } = seedPost([
+    { url: 'https://cdn.test/feed-1.jpg', type: 'photo' },
+    { url: 'https://cdn.test/feed-2.jpg', type: 'photo' },
+  ]);
+  const pageHttp: Http = async (url) => ({
+    status: 200,
+    url,
+    contentType: 'text/html',
+    body: `<html><head><title>P</title></head><body><article><h1>P</h1><p>${'word '.repeat(100)}</p><img src="https://cdn.test/page-1.jpg"/><img src="https://cdn.test/page-2.jpg"/></article></body></html>`,
+  });
+  const { engine, items } = recordingEngine();
+  const { gemini } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const item = await summarisePost({ db, http: pageHttp, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(item.images.length, 3);
+    assert.deepEqual(items.map((entry) => entry.url), ['https://cdn.test/page-1.jpg', 'https://cdn.test/page-2.jpg', 'https://cdn.test/feed-1.jpg']);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('one failed picture does not drop the item’s other pictures', async () => {
   const { dir, db, post } = seedPost([
     { url: 'https://cdn.test/a.jpg', type: 'photo' },

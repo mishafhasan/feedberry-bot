@@ -48,14 +48,9 @@ export function getPost(db: Db, id: number): PostRow | undefined {
   return db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as unknown as PostRow | undefined;
 }
 
-/** Kept until the digest has used it, then cleared: the row only carries it to save a publish. */
+/** Written once by whoever published the page, then reused for good — a stored link is never rewritten. */
 export function setPostTelegraphUrl(db: Db, postId: number, url: string): void {
   db.prepare('UPDATE posts SET telegraph_url = ? WHERE id = ?').run(url, postId);
-}
-
-export function clearPostTelegraphUrls(db: Db, postIds: number[]): void {
-  if (postIds.length === 0) return;
-  db.prepare(`UPDATE posts SET telegraph_url = NULL WHERE id IN (${postIds.map(() => '?').join(',')})`).run(...postIds);
 }
 
 /** Stage 4's input: what this source has already recorded, raw so the pipeline owns the rules. */

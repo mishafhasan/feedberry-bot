@@ -266,6 +266,7 @@ test('digest job: every overflow story links to its Telegraph page, not the raw 
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B-story">3\. Feed title inside-b<\/a>/, 'the first overflow link is its Instant View page');
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-C-story">4\. Feed title inside-c<\/a>/, 'the second overflow link is its Instant View page too');
     assert.doesNotMatch(html, /href="https:\/\/blog\.test\/inside-[bc]"/, 'no raw post URL is printed');
+    assert.equal(postByGuid(db, sourceIds[0] as number, 'inside-c')?.telegraph_url, 'https://telegra.ph/Inside-C-story', 'the page the digest published stays on the post');
   } finally {
     db.close();
     await api.close();
@@ -273,7 +274,7 @@ test('digest job: every overflow story links to its Telegraph page, not the raw 
   }
 });
 
-test('digest job: the link delivery already published is reused, then cleared', async () => {
+test('digest job: the link delivery already published is reused and kept', async () => {
   const api = await fakeBotApi();
   const { dir, db, digest, sourceIds } = seed();
   const now = Date.UTC(2026, 10, 16, 8, 0);
@@ -298,8 +299,8 @@ test('digest job: the link delivery already published is reused, then cleared', 
     const html = String((api.last('sendRichMessage')?.body.rich_message as { html?: string } | undefined)?.html ?? '');
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-A">📖 Read full article<\/a>/, 'the item reuses the delivery page');
     assert.match(html, /<a href="https:\/\/telegra\.ph\/Inside-B">3\. Feed title inside-b<\/a>/, 'so does the overflow story');
-    assert.equal(postByGuid(db, sourceIds[0] as number, 'inside-a')?.telegraph_url, null, 'the digest clears the cached link');
-    assert.equal(postByGuid(db, sourceIds[1] as number, 'inside-b')?.telegraph_url, null);
+    assert.equal(postByGuid(db, sourceIds[0] as number, 'inside-a')?.telegraph_url, 'https://telegra.ph/Inside-A', 'the stored link survives the send');
+    assert.equal(postByGuid(db, sourceIds[1] as number, 'inside-b')?.telegraph_url, 'https://telegra.ph/Inside-B');
   } finally {
     db.close();
     await api.close();
