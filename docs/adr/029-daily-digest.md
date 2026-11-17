@@ -130,7 +130,8 @@ Four questions decided the shape:
   requests — the flood control only appears for posts nobody published yet. When the digest has to
   publish one itself, it stores that page on the post too, and the column is kept for the life of the
   post (retention prunes posts): a retry, the other language or another user on the same source reads
-  the same page instead of writing a second one.
+  the same page instead of writing a second one. A summary row written before v7 can carry a page the
+  post row does not — the digest mirrors it down, so delivery reuses it too.
 - **The digest's labels stay English in every language.** Only the content translates — Tamil
   headline, description, key points and audio. The heading, date line, audio line, key-points and
   read-full labels, "Also today", the part label and the footer are identical in `en` and `ta`; the
@@ -255,6 +256,11 @@ Four questions decided the shape:
   9 kept + 33 new** — none of the 9 was published again. Both runs also show Telegraph's own ceiling:
   the first hit `FLOOD_WAIT_525` (a ~9-minute IP block earned by the earlier test batches), so a cold
   window can leave some "Also today" entries on their post URL until a later run.
+- The cache filling up and then costing nothing, live: successive runs took the stored count
+  **42 → 45 → 47** of the 47-post window, the last 3 pages and then the final 2 links arriving
+  without a single flood wait; the run that started fully linked logged **0 `digest_page`, 0 waits,
+  0 image failures**, `{"posts":47,"images":2,"audioSec":70}` (`delivered`), and the window report
+  after it read `{"window":47,"linked":47,"unlinked":[]}`. Every run shipped pictures.
 - The Instant View as the source, live (four runs over the same 47-post window): (a) no cache →
   **45 `digest_page`**, `images:1`, `{"delivered":[2202]}`; (b) every one of the 47 posts given its
   page, summaries cached → **0 `digest_page`**, `images:0` — the cache used to skip extraction;
