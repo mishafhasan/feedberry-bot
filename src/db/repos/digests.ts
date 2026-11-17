@@ -35,6 +35,11 @@ export function getDigest(db: Db, id: number): DigestRow | undefined {
   return db.prepare('SELECT * FROM digests WHERE id = ?').get(id) as unknown as DigestRow | undefined;
 }
 
+/** The menu reads the state of the private chat's digest without creating one. */
+export function digestForChat(db: Db, userId: number, chatId: number): DigestRow | undefined {
+  return db.prepare('SELECT * FROM digests WHERE user_id = ? AND chat_id = ?').get(userId, chatId) as unknown as DigestRow | undefined;
+}
+
 /** Every `dg:*` handler authorises by ownership of the digest, never by the callback alone. */
 export function ownDigest(db: Db, userId: number, id: number): DigestRow | undefined {
   return db.prepare('SELECT * FROM digests WHERE id = ? AND user_id = ?').get(id, userId) as unknown as DigestRow | undefined;

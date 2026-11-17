@@ -3,7 +3,8 @@ import type { ChatRow } from '../../db/repos/chats.ts';
 import type { DigestRow } from '../../db/repos/digests.ts';
 import type { SourceCard } from '../../db/repos/subscriptions.ts';
 import { t, type Lang } from '../i18n/index.ts';
-import { esc, platformIcon } from '../texts.ts';
+import { platformEmoji } from '../../platform/icons.ts';
+import { esc } from '../texts.ts';
 import { PAGE_SIZE } from './my-sources.ts';
 
 /** ADR-029 settings screens: plain text plus a keyboard, like the schedule screens they sit beside. */
@@ -37,8 +38,9 @@ export function digestView(params: { digest: DigestRow; chatTitle: string; sourc
     .text(t(lang, 'digest.btnLanguage'), `dg:lang:${id}`)
     .row()
     .text(t(lang, 'digest.btnTime'), `dg:time:${id}`)
-    .row()
     .text(t(lang, params.digest.enabled === 1 ? 'digest.disable' : 'digest.enable'), `dg:on:${id}`)
+    .row()
+    .text(t(lang, 'digest.btnChat'), 'menu:digest:chat')
     .row()
     .text(t(lang, 'btn.home'), 'nav:home');
 
@@ -55,7 +57,9 @@ export function digestSourcesView(params: { cards: Array<SourceCard & { selected
 
   const keyboard = new InlineKeyboard();
   for (const card of params.cards) {
-    const label = `${card.selected === 1 ? '✅' : '⬜'} ${platformIcon(card.platform)} ${short(card.title ?? `#${card.source_id}`)}`;
+    // An inline button renders plain text: the custom-emoji markup of `platformIcon` would print
+    // literally here, so the list uses the bare emoji.
+    const label = `${card.selected === 1 ? '✅' : '⬜'} ${platformEmoji(card.platform)} ${short(card.title ?? `#${card.source_id}`)}`;
     keyboard.text(label, `dg:tg:${params.digestId}:${card.subscription_id}`).row();
   }
   if (pages > 1) {

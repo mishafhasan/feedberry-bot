@@ -224,7 +224,7 @@ const EN = {
   'adm.toast.unknown': 'That button is not available.',
 
   // ADR-029: the daily digest. `digest.*` labels built from the digest's own language, not the UI's.
-  'btn.digest': '🎧 Daily digest',
+  'btn.digest': '🫐 Daily AI Summary',
   'digest.heading': '🫐 Daily Digest',
   'digest.part': 'Part {n}/{total}',
   'digest.dateLine': '📅 {date} · 🗞 {posts} posts · {sources} sources',
@@ -235,7 +235,7 @@ const EN = {
   'digest.empty': 'No new posts from your digest sources in the last 24 hours.',
   'digest.footer': 'By FeedBerry Bot',
   'digest.alsoToday': 'Also today',
-  'digest.title': '🎧 Daily digest',
+  'digest.title': '🫐 Daily AI Summary',
   'digest.lead': 'One message a day with the stories from your RSS and blog sources, read aloud.',
   'digest.status': 'Status: {status}',
   'digest.on': 'On',
@@ -257,6 +257,7 @@ const EN = {
   'digest.enable': '▶️ Turn on',
   'digest.disable': '⏸ Turn off',
   'digest.btnSources': '📰 Sources',
+  'digest.btnChat': '📍 Deliver to',
   'digest.btnLanguage': '🌐 Language',
   'digest.btnTime': '🕗 Time',
   'digest.langNameEn': 'English',
@@ -751,7 +752,7 @@ const TA: Partial<Dict> = {
   'toast.scheduleSet': 'அட்டவணை புதுப்பிக்கப்பட்டது.',
 
   // ADR-029: the daily digest.
-  'btn.digest': '🎧 தினசரி சுருக்கம்',
+  'btn.digest': '🫐 தினசரி AI சுருக்கம்',
   // The digest message's structural labels stay English in every language; only its content translates.
   'digest.heading': '🫐 Daily Digest',
   'digest.part': 'Part {n}/{total}',
@@ -763,7 +764,7 @@ const TA: Partial<Dict> = {
   'digest.empty': 'கடந்த 24 மணி நேரத்தில் உங்கள் சுருக்க மூலங்களில் புதிய இடுகைகள் இல்லை.',
   'digest.footer': 'By FeedBerry Bot',
   'digest.alsoToday': 'Also today',
-  'digest.title': '🎧 தினசரி சுருக்கம்',
+  'digest.title': '🫐 தினசரி AI சுருக்கம்',
   'digest.lead': 'உங்கள் RSS மற்றும் வலைப்பதிவு மூலங்களின் செய்திகள், ஒலிவடிவத்துடன், நாளுக்கு ஒரு செய்தி.',
   'digest.status': 'நிலை: {status}',
   'digest.on': 'இயக்கத்தில்',
@@ -785,6 +786,7 @@ const TA: Partial<Dict> = {
   'digest.enable': '▶️ இயக்கு',
   'digest.disable': '⏸ நிறுத்து',
   'digest.btnSources': '📰 மூலங்கள்',
+  'digest.btnChat': '📍 வழங்குவது',
   'digest.btnLanguage': '🌐 மொழி',
   'digest.btnTime': '🕗 நேரம்',
   'digest.langNameEn': 'English',

@@ -50,6 +50,12 @@ const labelsOf = (call: Call | undefined): string[] => {
   return rows.flatMap((row) => row.map((button) => button.text ?? ''));
 };
 
+/** callback_data grouped by keyboard row, so a layout can be asserted without guessing order. */
+const rowsOf = (call: Call | undefined): string[][] => {
+  const rows = (call?.body.reply_markup?.inline_keyboard ?? []) as Array<Array<{ callback_data?: string }>>;
+  return rows.map((row) => row.map((button) => button.callback_data ?? '').filter((data) => data !== ''));
+};
+
 const row = <T>(db: Db, sql: string, ...args: Array<string | number>): T => db.prepare(sql).get(...args) as T;
 
 /** One RSS source and one Instagram source, so "only RSS can join" has something to exclude. */
@@ -90,6 +96,7 @@ test('digest: without a Gemini key the main menu has no digest button', async ()
     await bot.init();
     await bot.handleUpdate(startUpdate(1, USER_ID));
     assert.ok(!callbacksOf(api.last('sendRichMessage')).includes('menu:digest'), 'the feature is off');
+    assert.ok(!callbacksOf(api.last('sendRichMessage')).some((data) => data.startsWith('menu:digest')), 'no shortcut leaks either');
   } finally {
     db.close();
     await api.close();
@@ -120,9 +127,20 @@ test('digest: sources, language, time and the switch, with ownership on every ta
 
     await bot.handleUpdate(startUpdate(1, USER_ID));
     assert.ok(callbacksOf(api.last('sendRichMessage')).includes('menu:digest'), 'the button is there with a key');
+    const menuRows = rowsOf(api.last('sendRichMessage'));
+    assert.ok(labelsOf(api.last('sendRichMessage')).some((label) => label.includes('Daily AI Summary')), 'the button carries the new name');
+    assert.ok(menuRows.some((row) => row.includes('menu:digest') && row.includes('menu:schedule')), 'the summary and Schedule share a row');
+    assert.ok(menuRows.some((row) => row.includes('menu:digest:time') && row.includes('menu:digest:on')), 'Time and the switch share a row');
+    assert.ok(menuRows.some((row) => row.includes('menu:digest:chat')), 'Deliver to sits under them');
 
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest'));
-    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Daily digest/);
+    assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Daily AI Summary/);
+    const screenRows = rowsOf(api.last('editMessageText'));
+    assert.ok(
+      screenRows.some((row) => row.some((data) => data.startsWith('dg:time:')) && row.some((data) => data.startsWith('dg:on:'))),
+      'the digest screen pairs Time with the switch',
+    );
+    assert.ok(screenRows.some((row) => row.includes('menu:digest:chat')), 'and puts Deliver to below them');
     const digest = row<{ id: number; lang: string; hour: number; enabled: number; next_run_at: number | null }>(db, 'SELECT id, lang, hour, enabled, next_run_at FROM digests WHERE chat_id = ?', chat.id);
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Status: Off/);
 
@@ -131,6 +149,8 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     const sourceLabels = labelsOf(api.last('editMessageText'));
     assert.ok(sourceLabels.some((label) => label.includes('Blog')));
     assert.ok(!sourceLabels.some((label) => label.includes('InstaGram')), 'a social source cannot join the digest');
+    assert.ok(sourceLabels.every((label) => !label.includes('<') && !label.includes('tg-emoji')), 'an inline button shows plain text, never markup');
+    assert.ok(sourceLabels.some((label) => label.includes('📡')), 'the RSS icon is the bare emoji');
     const sourceButtons = callbacksOf(api.last('editMessageText'));
     assert.ok(sourceButtons.includes(`dg:tg:${digest.id}:${rssSub}`));
     assert.ok(!sourceButtons.includes(`dg:tg:${digest.id}:${igSub}`), 'the Instagram row has no toggle');
@@ -164,6 +184,19 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     const off = row<{ enabled: number; next_run_at: number | null }>(db, 'SELECT enabled, next_run_at FROM digests WHERE id = ?', digest.id);
     assert.equal(off.enabled, 0);
     assert.equal(off.next_run_at, null);
+
+    // The menu shortcuts drive the same digest without opening its screen.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:on'));
+    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', digest.id).enabled, 1, 'the menu switch turns it on');
+    assert.ok(labelsOf(api.last('editMessageText')).some((label) => label.includes('Turn off')), 'the menu repaints with the other label');
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:on'));
+    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', digest.id).enabled, 0);
+
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:time'));
+    assert.ok(callbacksOf(api.last('editMessageText')).includes(`dg:sethour:${digest.id}:7`), 'the menu opens the hour picker');
+
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:chat'));
+    assert.ok(callbacksOf(api.last('editMessageText')).includes(`dg:chat:${chat.id}`), 'Deliver to lists the destinations');
 
     // Another user's digest and subscription are refused without a word.
     const mark = api.calls.length;
