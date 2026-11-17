@@ -24,7 +24,7 @@ export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
     .text(t(lang, 'btn.download'), 'menu:download');
   // ADR-029: no Gemini key, no digest; the button would open a screen that cannot run.
   if (digest) {
-    keyboard.row().text(t(lang, 'btn.digest'), 'menu:digest').text(t(lang, 'btn.schedule'), 'menu:schedule');
+    keyboard.row().text(t(lang, 'btn.schedule'), 'menu:schedule').text(t(lang, 'btn.digest'), 'menu:digest');
   } else {
     keyboard.row().text(t(lang, 'btn.schedule'), 'menu:schedule');
   }

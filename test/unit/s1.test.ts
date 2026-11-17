@@ -8,7 +8,7 @@ test('S1: every section is separated by one blank line, not by paragraph spacing
   assert.ok(body.startsWith('<p><b>FeedBerry</b>'), 'the message is one paragraph');
   assert.match(body, /Telegram\.<br\/><br\/>🆔 Your ID: 853964716/, 'title → account block');
   assert.match(body, /Sources: 8 \/ 250<br\/><br\/><b>Features<\/b>:/, 'account block → features');
-  assert.match(body, /\(Coming Soon\)<br\/><br\/><b>How to use<\/b>:/, 'features → how to use');
+  assert.match(body, /without subscribing\.<br\/><br\/><b>How to use<\/b>:/, 'features → how to use');
   assert.doesNotMatch(body, /<br\/><br\/><br\/>/, 'never two blank lines');
 });
 

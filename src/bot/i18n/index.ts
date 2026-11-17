@@ -23,17 +23,15 @@ const EN = {
 📊 Sources: {sources}
 
 **Features**:
-🌳 Power Efficient: It should consume very little computing power to run.
-🌐 Post forwarding from: RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook, etc...
-💬 Delivery to your DM, channels, groups and forum topics
-🖼 Photos, videos, albums and files in original quality.
-⬇️ Full article text: the bot pulls the whole article from the link and converts it into telegram instant view, with media and without ads.
-🤖 AI Summary: blog and website posts in instant view open with a short summary by Cocoon AI.
-🧠 Smart routing: AI detects the topic of each post and sorts posts from sources across chats and forum topics
-⚡ Fast source checks: with custom interval
-©️ Save media without watermarks and logo.
-⬇️ Download mode: Send post link of supported platforms and bot will send the file/media as post.
-✨ AI processing: summary, digest, rephrasing, style change, ad auto-detection and your own custom prompt (Coming Soon)
+🌳 Power efficient: idle between checks, very little CPU.
+🌐 Post forwarding from RSS, Instagram, TikTok, YouTube (videos, Shorts or posts), Twitter/X, Facebook, Bluesky, Threads, Tumblr and Pinterest.
+💬 Delivery to your DM, channels, groups and forum topics.
+🖼 Photos, videos, albums and files in original quality — no watermarks, no logos.
+📄 Full article text: the whole article is pulled from the link and opened as Instant View, with media and without ads.
+⚡ Checks on your schedule: default 08:00 and 20:00, or any interval from 15 minutes to 24 hours.
+🔑 Keyword filters: only the posts that mention your words or tags reach the chat.
+🫐 Daily AI Summary: one message a day with the stories from your RSS and blog sources, key points, pictures and a 🎧 audio overview.
+⬇️ Download mode: send any post link and the bot sends its media here, without subscribing.
 
 **How to use**:
 1) Send a profile or post link
@@ -275,17 +273,15 @@ const RU: Partial<Dict> = {
 📊 Источники: {sources}
 
 **Возможности**:
-🌳 Экономный: почти не тратит ресурсы сервера.
-🌐 Пересылка постов из RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook и других.
+🌳 Экономный: простаивает между проверками, почти не тратит ресурсы.
+🌐 Пересылка постов из RSS, Instagram, TikTok, YouTube (видео, Shorts или посты), Twitter/X, Facebook, Bluesky, Threads, Tumblr и Pinterest.
 💬 Доставка в личные сообщения, каналы, группы и темы форума.
-🖼 Фото, видео, альбомы и файлы в исходном качестве.
-⬇️ Полный текст статьи: бот забирает статью по ссылке и открывает её в Instant View, с медиа и без рекламы.
-🤖 ИИ-саммари: статьи с сайтов и блогов в Instant View открываются с кратким саммари от Cocoon AI.
-🧠 Умная маршрутизация: ИИ определяет тему поста и распределяет посты по чатам и темам.
-⚡ Быстрые проверки источников: с настраиваемым интервалом.
-©️ Медиа без водяных знаков и логотипов.
-⬇️ Режим загрузки: отправьте ссылку на пост, и бот пришлёт медиа.
-✨ Обработка ИИ: саммари, дайджест, перефразирование, смена стиля, автоопределение рекламы и свой промпт (скоро)
+🖼 Фото, видео, альбомы и файлы в исходном качестве — без водяных знаков и логотипов.
+📄 Полный текст статьи: бот забирает статью по ссылке и открывает её в Instant View, с медиа и без рекламы.
+⚡ Проверки по вашему расписанию: по умолчанию в 08:00 и 20:00 или с любым интервалом от 15 минут до 24 часов.
+🔑 Фильтры по словам: в чат попадают только посты с вашими словами или тегами.
+🫐 Daily AI Summary: раз в день одно сообщение с историями из RSS и блогов, ключевыми мыслями, картинками и 🎧 аудиообзором.
+⬇️ Режим загрузки: отправьте ссылку на пост, и бот пришлёт медиа — без подписки.
 
 **Как пользоваться**:
 1) Отправьте ссылку на профиль или пост
@@ -397,17 +393,15 @@ const ES: Partial<Dict> = {
 📊 Fuentes: {sources}
 
 **Funciones**:
-🌳 Eficiente: consume muy pocos recursos.
-🌐 Reenvío desde RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook y más.
+🌳 Eficiente: inactivo entre comprobaciones, consume muy pocos recursos.
+🌐 Reenvío desde RSS, Instagram, TikTok, YouTube (vídeos, Shorts o publicaciones), Twitter/X, Facebook, Bluesky, Threads, Tumblr y Pinterest.
 💬 Entrega en tu chat privado, canales, grupos y temas del foro.
-🖼 Fotos, vídeos, álbumes y archivos en calidad original.
-⬇️ Texto completo: el bot extrae el artículo y lo abre en Instant View, con medios y sin anuncios.
-🤖 Resumen IA: los artículos de webs y blogs en Instant View se abren con un resumen breve de Cocoon AI.
-🧠 Enrutado inteligente: la IA detecta el tema y reparte las publicaciones.
-⚡ Comprobaciones rápidas con intervalo personalizado.
-©️ Medios sin marcas de agua ni logotipos.
-⬇️ Modo descarga: envía un enlace de publicación y recibirás el medio.
-✨ Procesamiento con IA: resumen, digest, reescritura, cambio de estilo y prompt propio (próximamente)
+🖼 Fotos, vídeos, álbumes y archivos en calidad original, sin marcas de agua ni logotipos.
+📄 Texto completo: el bot extrae el artículo del enlace y lo abre en Instant View, con medios y sin anuncios.
+⚡ Comprobaciones a tu ritmo: por defecto a las 08:00 y 20:00, o cada 15 minutos–24 horas.
+🔑 Filtros por palabras: solo llegan al chat las publicaciones que mencionan tus palabras o etiquetas.
+🫐 Daily AI Summary: una vez al día, un mensaje con las historias de tus fuentes RSS y blogs, puntos clave, fotos y un 🎧 resumen de audio.
+⬇️ Modo descarga: envía un enlace de publicación y recibirás el medio, sin suscribirte.
 
 **Cómo usar**:
 1) Envía un enlace de perfil o publicación
@@ -517,17 +511,15 @@ const HI: Partial<Dict> = {
 📊 स्रोत: {sources}
 
 **सुविधाएँ**:
-🌳 कम संसाधन: बहुत कम संसाधनों पर चलता है।
-🌐 RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook आदि से पोस्ट फ़ॉरवर्ड।
+🌳 कम संसाधन: जाँचों के बीच निष्क्रिय, बहुत कम संसाधन लेता है।
+🌐 RSS, Instagram, TikTok, YouTube (वीडियो, Shorts या पोस्ट), Twitter/X, Facebook, Bluesky, Threads, Tumblr और Pinterest से पोस्ट फ़ॉरवर्ड।
 💬 DM, चैनल, ग्रुप और फ़ोरम टॉपिक में डिलीवरी।
-🖼 फ़ोटो, वीडियो, एल्बम और फ़ाइलें मूल गुणवत्ता में।
-⬇️ पूरा लेख: बॉट लिंक से लेख निकालकर Instant View में खोलता है, बिना विज्ञापन।
-🤖 AI सारांश: वेबसाइट/ब्लॉग लेख Instant View में Cocoon AI का छोटा सारांश के साथ खुलते हैं।
-🧠 स्मार्ट रूटिंग: AI पोस्ट का विषय पहचानकर सही चैट में भेजता है।
-⚡ तेज़ जाँच: अपने अंतराल के साथ।
-©️ वॉटरमार्क और लोगो के बिना मीडिया।
-⬇️ डाउनलोड मोड: पोस्ट लिंक भेजें, बॉट मीडिया भेज देगा।
-✨ AI प्रोसेसिंग: सारांश, डाइजेस्ट, पुनर्लेखन, शैली बदलाव और अपना प्रॉम्प्ट (जल्द आ रहा है)
+🖼 फ़ोटो, वीडियो, एल्बम और फ़ाइलें मूल गुणवत्ता में — वॉटरमार्क और लोगो के बिना।
+📄 पूरा लेख: बॉट लिंक से लेख निकालकर Instant View में खोलता है, मीडिया के साथ और बिना विज्ञापन।
+⚡ अपने शेड्यूल पर जाँच: डिफ़ॉल्ट 08:00 और 20:00, या 15 मिनट से 24 घंटे तक कोई भी अंतराल।
+🔑 कीवर्ड फ़िल्टर: चैट में सिर्फ़ वे पोस्ट पहुँचती हैं जिनमें आपके शब्द या टैग हों।
+🫐 Daily AI Summary: दिन में एक बार RSS और ब्लॉग स्रोतों की ख़बरें, मुख्य बातें, तस्वीरें और 🎧 ऑडियो ओवरव्यू।
+⬇️ डाउनलोड मोड: पोस्ट लिंक भेजें और मीडिया पाएँ, बिना सब्सक्राइब किए।
 
 **कैसे उपयोग करें**:
 1) प्रोफ़ाइल या पोस्ट लिंक भेजें
@@ -637,17 +629,15 @@ const TA: Partial<Dict> = {
 📊 மூலங்கள்: {sources}
 
 **அம்சங்கள்**:
-🌳 குறைந்த வளம்: மிகக் குறைந்த ஆற்றலில் இயங்கும்.
-🌐 RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook முதலியவற்றிலிருந்து இடுகைகள்.
+🌳 குறைந்த வளம்: சோதனைகளுக்கு இடையில் ஓய்வில் இருக்கும், மிகக் குறைந்த ஆற்றலில் இயங்கும்.
+🌐 RSS, Instagram, TikTok, YouTube (வீடியோ, Shorts அல்லது இடுகைகள்), Twitter/X, Facebook, Bluesky, Threads, Tumblr மற்றும் Pinterest-இலிருந்து இடுகைகள்.
 💬 DM, சேனல், குழு மற்றும் ஃபோரம் தலைப்புகளுக்கு வழங்கல்.
-🖼 புகைப்படங்கள், வீடியோக்கள், ஆல்பங்கள் அசல் தரத்தில்.
-⬇️ முழு கட்டுரை: இணைப்பிலிருந்து கட்டுரையை எடுத்து Instant View-ல் திறக்கும், விளம்பரம் இல்லாமல்.
-🤖 AI சுருக்கம்: வலைத்தள/வலைப்பதிவு கட்டுரைகள் Instant View-ல் Cocoon AI-யின் சுருக்கத்துடன் திறக்கும்.
-🧠 ஸ்மார்ட் ரூட்டிங்: AI இடுகையின் தலைப்பை அறிந்து சரியான அரட்டைக்கு அனுப்பும்.
-⚡ விரைவான சோதனை: உங்கள் இடைவெளியுடன்.
-©️ நீர்அடையாளம் இல்லாத மீடியா.
-⬇️ பதிவிறக்க முறை: இடுகை இணைப்பை அனுப்புங்கள், மீடியா வரும்.
-✨ AI செயலாக்கம்: சுருக்கம், டைஜஸ்ட், மறுவடிவம், பாணி மாற்றம் மற்றும் உங்கள் ப்ராம்ப்ட் (விரைவில்)
+🖼 புகைப்படங்கள், வீடியோக்கள், ஆல்பங்கள் அசல் தரத்தில் — நீர்அடையாளம், லோகோ இல்லாமல்.
+📄 முழு கட்டுரை: இணைப்பிலிருந்து கட்டுரையை எடுத்து Instant View-ல் திறக்கும், மீடியாவுடன், விளம்பரம் இல்லாமல்.
+⚡ உங்கள் அட்டவணைப்படி சோதனை: இயல்பாக 08:00 மற்றும் 20:00, அல்லது 15 நிமிடம் முதல் 24 மணி வரை எந்த இடைவெளியும்.
+🔑 முக்கியச்சொல் வடிகட்டி: உங்கள் சொற்கள் அல்லது குறிச்சொற்கள் உள்ள இடுகைகள் மட்டுமே அரட்டைக்கு வரும்.
+🫐 தினசரி AI சுருக்கம்: நாளுக்கு ஒரு செய்தி — RSS மற்றும் வலைப்பதிவு மூலங்களின் செய்திகள், முக்கிய குறிப்புகள், படங்கள் மற்றும் 🎧 ஒலி விளக்கம்.
+⬇️ பதிவிறக்க முறை: இடுகை இணைப்பை அனுப்புங்கள், சந்தா இல்லாமல் மீடியா வரும்.
 
 **எப்படி பயன்படுத்துவது**:
 1) சுயவிவரம் அல்லது இடுகை இணைப்பை அனுப்புங்கள்
@@ -797,17 +787,15 @@ const ID: Partial<Dict> = {
 📊 Sumber: {sources}
 
 **Fitur**:
-🌳 Hemat: hanya memakai sedikit sumber daya.
-🌐 Meneruskan postingan dari RSS, Instagram, TikTok, YouTube, Twitter/X, Facebook, dan lainnya.
+🌳 Hemat: menganggur di antara pemeriksaan, hanya memakai sedikit sumber daya.
+🌐 Meneruskan postingan dari RSS, Instagram, TikTok, YouTube (video, Shorts, atau postingan), Twitter/X, Facebook, Bluesky, Threads, Tumblr, dan Pinterest.
 💬 Kirim ke DM, channel, grup, dan topik forum.
-🖼 Foto, video, album, dan berkas dengan kualitas asli.
-⬇️ Teks artikel lengkap: bot mengambil artikel dan membukanya di Instant View, dengan media dan tanpa iklan.
-🤖 Ringkasan AI: artikel situs/blog di Instant View terbuka dengan ringkasan singkat dari Cocoon AI.
-🧠 Perutean pintar: AI mengenali topik postingan dan mengirimnya ke chat yang tepat.
-⚡ Pemeriksaan cepat dengan interval sendiri.
-©️ Media tanpa watermark dan logo.
-⬇️ Mode unduh: kirim tautan postingan, bot mengirim medianya.
-✨ Pemrosesan AI: ringkasan, digest, parafrase, ubah gaya, dan prompt sendiri (segera hadir)
+🖼 Foto, video, album, dan berkas dengan kualitas asli — tanpa watermark dan logo.
+📄 Teks artikel lengkap: bot mengambil artikel dan membukanya di Instant View, dengan media dan tanpa iklan.
+⚡ Pemeriksaan sesuai jadwalmu: bawaan 08:00 dan 20:00, atau interval 15 menit sampai 24 jam.
+🔑 Filter kata kunci: hanya postingan yang menyebut kata atau tag-mu yang sampai ke chat.
+🫐 Daily AI Summary: sekali sehari, satu pesan berisi cerita dari sumber RSS dan blog, poin penting, gambar, dan 🎧 ikhtisar audio.
+⬇️ Mode unduh: kirim tautan postingan dan media dikirim ke sini, tanpa berlangganan.
 
 **Cara pakai**:
 1) Kirim tautan profil atau postingan
