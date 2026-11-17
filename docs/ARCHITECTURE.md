@@ -375,11 +375,13 @@ delivery. Once a day at the owner's hour (`digestSlot`, the same wall-clock arit
    `first_seen_at >= max(last_window_end, window_end − 24 h) AND first_seen_at < window_end`.
    A retry reuses the pin; after the last part is sent `last_window_end = window_end` and the pin
    is cleared in one statement, so windows tile.
-3. Per post: `extractArticle` → `publishArticle` (the Telegraph link) → a Gemini JSON summary, cached
-   in `post_summaries(post_id, lang)`; the feed's own words stand in when the page or the model
-   fails. The post's Instant View copy is read instead of the site when one exists (a dead page falls
-   back to the post), pictures keep the post's own URL as referer, and each of the up-to-three is
-   fetched on its own so one failure never empties the item.
+3. Per post: `extractArticle` → `publishArticle` (the Telegraph link, stored once in
+   `posts.telegraph_url`) → a Gemini JSON summary, cached in `post_summaries(post_id, lang)`; the
+   feed's own words stand in when the page or the model fails. The post's Instant View copy is read
+   instead of the site when one exists (a dead page falls back to the post); a page the digest has to
+   publish itself is stored the same way, so no post is ever published twice. The page's own figures
+   lead the up-to-three pictures, the feed's photos fill the rest, pictures keep the post's own URL as
+   referer, and each is fetched on its own so one failure never empties the item.
 4. One Gemini text call writes the spoken script from the summaries; the TTS model speaks it in
    ≤2 500-character chunks as raw 24 kHz PCM, and `ffmpeg` writes one MP3 with an ID3 title, encoded
    at 1.1× through `atempo` (no pitch shift). Quotas are per model, so a 429/5xx walks the configured
@@ -424,7 +426,7 @@ subscriptions(id PK, user_id FK, source_id FK, chat_id FK,
 
 posts(id PK, source_id FK, guid TEXT, url TEXT, published_at INTEGER,
       kind TEXT, payload_json TEXT, first_seen_at INTEGER,
-      telegraph_url TEXT,   -- v7: the Instant View page delivery published; the digest reuses it
+      telegraph_url TEXT,   -- v7: the Instant View page this post got, reused forever (delivery, digest)
       UNIQUE(source_id, guid))
 
 deliveries(id PK, post_id FK, chat_id FK, status TEXT,          -- sent|failed|skipped

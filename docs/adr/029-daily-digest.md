@@ -127,10 +127,10 @@ Four questions decided the shape:
   and `withReadMore` (long captions) hand the page they just published to the caller, which stores it
   in `posts.telegraph_url` (schema v7). `summarisePost` and the overflow path read that column before
   asking Telegra.ph again, so a digest over posts the bot already delivered makes no new page
-  requests — the flood control only appears for posts nobody published yet. The digest clears the
-  column for its window right after the last part is sent: the link existed for the digest, and the
-  post row needs it no longer. A `shortcut:` names the exception: pages the digest itself published
-  are not cached, so a retry republishes those.
+  requests — the flood control only appears for posts nobody published yet. When the digest has to
+  publish one itself, it stores that page on the post too, and the column is kept for the life of the
+  post (retention prunes posts): a retry, the other language or another user on the same source reads
+  the same page instead of writing a second one.
 - **The digest's labels stay English in every language.** Only the content translates — Tamil
   headline, description, key points and audio. The heading, date line, audio line, key-points and
   read-full labels, "Also today", the part label and the footer are identical in `en` and `ta`; the
@@ -167,7 +167,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **476/476 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **478/478 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -196,7 +196,8 @@ Four questions decided the shape:
   reuses a stored link for a summary and for an overflow story with a client that must not publish,
   then finds both columns NULL; `digest-summary` reads the Instant View copy about the seeded link, a
   dead page falls back to the post, and one failed picture leaves the other two; a cached summary
-  still downloads its picture with zero Gemini calls).
+  still downloads its picture with zero Gemini calls; a page the digest publishes is stored on the
+  post and written once; the page's own figures lead the three pictures).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
 - The deployed artifact, on a fresh volume, against a stand-in Bot API: the container logged
@@ -246,8 +247,14 @@ Four questions decided the shape:
   already published; a Tamil digest over a 47-post window (2 summaries, 45 overflow) then logged
   **43 `digest_page` lines, 0 failures, 13 waits** — exactly the 45 uncached stories — and sent
   `{"code":"digest_sent","posts":47,"parts":1,"images":2,"audioSec":74}`, Telegram answering
-  `{"delivered":[2201]}`. A query right after the send read **0 rows still holding a link**; the
-  digest cleared both it reused and nothing else.
+  `{"delivered":[2201]}`.
+- Stored links survive the send and are never rewritten (the rule this ADR now rests on): a 47-post
+  run from an empty cache sent `{"posts":47,"images":3,"audioSec":61}` (`delivered [2206]`) with
+  **9 `digest_page`** stored; the next run sent `{"posts":47,"images":3,"audioSec":57}`
+  (`delivered [2207]`) with **33 new pages + 3 flood failures**, taking the stored count to **42 =
+  9 kept + 33 new** — none of the 9 was published again. Both runs also show Telegraph's own ceiling:
+  the first hit `FLOOD_WAIT_525` (a ~9-minute IP block earned by the earlier test batches), so a cold
+  window can leave some "Also today" entries on their post URL until a later run.
 - The Instant View as the source, live (four runs over the same 47-post window): (a) no cache →
   **45 `digest_page`**, `images:1`, `{"delivered":[2202]}`; (b) every one of the 47 posts given its
   page, summaries cached → **0 `digest_page`**, `images:0` — the cache used to skip extraction;
