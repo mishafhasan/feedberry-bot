@@ -15,8 +15,8 @@ Nothing in this guide changes the code. The server runs the same `Dockerfile` an
 |---|---|---|---|
 | 1 | A computer that stays on 24/7 | The bot uses **long polling**: it asks Telegram "any new messages?" every 25 seconds (`getUpdates`). There is no webhook and no inbound port (ADR-003). | A host that "sleeps" or stops after a while stops asking. The bot goes silent even though the process may look alive. |
 | 2 | A disk that survives restarts | The database `bot.db` holds sources, chats and the job queue. `docker-compose.yml` mounts `./data` to `/data`, and the `Dockerfile` sets `DB_PATH=/data/bot.db`. | On a host with a temporary disk, every restart or redeploy wipes every source the user added. |
-| 3 | **ffmpeg** inside the container | YouTube audio+video muxing, and the 1-second thumbnail frame for long videos (`Dockerfile` line 13, `src/media/thumbnail.ts`). | Long videos fall back to a plain link card; no thumbnail. |
-| 4 | Outbound internet | `api.telegram.org` (delivery), `http://rsshub:1200` (feeds), the source sites and media CDNs (cobalt downloads). | Nothing can be fetched or delivered. |
+| 3 | **ffmpeg** inside the container | YouTube audio+video muxing, the 1-second thumbnail frame for long videos (`Dockerfile` line 13, `src/media/thumbnail.ts`), and the digest's audio overview (one MP3 per day). | Long videos fall back to a plain link card; no thumbnail. The digest ships without its player. |
+| 4 | Outbound internet | `api.telegram.org` (delivery), `http://rsshub:1200` (feeds), `generativelanguage.googleapis.com` (summaries and speech, only with a Gemini key), the source sites and media CDNs (cobalt downloads). | Nothing can be fetched or delivered. |
 | 5 | **2 GB RAM** minimum | Peak is about 1 GB (section 2). | A 1 GB machine swaps or kills Node/ffmpeg at the worst moment. |
 | 6 | **10 GB disk** minimum | Two Docker images = 1.14 GB, build cache ≈ 1.2 GB while building, database grows with posts and a 30-day retention. | `docker build` dies with "no space left on device". |
 | 7 | Docker + Docker Compose | The stack is two containers: `bot` and `rsshub` (`docker-compose.yml`). | — |
@@ -42,6 +42,11 @@ Anything not measured is marked *(estimate)*.
 
 **What that means for a host:** 2 CPU cores, 2 GB RAM and 10 GB disk are comfortable.
 1 GB RAM is not: 400 MB baseline + 512 MB media + ffmpeg already crosses it.
+
+The daily digest adds one short burst a day, not a new baseline: a handful of page fetches, one TTS
+render and one ffmpeg MP3 encode (seconds of one core), a few MB of egress to Gemini and Telegra.ph.
+Its pages and summaries are cached, so a second digest over the same posts (another language, or a
+retry) costs almost nothing *(estimate; not part of the 2026-11-02 measurements above)*.
 
 **Bandwidth is the hidden trap.** A modest workload — 30 sources with 5 new posts each per day
 (≈150 downloads), 5 MB per post — is about 750 MB in + 750 MB out **per day**, ≈ 45 GB per month.
@@ -212,7 +217,31 @@ Two lines in `.env` are overridden by `docker-compose.yml` and need no editing:
 Save in nano with `Ctrl+O`, `Enter`, then `Ctrl+X`.
 
 `TELEGRAPH_TOKEN` may stay empty: on first use the bot creates its own Telegra.ph account and writes
-`data/telegraph-token.txt` next to the database.
+`data/telegraph-token.txt` next to the database. The daily digest publishes through the same account,
+so the token in `data/` is the one to keep with the database in a backup.
+
+### Optional: the daily AI digest (ADR-029)
+
+Leave `GEMINI_API_KEY` empty and the feature is off — no menu button, no digest job. Set it to turn it
+on; one key serves summaries, the script and the voice.
+
+```text
+GEMINI_API_KEY=<from https://aistudio.google.com/apikey>
+```
+
+Defaults are in `.env.example`; all are optional:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DIGEST_MAX_POSTS` | `20` | Full summaries per day; posts past it become “Also today” links. |
+| `GEMINI_TEXT_MODEL` | `gemini-3.8-flash` | Summaries and the script. |
+| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | The audio overview (fixed voice, `Kore`). |
+| `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-4-hydrogen,gemini-3-flash-preview,gemini-3.1-pro-preview,gemini-3.5-flash-lite` | Tried in order on `429`/`4xx`/`5xx` or a per-call timeout. |
+| `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts` | Same ladder for the voice. |
+
+A free-tier key is enough to try it: quotas are per model (about 5 requests a minute, and ~20 requests
+a day for `gemini-3.8-flash`), which is why the ladders exist. A busy day simply hands calls to the next
+model; a paid key removes the limits without any code change.
 
 ### 5.7 Start it
 
@@ -241,6 +270,8 @@ Both `bot` and `rsshub` must say `Up` / `healthy`. The first RSSHub start can ta
 1. In Telegram, open your bot and send `/start`. The main menu appears.
 2. Send `/status`. It answers **only** from the `ADMIN_CHAT_ID` account.
 3. Add one source you use every day, then wait for one post to arrive in your chat.
+4. With a Gemini key: tap `🫐 Daily AI Summary`, choose the chat, add a couple of RSS/blog sources, set
+   the hour and turn it on. The first digest arrives at that hour.
 
 If `/start` says nothing: `docker compose logs --tail 50 bot` and read the last error.
 
@@ -390,6 +421,13 @@ up new code. Your `data/` folder is untouched by any of this.
     throttled, a datacenter IP usually is. `docker compose logs rsshub` shows `Facebook GraphQL
     failed: Rate limit exceeded`. Fix: log in to facebook.com in a browser, copy the whole `Cookie`
     request header into `FACEBOOK_COOKIE=` in `.env`, then `sudo docker compose up -d rsshub`.
+14. **There is no `🫐 Daily AI Summary` button.** — `GEMINI_API_KEY` is empty in `.env`. Set it, then
+    rebuild the container so it reads the new environment: `docker compose up -d --force-recreate bot`
+    (no image rebuild needed; a plain `up -d` does not notice an `env_file` edit).
+15. **The digest did not arrive at its hour.** — Check the settings screen shows `Status: On` with at
+    least one source, then `docker compose logs bot | grep digest`. Free-tier Gemini quotas are per
+    model; the run log shows `gemini_model_fallback` and the digest still ships. The full checklist is
+    `RUNBOOK.md` §10.
 
 ---
 
@@ -405,6 +443,7 @@ All checked on 2026-11-02:
 - Render free web services (15-minute spin-down, no persistent disk, 750 h): <https://render.com/docs/free>
 - Fly.io "Is there a free tier? No.": <https://docs.fly.io/about/pricing>
 - Koyeb pricing (no free compute plan): <https://www.koyeb.com/pricing>
+- Gemini API rate limits (the digest's fallback ladders absorb them): <https://ai.google.dev/gemini-api/docs/rate-limits>
 
 Repository facts used above: `Dockerfile`, `docker-compose.yml`, `package.json`, `.env.example`,
 `src/config.ts`, `docs/adr/010-host-topology.md`, `docs/adr/017-owner-decisions.md`, `docs/RUNBOOK.md`.

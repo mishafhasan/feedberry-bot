@@ -11,6 +11,7 @@ cp .env.example .env
 #   BOT_TOKEN=...          from @BotFather
 #   ADMIN_CHAT_ID=...      your numeric Telegram id
 #   RSSHUB_BASE=http://rsshub:1200
+#   GEMINI_API_KEY=...     optional: turns the daily digest on (ADR-029)
 docker compose up -d
 docker compose logs -f bot     # wait for {"code":"polling_started"}
 ```
@@ -20,6 +21,8 @@ Then, from the admin account:
 1. DM the bot `/status` — it answers only the `ADMIN_CHAT_ID`.
 2. Add one source of each kind you actually need; the per-platform reality is ARCHITECTURE §10.
 3. Confirm a post arrives in the chosen chat, then check `/status` again for `1 fetches ok`.
+4. With a Gemini key: open `🫐 Daily AI Summary` on the main menu, pick the chat, sources, language
+   and hour, then turn it on. Without the key the button is hidden and no `digest` job exists.
 
 ## 2. Day-to-day
 
@@ -29,6 +32,7 @@ Then, from the admin account:
 | Health | `/status` in Telegram; `docker compose ps` for container state |
 | Restart | `docker compose restart bot` |
 | Update | `git pull && docker compose build bot && docker compose up -d` |
+| Digest state | `docker compose logs bot \| grep -E 'digest_sent\|digest_item_fallback\|digest_audio_failed\|gemini_model_fallback\|telegraph_flood_wait\|digest_page'` |
 | RSSHub credentials (only if you ever add instance tokens) | edit `.env`, `docker compose up -d rsshub` — the bot needs no restart |
 
 Idle cost is one long-poll request per 25 s plus a 30 s tick; nothing else runs while no source is due.
@@ -56,7 +60,10 @@ docker compose start bot
 ```
 
 A restore is a file copy; there is no migration step to forget. `PRAGMA user_version` in the file
-records the schema version, and the bot upgrades v1 → v2 on boot if it ever finds an old backup.
+records the schema version, and the bot migrates an old file to the current version on boot (v7: the
+digest's three tables plus `posts.telegraph_url`). Everything the digest owns — `digests`,
+`digest_sources`, `post_summaries` and the cached Instant View links — lives inside `bot.db`; there is
+no second file to back up.
 
 The same drill runs in CI without Docker: `test/integration/m9.test.ts` takes a `VACUUM INTO`
 snapshot of a live database, copies it back and asserts the schema version and the row counts.
@@ -78,7 +85,7 @@ snapshot of a live database, copies it back and asserts the schema version and t
   sources are refused at add time with `E_COOKIE_REQUIRED`.
 - `grep -r "secrets\|auth_ref" src/` must return nothing.
 - The bot token never reaches the DB or the logs; `src/obs/log.ts` redacts `bot<id>:<token>`, `Cookie:`
-  headers and `access_key=`.
+  headers, `access_key=` and the `x-goog-api-key` header.
 - Quotas: `MAX_SOURCES_PER_USER` (250), `MAX_CHATS_PER_USER` (20), `MAX_DOWNLOADS_PER_DAY` (300).
 - A `403` at delivery demotes the chat (`chats.can_post = 0`) instead of retrying forever.
 - Retention: posts `MAX_SOURCE_AGE_DAYS` (30), events 30 days, run by the daily `cleanup` job.
@@ -132,3 +139,35 @@ template for (OQ-13). The bot never uses it: every article becomes a Telegra.ph 
 - **Tier 3 anti-bot** (RSSHub's `chromium-bundled` image) is a per-host choice, not a code path.
   Swap the image in `docker-compose.yml` if a SPA-only route you need stops working; expect
   ~300–600 MB of RSS (ADR-011). The default image deliberately ships without Chromium.
+
+## 10. Daily digest checks (ADR-029)
+
+One rich message a day, at the hour the owner picked, built from the posts of the owner's RSS/blog
+sources in the last 24 h. It is extra: per-post delivery is unchanged. Full behaviour: ADR-029.
+
+**What a healthy run logs** (one JSON line each):
+
+| Code | Meaning |
+|---|---|
+| `digest_sent` | the message went out: `{posts, parts, images, audioSec}` |
+| `digest_page` | a Telegraph page was published for a story that had none; it is stored on the post |
+| `digest_item_fallback` | one summary failed twice; the feed's own words shipped |
+| `digest_audio_failed` | the script or voice failed; the digest shipped without a player |
+| `gemini_model_fallback` | a model was over quota or erroring; the next model in the ladder answered |
+| `telegraph_flood_wait` | Telegra.ph asked the bot to wait; the client waited and retried |
+
+**Digest did not arrive at its hour:**
+
+1. `docker compose logs bot | grep digest` — no `digest_sent` and no error means the job has not run.
+2. `/status`: a large queued count means the worker is busy; the digest job has priority `scheduled`.
+3. Confirm the digest is on and has a source: the settings screen shows `Status: On` and `Sources: n`.
+   Turning the last source off switches the digest off on purpose.
+4. Free-tier Gemini keys are per-model: about 5 requests/minute and, for `gemini-3.8-flash`, ~20 a day.
+   A busy day shows `gemini_model_fallback` and still ships; only when every rung is spent does the job
+   wait on the rate-limit ladder. A paid key removes the limits without a code change.
+5. `FLOOD_WAIT_525` in the log is Telegra.ph blocking the IP for ~9 minutes after ~40 rapid page
+   writes. Pages are cached per post (`posts.telegraph_url`), so this is a first-run cost on a large
+   backlog; the affected “Also today” entries keep their post URL until a later run.
+
+There is no send-now button and no `/digest` command: the digest runs at its hour, and the hour can be
+changed on the settings screen at any time.
