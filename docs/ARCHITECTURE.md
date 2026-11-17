@@ -377,7 +377,9 @@ delivery. Once a day at the owner's hour (`digestSlot`, the same wall-clock arit
    is cleared in one statement, so windows tile.
 3. Per post: `extractArticle` → `publishArticle` (the Telegraph link) → a Gemini JSON summary, cached
    in `post_summaries(post_id, lang)`; the feed's own words stand in when the page or the model
-   fails. At most three pictures per post are downloaded through stage 5.
+   fails. The post's Instant View copy is read instead of the site when one exists (a dead page falls
+   back to the post), pictures keep the post's own URL as referer, and each of the up-to-three is
+   fetched on its own so one failure never empties the item.
 4. One Gemini text call writes the spoken script from the summaries; the TTS model speaks it in
    ≤2 500-character chunks as raw 24 kHz PCM, and `ffmpeg` writes one MP3 with an ID3 title, encoded
    at 1.1× through `atempo` (no pitch shift). Quotas are per model, so a 429/5xx walks the configured
