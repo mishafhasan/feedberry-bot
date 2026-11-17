@@ -5,7 +5,7 @@ import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } fr
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
 import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, setSourceInterval } from '../db/repos/sources.ts';
 import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
-import { digestForChat, digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
+import { digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
 import { ensureUser, setLocale } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
@@ -105,8 +105,6 @@ export const cb = {
   kwClearDefault: 'kw:cleardef',
   kwPage: 'kw:page:',
   digest: 'menu:digest',
-  digestTime: 'menu:digest:time',
-  digestSwitch: 'menu:digest:on',
   digestChat: 'menu:digest:chat',
   djChat: 'dg:chat:',
   djOpen: 'dg:open:',
@@ -199,8 +197,6 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data.startsWith(cb.dest)) return pickDest(ctx, deps, userId, idOf(data, cb.dest));
 
   // ADR-029: every digest tap re-checks ownership inside its handler, never here.
-  if (data === cb.digestTime) return menuDigestTime(ctx, deps, userId, lang);
-  if (data === cb.digestSwitch) return menuDigestSwitch(ctx, deps, userId, lang);
   if (data === cb.digestChat) return menuDigestChat(ctx, deps, userId, lang);
   if (data.startsWith(cb.djChat)) return chooseDigestChat(ctx, deps, userId, idOf(data, cb.djChat), lang);
   if (data.startsWith(cb.djOpen)) return openDigestScreen(ctx, deps, userId, idOf(data, cb.djOpen), lang);
@@ -1401,23 +1397,7 @@ async function switchDigest(ctx: Context, deps: BotDeps, userId: number, digestI
   return openDigestScreen(ctx, deps, userId, digestId, lang, result.notice);
 }
 
-/** `menu:digest:time`: the menu shortcut acts on the private chat's digest, created on first use. */
-async function menuDigestTime(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
-  const user = ensureUser(deps.db, userId);
-  const digest = ensureDigest(deps.db, user.id, personalChat(deps.db, user.id).id);
-  await openDigestTime(ctx, deps, userId, digest.id, lang);
-}
-
-/** `menu:digest:on`: the same switch as the screen, repainting the menu that showed it. */
-async function menuDigestSwitch(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
-  const user = ensureUser(deps.db, userId);
-  const digest = ensureDigest(deps.db, user.id, personalChat(deps.db, user.id).id);
-  const result = switchDigestState(deps, userId, digest.id, lang);
-  if (result === null) return;
-  await paintRich(ctx, mainMenu(userId, deps));
-}
-
-/** `menu:digest:chat`: the destination picker from either menu. */
+/** `menu:digest:chat`: the destination picker, from the digest screen. */
 async function menuDigestChat(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
   const user = ensureUser(deps.db, userId);
   const chats = [personalChat(deps.db, user.id), ...destinations(deps.db, user.id)];
@@ -1427,7 +1407,7 @@ async function menuDigestChat(ctx: Context, deps: BotDeps, userId: number, lang:
 function toastFor(data: string, lang: Lang): string | undefined {
   const toast = actionToast(lang);
   // The digest screens repaint themselves; none of their taps deserves a toast (ADR-029).
-  if (data === cb.digest || data.startsWith('menu:digest:') || data.startsWith('dg:')) return undefined;
+  if (data === cb.digest || data === cb.digestChat || data.startsWith('dg:')) return undefined;
   if (data.startsWith(cb.on)) return toast.enabled;
   if (data.startsWith(cb.off)) return toast.disabled;
   if (data.startsWith(cb.check)) return toast.checkQueued;
@@ -1465,14 +1445,12 @@ function toastFor(data: string, lang: Lang): string | undefined {
 
 export function mainMenu(userId: number, deps: BotDeps): RichView {
   const user = ensureUser(deps.db, userId);
-  const personal = personalChat(deps.db, user.id);
   return mainMenuView({
     userId,
     sourceCount: countSubscriptionsForUser(deps.db, user.id),
     limit: deps.cfg.limits.maxSourcesPerUser,
     trialEnabled: deps.cfg.trialEnabled,
     digest: deps.cfg.digest !== undefined,
-    digestOn: deps.cfg.digest !== undefined && digestForChat(deps.db, user.id, personal.id)?.enabled === 1,
     lang: langFor(user.locale),
   });
 }

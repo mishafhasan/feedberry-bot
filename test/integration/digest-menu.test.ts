@@ -130,8 +130,7 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     const menuRows = rowsOf(api.last('sendRichMessage'));
     assert.ok(labelsOf(api.last('sendRichMessage')).some((label) => label.includes('Daily AI Summary')), 'the button carries the new name');
     assert.ok(menuRows.some((row) => row.includes('menu:digest') && row.includes('menu:schedule')), 'the summary and Schedule share a row');
-    assert.ok(menuRows.some((row) => row.includes('menu:digest:time') && row.includes('menu:digest:on')), 'Time and the switch share a row');
-    assert.ok(menuRows.some((row) => row.includes('menu:digest:chat')), 'Deliver to sits under them');
+    assert.deepEqual(menuRows.flat().filter((data) => data.startsWith('menu:digest')), ['menu:digest'], 'only the entry survives on S1');
 
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest'));
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Daily AI Summary/);
@@ -185,16 +184,16 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     assert.equal(off.enabled, 0);
     assert.equal(off.next_run_at, null);
 
-    // The menu shortcuts drive the same digest without opening its screen.
+    // The S1 shortcuts are gone: an old message that still shows them must change nothing.
+    const legacy = api.calls.length;
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:on'));
-    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', digest.id).enabled, 1, 'the menu switch turns it on');
-    assert.ok(labelsOf(api.last('editMessageText')).some((label) => label.includes('Turn off')), 'the menu repaints with the other label');
-    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:on'));
-    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', digest.id).enabled, 0);
-
+    assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', digest.id).enabled, 0, 'the removed menu switch no longer toggles');
+    assert.equal(api.callsSince(legacy).filter((call) => call.method === 'editMessageText').length, 0, 'no screen repaint');
+    assert.match(String(api.last('answerCallbackQuery')?.body.text ?? ''), /no longer available/);
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:time'));
-    assert.ok(callbacksOf(api.last('editMessageText')).includes(`dg:sethour:${digest.id}:7`), 'the menu opens the hour picker');
+    assert.equal(api.callsSince(legacy).filter((call) => call.method === 'editMessageText').length, 0, 'the removed hour shortcut is dead');
 
+    // The digest screen's Deliver to still lists the destinations.
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:chat'));
     assert.ok(callbacksOf(api.last('editMessageText')).includes(`dg:chat:${chat.id}`), 'Deliver to lists the destinations');
 
@@ -212,6 +211,13 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     // A second destination starts empty: turning it on answers with the notice and stays off.
     const channel = upsertChat(db, { ownerUserId: user.id, tgChatId: -100777, type: 'channel', title: 'Digest Channel', messageThreadId: null, canPost: true, verifiedAt: Date.now(), rightsJson: null });
     const empty = ensureDigest(db, user.id, channel.id);
+
+    // The picker names the personal chat once: `btn.personal` already carries its icon.
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:chat'));
+    const pickerLabels = labelsOf(api.last('editMessageText'));
+    assert.ok(pickerLabels.includes('👤 Personal account'), 'the personal row names itself');
+    assert.ok(!pickerLabels.some((label) => label.includes('👤 👤')), 'the icon is not printed twice');
+    assert.ok(pickerLabels.includes('📢 Digest Channel'), 'a channel keeps its own icon');
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `dg:on:${empty.id}`));
     assert.equal(row<{ enabled: number }>(db, 'SELECT enabled FROM digests WHERE id = ?', empty.id).enabled, 0);
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Pick at least one source/);

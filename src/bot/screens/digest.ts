@@ -102,8 +102,12 @@ export function digestChatView(params: { chats: ChatRow[]; lang?: Lang }): Diges
   const lang = params.lang ?? 'en';
   const keyboard = new InlineKeyboard();
   for (const chat of params.chats) {
-    const icon = chat.type === 'private' ? '👤' : chat.type === 'channel' ? '📢' : '👥';
-    keyboard.text(`${icon} ${short(chat.title ?? t(lang, 'btn.personal'))}`, `dg:chat:${chat.id}`).row();
+    // `btn.personal` already carries the 👤: prefixing it printed "👤 👤 Personal account".
+    const label =
+      chat.type === 'private'
+        ? short(chat.title ?? t(lang, 'btn.personal'))
+        : `${chat.type === 'channel' ? '📢' : '👥'} ${short(chat.title ?? t(lang, 'btn.personal'))}`;
+    keyboard.text(label, `dg:chat:${chat.id}`).row();
   }
   keyboard.text(t(lang, 'btn.back'), 'nav:home');
   return { text: `<b>${esc(t(lang, 'digest.chooseChat'))}</b>`, keyboard };

@@ -253,7 +253,6 @@ const EN = {
   'digest.languageLead': 'Headlines, summaries, key points and the audio are written in this language.',
   'digest.timeTitle': '🎧 Digest time',
   'digest.timeLead': 'Every day at this hour, in your timezone ({tz}).',
-  'digest.hour': '{hour}:00',
   'digest.enable': '▶️ Turn on',
   'digest.disable': '⏸ Turn off',
   'digest.btnSources': '📰 Sources',
@@ -262,8 +261,6 @@ const EN = {
   'digest.btnTime': '🕗 Time',
   'digest.langNameEn': 'English',
   'digest.langNameTa': 'தமிழ்',
-  'toast.digestOn': 'Daily digest is on.',
-  'toast.digestOff': 'Daily digest is off.',
 } as const;
 
 export type TextKey = keyof typeof EN;
@@ -782,7 +779,6 @@ const TA: Partial<Dict> = {
   'digest.languageLead': 'தலைப்புகள், சுருக்கங்கள், முக்கிய குறிப்புகள் மற்றும் ஒலி இந்த மொழியில் இருக்கும்.',
   'digest.timeTitle': '🎧 சுருக்க நேரம்',
   'digest.timeLead': 'ஒவ்வொரு நாளும் இந்த மணிக்கு, உங்கள் நேர மண்டலத்தில் ({tz}).',
-  'digest.hour': '{hour}:00',
   'digest.enable': '▶️ இயக்கு',
   'digest.disable': '⏸ நிறுத்து',
   'digest.btnSources': '📰 மூலங்கள்',
@@ -791,8 +787,6 @@ const TA: Partial<Dict> = {
   'digest.btnTime': '🕗 நேரம்',
   'digest.langNameEn': 'English',
   'digest.langNameTa': 'தமிழ்',
-  'toast.digestOn': 'தினசரி சுருக்கம் இயக்கப்பட்டது.',
-  'toast.digestOff': 'தினசரி சுருக்கம் நிறுத்தப்பட்டது.',
 };
 
 const ID: Partial<Dict> = {

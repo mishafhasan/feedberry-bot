@@ -11,8 +11,8 @@ export const LANGUAGES: Array<{ code: Lang; label: string }> = [
   { code: 'id', label: '🇮🇩 Bahasa Indonesia' },
 ];
 
-/** Two buttons per row, as in the reference screenshot; the digest block pairs with Schedule. */
-export function s1Keyboard(lang: Lang = 'en', digest = false, digestOn = false): InlineKeyboard {
+/** Two buttons per row; the single digest entry pairs with Schedule. */
+export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text(t(lang, 'btn.add'), 'menu:add')
     .text(t(lang, 'btn.sources'), 'menu:sources')
@@ -24,15 +24,7 @@ export function s1Keyboard(lang: Lang = 'en', digest = false, digestOn = false):
     .text(t(lang, 'btn.download'), 'menu:download');
   // ADR-029: no Gemini key, no digest; the button would open a screen that cannot run.
   if (digest) {
-    keyboard
-      .row()
-      .text(t(lang, 'btn.digest'), 'menu:digest')
-      .text(t(lang, 'btn.schedule'), 'menu:schedule')
-      .row()
-      .text(t(lang, 'digest.btnTime'), 'menu:digest:time')
-      .text(t(lang, digestOn ? 'digest.disable' : 'digest.enable'), 'menu:digest:on')
-      .row()
-      .text(t(lang, 'digest.btnChat'), 'menu:digest:chat');
+    keyboard.row().text(t(lang, 'btn.digest'), 'menu:digest').text(t(lang, 'btn.schedule'), 'menu:schedule');
   } else {
     keyboard.row().text(t(lang, 'btn.schedule'), 'menu:schedule');
   }
