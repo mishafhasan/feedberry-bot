@@ -99,8 +99,10 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   // reads it instead of writing it again. The page is not fetched back — `article` is what was written.
   if (telegraphUrl === null && article !== null) {
     telegraphUrl = await pageLink(deps.telegraph, article);
-    if (telegraphUrl !== null) setPostTelegraphUrl(deps.db, post.id, telegraphUrl);
   }
+  // A summary row can be older than the post column (the page was cached before v7 carried it): mirror
+  // it down so delivery and every later digest reuse it too. Only a null row is written.
+  if (telegraphUrl !== null && post.telegraph_url === null) setPostTelegraphUrl(deps.db, post.id, telegraphUrl);
   const images = await pictures(deps, post, article, dir, signal);
 
   const summary = cached === undefined ? await askSummary(deps.gemini, lang, article?.title || payload.title, text, signal) : parseSummary(cached.json);

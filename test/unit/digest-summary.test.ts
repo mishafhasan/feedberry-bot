@@ -122,6 +122,8 @@ test('a cached summary is used as it is and costs no Gemini call', async () => {
     assert.deepEqual(item.points, ['cached point']);
     assert.equal(item.link, 'https://telegra.ph/Cached');
     assert.equal(item.fellBack, false);
+    // A page known only to the summary cache is mirrored onto the post, so delivery reuses it too.
+    assert.equal(getPost(db, post.id)?.telegraph_url, 'https://telegra.ph/Cached');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
