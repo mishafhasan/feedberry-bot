@@ -152,9 +152,6 @@ Four questions decided the shape:
   day resumes with one digest rather than two.
 - `shortcut:` a crash after some parts were sent resends the whole digest on retry; there is no
   per-part ledger. Upgrade when a duplicate is seen.
-- `shortcut:` on a summary-cache hit only the feed's own photos are downloaded (the article is not
-  re-read for its pictures), so a retry may show fewer images than the first attempt. Upgrade when a
-  retry must reproduce the article's pictures.
 - `shortcut:` the digest is English/Tamil only, the voice is fixed (`Kore`), the reason the audio
   failed is only logged, and `DIGEST_MAX_POSTS` silently trades summaries for headline links.
 - A digest with no posts still sends the one-line message and commits the window, so an empty day is
@@ -170,7 +167,7 @@ Four questions decided the shape:
 ## Evidence
 
 - `npm run typecheck`: exit 0.
-- `npm test`: **475/475 pass**, including the eight new files — `digest-render` (English and Tamil
+- `npm test`: **476/476 pass**, including the eight new files — `digest-render` (English and Tamil
   layouts, 0/1/3 images, escaping, no-audio line, empty window, media/text/block splits, "Also today"),
   `digest-window` (`digestSlot` across both 2026 Berlin DST changes, two runs tiling with no overlap,
   the 24 h clamp over a stale `last_window_end`, and a day-old pin being dropped), `digest-audio`
@@ -198,7 +195,8 @@ Four questions decided the shape:
   that carry the cache (`m5` asserts `posts.telegraph_url` after a caption publish; `digest-job`
   reuses a stored link for a summary and for an overflow story with a client that must not publish,
   then finds both columns NULL; `digest-summary` reads the Instant View copy about the seeded link, a
-  dead page falls back to the post, and one failed picture leaves the other two).
+  dead page falls back to the post, and one failed picture leaves the other two; a cached summary
+  still downloads its picture with zero Gemini calls).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
 - The deployed artifact, on a fresh volume, against a stand-in Bot API: the container logged
@@ -250,10 +248,11 @@ Four questions decided the shape:
   `{"code":"digest_sent","posts":47,"parts":1,"images":2,"audioSec":74}`, Telegram answering
   `{"delivered":[2201]}`. A query right after the send read **0 rows still holding a link**; the
   digest cleared both it reused and nothing else.
-- The Instant View as the source, live (three runs over the same 47-post window): (a) no cache →
+- The Instant View as the source, live (four runs over the same 47-post window): (a) no cache →
   **45 `digest_page`**, `images:1`, `{"delivered":[2202]}`; (b) every one of the 47 posts given its
-  page, summaries cached → **0 `digest_page`**, `images:0` (a cache hit skips extraction by design),
-  `{"delivered":[2203]}`; (c) same cache, summaries cleared so the articles are read again →
-  **0 `digest_page`, 0 extract failures, 0 image failures, `images:1`**, audio 63 s,
-  `{"delivered":[2204]}`, and 0 rows left holding a link. (c) is the new path: the picture came
-  through the Instant View copy, since (b) proves the same feed payload alone yields none.
+  page, summaries cached → **0 `digest_page`**, `images:0` — the cache used to skip extraction;
+  (c) same cache, summaries cleared so the articles are read again → **0 `digest_page`, 0 extract
+  failures, 0 image failures, `images:1`**, audio 63 s, `{"delivered":[2204]}`, 0 rows left holding
+  a link; (c) is the new path, the picture came through the Instant View copy since (b) proves the
+  feed payload alone yields none. (d) with the cache-hit fix, the same cached state as (b) →
+  `images:2`, 0 failures, `{"delivered":[2205]}`: a retry now ships the same pictures.
