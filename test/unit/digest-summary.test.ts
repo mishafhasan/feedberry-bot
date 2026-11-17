@@ -14,6 +14,7 @@ import { upsertSource } from '../../src/db/repos/sources.ts';
 import type { Gemini } from '../../src/digest/gemini.ts';
 import { cleanSummary, summarisePost, summaryPrompt } from '../../src/digest/summarise.ts';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
+import type { FeedMedia } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
 
 const http: Http = async (url) => {
@@ -68,7 +69,7 @@ function recordingEngine(): { engine: MediaEngine; items: MediaItem[] } {
   };
 }
 
-function seedPost(media: Array<{ url: string; type: string }> = []): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
+function seedPost(media: FeedMedia[] = []): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-digest-summary-'));
   const db = openDb(join(dir, 'bot.db'));
   const source = upsertSource(db, {
