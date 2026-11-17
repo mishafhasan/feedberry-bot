@@ -27,6 +27,21 @@ test('parseConfig enables X profile sources only with a Twitter token', () => {
   assert.equal(cfg.twitterAuthToken, 'abc', 'the extractor gets the bare cookie value');
 });
 
+test('parseConfig gives each digest role a model ladder', () => {
+  const cfg = parseConfig({ ...base, GEMINI_API_KEY: 'k' });
+  assert.ok(cfg.digest);
+  assert.equal(cfg.digest?.textModel, 'gemini-3.8-flash');
+  assert.equal(cfg.digest?.ttsModel, 'gemini-3.8-flash-tts');
+  assert.deepEqual(cfg.digest?.textFallbacks, ['gemini-3.6-flash', 'gemini-4-hydrogen', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.5-flash-lite']);
+  assert.deepEqual(cfg.digest?.ttsFallbacks, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']);
+  assert.equal(cfg.digest?.maxPosts, 20, 'the digest summarises at most 20 posts');
+  assert.equal(parseConfig({ ...base, GEMINI_API_KEY: 'k', DIGEST_MAX_POSTS: '2' }).digest?.maxPosts, 2, 'a local run caps the summaries at two');
+
+  const custom = parseConfig({ ...base, GEMINI_API_KEY: 'k', GEMINI_TEXT_FALLBACKS: ' a , b ,', GEMINI_TTS_FALLBACKS: 'c' });
+  assert.deepEqual(custom.digest?.textFallbacks, ['a', 'b'], 'a comma list is trimmed');
+  assert.deepEqual(custom.digest?.ttsFallbacks, ['c'], 'the env list replaces the default tail');
+});
+
 test('parseConfig normalizes the RSSHub base and rejects garbage limits', () => {
   assert.equal(parseConfig(base).rsshubBase, 'http://rsshub:1200');
   assert.throws(() => parseConfig({ ...base, MAX_SOURCES_PER_USER: 'many' }), /MAX_SOURCES_PER_USER/);

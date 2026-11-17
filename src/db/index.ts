@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -51,6 +51,46 @@ const MIGRATION_V5 = `
   ALTER TABLE subscriptions ADD COLUMN keywords TEXT;
 `;
 
+/**
+ * v5 → v6: the daily digest (ADR-029). Nothing existing changes: a v5 file simply gains the three
+ * tables, and no user has a digest row until they open the screen.
+ */
+const MIGRATION_V6 = `
+  CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    chat_id INTEGER NOT NULL UNIQUE REFERENCES chats(id) ON DELETE CASCADE,
+    lang TEXT NOT NULL DEFAULT 'en',
+    hour INTEGER NOT NULL DEFAULT 8,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    next_run_at INTEGER,
+    window_end INTEGER,
+    last_window_end INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS digest_sources (
+    digest_id INTEGER NOT NULL REFERENCES digests(id) ON DELETE CASCADE,
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    PRIMARY KEY (digest_id, subscription_id)
+  );
+  CREATE TABLE IF NOT EXISTS post_summaries (
+    post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    lang TEXT NOT NULL,
+    json TEXT NOT NULL,
+    telegraph_url TEXT,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (post_id, lang)
+  );
+  CREATE INDEX IF NOT EXISTS digests_due ON digests (enabled, next_run_at);
+`;
+
+/**
+ * v6 → v7: the Instant View page a post already got at delivery time, so the digest reuses it instead
+ * of asking Telegra.ph (and its flood control) again (ADR-029).
+ */
+const MIGRATION_V7 = `
+  ALTER TABLE posts ADD COLUMN telegraph_url TEXT;
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -76,6 +116,8 @@ function migrate(db: Db): void {
       if (current <= 2) db.exec(MIGRATION_V3);
       if (current <= 3) db.exec(MIGRATION_V4);
       if (current <= 4) db.exec(MIGRATION_V5);
+      if (current <= 5) db.exec(MIGRATION_V6);
+      if (current <= 6) db.exec(MIGRATION_V7);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

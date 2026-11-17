@@ -16,6 +16,8 @@ const MIN_BODY = 200;
 export interface ReadMoreCtx {
   telegraph?: TelegraphClient;
   sourceTitle: string | null;
+  /** The page just published, so the caller can cache it for the digest (ADR-029). */
+  onPage?: (postId: number, url: string) => void;
 }
 
 /** What an Instant View page is built from: a scheduled post, or a Download Mode resolve. */
@@ -30,6 +32,8 @@ export interface ReadMorePage {
   parts: string[];
   /** Image URLs the source already publishes. */
   images: string[];
+  /** The page delivery already published; it is reused instead of writing a second one (ADR-029). */
+  telegraphUrl: string | null;
 }
 
 /** The scheduled-post half: the feed payload carries both the text and the pictures. */
@@ -43,6 +47,7 @@ export function pageOfPost(post: PostRow): ReadMorePage {
     title: payload.title || null,
     parts: bodyParts(post),
     images: payload.media.filter((item) => item.type === 'photo').map((item) => item.url),
+    telegraphUrl: post.telegraph_url,
   };
 }
 
@@ -59,7 +64,7 @@ export async function withReadMore(
   // ADR-023: a rich post carries its whole text; Telegraph stays the RSS/blog path.
   if (plan.kind === 'rich' || !('caption' in plan) || plan.caption.length <= CAPTION_LIMIT || !ctx.telegraph) return plan;
 
-  let url = pages.get(page.id);
+  let url = page.telegraphUrl ?? pages.get(page.id);
   if (url === undefined) {
     url = await pageUrl(ctx.telegraph, ctx, page);
     // A failed publish is remembered too: one attempt per post, not one per chat.
@@ -96,6 +101,7 @@ async function pageUrl(client: TelegraphClient, ctx: ReadMoreCtx, page: ReadMore
     ].join('');
     const published = await publishArticle(client, { title, byline: ctx.sourceTitle ?? 'FeedBerry', siteName: null, html, textLength: 0, url: page.url ?? '', publishedAt: page.publishedAt });
     log('info', 'readmore_published', { post: page.id, images: images.length });
+    if (page.id > 0) ctx.onPage?.(page.id, published);
     return published;
   } catch (err) {
     log('warn', 'readmore_failed', { post: page.id, cause: err instanceof Error ? err.message : String(err) });

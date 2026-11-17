@@ -21,12 +21,17 @@ const PLATFORM_EMOJI: Partial<Record<Platform, string>> = {
   tiktok: '5353034628263330616',
 };
 
+/** The plain emoji, for a surface that renders its text literally — an inline keyboard label. */
+export function platformEmoji(platform: string): string {
+  return Object.hasOwn(PLATFORM_ICON, platform) ? PLATFORM_ICON[platform as Platform] : '🌐';
+}
+
 /** The plain emoji stays inside as the fallback for clients that ignore custom emoji. */
 export function platformIcon(platform: string): string {
+  const emoji = platformEmoji(platform);
   // The row stores the platform as text; `hasOwn` keeps a value like `constructor` off the
   // prototype chain, which would otherwise render "function Object() { [native code] }".
-  if (!Object.hasOwn(PLATFORM_ICON, platform)) return '🌐';
-  const emoji = PLATFORM_ICON[platform as Platform];
+  if (!Object.hasOwn(PLATFORM_ICON, platform)) return emoji;
   const id = Object.hasOwn(PLATFORM_EMOJI, platform) ? PLATFORM_EMOJI[platform as Platform] : undefined;
   return id === undefined ? emoji : `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`;
 }

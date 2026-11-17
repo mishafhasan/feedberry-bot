@@ -1,11 +1,12 @@
 import { log } from '../obs/log.ts';
 import { alerts } from '../obs/alerts.ts';
 import { E, isCoded } from '../platform/errors.ts';
+import { runDigest } from '../digest/run.ts';
 import { deliverPending, runFetchSource, type RunDeps } from '../pipeline/run.ts';
 import { runRetention } from '../pipeline/cleanup.ts';
 import { recordEvent } from '../db/repos/events.ts';
 import { tick } from '../scheduler/tick.ts';
-import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, type JobRow } from './queue.ts';
+import { claim, complete, fail, recoverStale, reschedule, retryDelayMs, touch, LOCK_HEARTBEAT_MS, type JobRow } from './queue.ts';
 
 /** §9.2: a flood wait longer than the inline limit frees the worker and retries later. */
 const FLOOD_REQUEUE_MS = 5 * 60_000;
@@ -19,6 +20,10 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
   recoverStale(deps.db, now);
   const job = claim(deps.db, now);
   if (!job) return false;
+
+  // ADR-029: a digest can outrun the stale window; the beat keeps its claim alive while it works.
+  const beat = setInterval(() => touch(deps.db, job.id), LOCK_HEARTBEAT_MS);
+  beat.unref?.();
 
   try {
     await execute(deps, job, now);
@@ -44,6 +49,8 @@ export async function runOnce(deps: WorkerDeps, now = Date.now()): Promise<boole
       // The cause is the only thing that tells a 5xx, a login wall and a timeout apart.
       log('warn', 'job_retry', { job: job.id, kind: job.kind, code, inMs: delay, cause });
     }
+  } finally {
+    clearInterval(beat);
   }
   return true;
 }
@@ -57,6 +64,10 @@ async function execute(deps: WorkerDeps, job: JobRow, now: number): Promise<void
       return;
     case 'deliver_post':
       await deliverPending(deps, job.target_id, now);
+      return;
+    case 'digest':
+      // ADR-029: a run pins its own window, so a retry selects the same posts.
+      await runDigest(deps, job.target_id, now);
       return;
     case 'cleanup': {
       // §13.1 retention; the event also marks the daily run for the scheduler.
@@ -87,7 +98,7 @@ export function startWorker(deps: WorkerDeps, options: { pollMs?: number; slotMs
         const now = Date.now();
         if (now - lastSlot >= slotMs) {
           lastSlot = now;
-          tick(deps.db, now);
+          tick(deps.db, now, { digests: deps.cfg.digest !== undefined });
           // §13.1 alerts that are cheap to check once per slot.
           if (deps.notifier) {
             await alerts.silent(deps.db, deps.notifier, now).catch(() => false);

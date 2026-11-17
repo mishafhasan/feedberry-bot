@@ -10,6 +10,8 @@ export interface PostRow {
   kind: string | null;
   payload_json: string | null;
   first_seen_at: number;
+  /** The Instant View page delivery published; the digest reuses it (ADR-029). */
+  telegraph_url: string | null;
 }
 
 /**
@@ -44,6 +46,11 @@ export function postByGuid(db: Db, sourceId: number, guid: string): PostRow | un
 
 export function getPost(db: Db, id: number): PostRow | undefined {
   return db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as unknown as PostRow | undefined;
+}
+
+/** Written once by whoever published the page, then reused for good — a stored link is never rewritten. */
+export function setPostTelegraphUrl(db: Db, postId: number, url: string): void {
+  db.prepare('UPDATE posts SET telegraph_url = ? WHERE id = ?').run(url, postId);
 }
 
 /** Stage 4's input: what this source has already recorded, raw so the pipeline owns the rules. */

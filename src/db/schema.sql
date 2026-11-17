@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS posts (
   kind          TEXT,
   payload_json  TEXT,
   first_seen_at INTEGER NOT NULL,
+  -- The Instant View page delivery already published; the digest reuses it instead of republishing.
+  telegraph_url TEXT,
   UNIQUE (source_id, guid)
 );
 
@@ -118,3 +120,36 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- ADR-029: one daily digest per destination chat. `window_end` is pinned by a run in progress so a
+-- retry selects the same posts; `last_window_end` is where the previous digest stopped.
+CREATE TABLE IF NOT EXISTS digests (
+  id              INTEGER PRIMARY KEY,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  chat_id         INTEGER NOT NULL UNIQUE REFERENCES chats(id) ON DELETE CASCADE,
+  lang            TEXT NOT NULL DEFAULT 'en',   -- en|ta
+  hour            INTEGER NOT NULL DEFAULT 8,   -- 0-23, wall clock in users.tz
+  enabled         INTEGER NOT NULL DEFAULT 0,
+  next_run_at     INTEGER,
+  window_end      INTEGER,
+  last_window_end INTEGER
+);
+
+-- The sources of a digest are subscriptions, so unsubscribing removes one by cascade (ADR-029).
+CREATE TABLE IF NOT EXISTS digest_sources (
+  digest_id       INTEGER NOT NULL REFERENCES digests(id) ON DELETE CASCADE,
+  subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  PRIMARY KEY (digest_id, subscription_id)
+);
+
+-- One summary per (post, language): a retry or a second part never pays Gemini twice (ADR-029).
+CREATE TABLE IF NOT EXISTS post_summaries (
+  post_id       INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  lang          TEXT NOT NULL,
+  json          TEXT NOT NULL,
+  telegraph_url TEXT,
+  at            INTEGER NOT NULL,
+  PRIMARY KEY (post_id, lang)
+);
+
+CREATE INDEX IF NOT EXISTS digests_due ON digests (enabled, next_run_at);

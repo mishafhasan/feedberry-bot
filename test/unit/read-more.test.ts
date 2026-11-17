@@ -22,6 +22,7 @@ const post = (summary: string, media: Array<{ url: string; type: string }> = [])
   kind: 'photo',
   payload_json: JSON.stringify({ title: 'A post', summary, media }),
   first_seen_at: 0,
+  telegraph_url: null,
 });
 
 function recorder(): { client: { createPage(page: TelegraphPage): Promise<string> }; pages: TelegraphPage[] } {
@@ -59,8 +60,9 @@ test('Read more: an over-long caption keeps the media, ends in an Instant View l
   ]);
   const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
   const { client, pages } = recorder();
+  const saved: Array<[number, string]> = [];
 
-  const out = await withReadMore(plan, pageOfPost(row), ctx(client), new Map());
+  const out = await withReadMore(plan, pageOfPost(row), { ...ctx(client), onPage: (id, url) => saved.push([id, url]) }, new Map());
   const caption = captionOf(out);
 
   assert.ok(caption.length <= 1024, `caption is ${caption.length} characters`);
@@ -70,11 +72,23 @@ test('Read more: an over-long caption keeps the media, ends in an Instant View l
   assert.doesNotMatch(caption, /\(1\//, 'nothing is split into numbered parts anymore');
 
   assert.equal(pages.length, 1);
+  assert.deepEqual(saved, [[7, 'https://telegra.ph/page-1']], 'the caller is handed the page it should cache');
   // publishArticle stores the Telegraph node array as JSON.
   assert.match(pages[0]?.content ?? '', /"children":\["word word /, 'the page carries the whole text');
   assert.match(pages[0]?.content ?? '', /"children":\["The end\."\]/, 'a blank line in the caption is a paragraph on the page');
   assert.match(pages[0]?.content ?? '', /cdn\.test\/a\.jpg/, 'and the post photo');
   assert.doesNotMatch(pages[0]?.content ?? '', /clip\.mp4|not a url/, 'video and junk URLs stay out');
+});
+
+test('Read more: a page delivery already published is reused, not written again', async () => {
+  const row = post(LONG);
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, { ...pageOfPost(row), telegraphUrl: 'https://telegra.ph/Cached' }, ctx(client), new Map());
+
+  assert.match(captionOf(out), /<a href="https:\/\/telegra\.ph\/Cached">👉🏻 Read more<\/a>$/, 'the cached page is the link');
+  assert.equal(pages.length, 0, 'nothing is published for a post that already has a page');
 });
 
 test('Read more: a Telegraph failure leaves today’s plan alone', async () => {

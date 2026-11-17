@@ -364,6 +364,37 @@ replace the plan. AI features later plug in at `after: "render"` (rewrite/summar
 `after: "classify"` (topic routing) without touching pipeline code. No hook may send to Telegram;
 delivery stays in stage 7 so rate limiting cannot be bypassed.
 
+### 5.8 Daily digest (ADR-029)
+
+A `digest` job (priority `scheduled`) is a second door into stages 2, 5, 6 and 7; it never marks a
+delivery. Once a day at the owner's hour (`digestSlot`, the same wall-clock arithmetic as §4.3):
+
+1. The digest's sources are checked once (`runFetchSource`, the manual-check path, so no
+   `next_slot_at` moves).
+2. `window_end` is pinned, then posts of the selected sources are selected with
+   `first_seen_at >= max(last_window_end, window_end − 24 h) AND first_seen_at < window_end`.
+   A retry reuses the pin; after the last part is sent `last_window_end = window_end` and the pin
+   is cleared in one statement, so windows tile.
+3. Per post: `extractArticle` → `publishArticle` (the Telegraph link, stored once in
+   `posts.telegraph_url`) → a Gemini JSON summary, cached in `post_summaries(post_id, lang)`; the
+   feed's own words stand in when the page or the model fails. The post's Instant View copy is read
+   instead of the site when one exists (a dead page falls back to the post); a page the digest has to
+   publish itself is stored the same way, so no post is ever published twice. The page's own figures
+   lead the up-to-three pictures, the feed's photos fill the rest, pictures keep the post's own URL as
+   referer, and each is fetched on its own so one failure never empties the item.
+4. One Gemini text call writes the spoken script from the summaries; the TTS model speaks it in
+   ≤2 500-character chunks as raw 24 kHz PCM, and `ffmpeg` writes one MP3 with an ID3 title, encoded
+   at 1.1× through `atempo` (no pitch shift). Quotas are per model, so a 429/5xx walks the configured
+   model ladder before the job gives up; the two legacy TTS previews speak through their own
+   `generateContent` audio path and return the same raw PCM.
+5. One `kind: 'rich'` plan per part: header, player in Part 1, numbered items with slideshow, key
+   points and the Telegraph link, footer in the last part. Split under 49 media / 30 000 chars /
+   480 blocks; posts past `DIGEST_MAX_POSTS` become numbered headline links under "Also today",
+   linked to a Telegraph page of their own (no model call) or the post URL when that page fails.
+6. No `GEMINI_API_KEY` → `cfg.digest` is undefined → the button is hidden and the tick passes
+   `digests: false`, so no job exists. The whole run has an 8-minute budget, under the queue's
+   10-minute stale lock.
+
 ---
 
 ## 6. Data model
@@ -395,6 +426,7 @@ subscriptions(id PK, user_id FK, source_id FK, chat_id FK,
 
 posts(id PK, source_id FK, guid TEXT, url TEXT, published_at INTEGER,
       kind TEXT, payload_json TEXT, first_seen_at INTEGER,
+      telegraph_url TEXT,   -- v7: the Instant View page this post got, reused forever (delivery, digest)
       UNIQUE(source_id, guid))
 
 deliveries(id PK, post_id FK, chat_id FK, status TEXT,          -- sent|failed|skipped
@@ -410,6 +442,16 @@ CREATE UNIQUE INDEX jobs_one_active ON jobs(kind, target_id)
 
 events(id PK, at INTEGER, level TEXT, code TEXT, source_id INTEGER NULL,
        chat_id INTEGER NULL, detail TEXT)                       -- audit + failure reason
+
+digests(id PK, user_id FK, chat_id FK UNIQUE, lang TEXT,        -- en|ta (ADR-029)
+        hour INTEGER, enabled INTEGER, next_run_at INTEGER,
+        window_end INTEGER, last_window_end INTEGER)            -- pinned / committed window ends
+
+digest_sources(digest_id FK, subscription_id FK,                -- PK both; cascade from the subscription
+               PRIMARY KEY(digest_id, subscription_id))
+
+post_summaries(post_id FK, lang TEXT, json TEXT, telegraph_url TEXT, at INTEGER,
+               PRIMARY KEY(post_id, lang))                      -- one Gemini answer per post per language
 ```
 
 Health lives on `sources` (the spec's "last check, last failure reason"), and `events` keeps the last
@@ -424,6 +466,12 @@ N per source for the operator.
 | `MAX_DOWNLOAD_MB` | 100 | internal |
 | `BACKFILL_COUNT` | 5 | "showing latest posts" (S4) |
 | `MAX_SOURCE_AGE_DAYS` | 30 | cleanup of `posts` |
+| `GEMINI_API_KEY` | unset | the whole digest feature (ADR-029); unset hides it |
+| `GEMINI_TEXT_MODEL` | `gemini-3.8-flash` | summaries and the script |
+| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | the audio overview |
+| `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-4-hydrogen,gemini-3-flash-preview,gemini-3.1-pro-preview,gemini-3.5-flash-lite` | tried in order after the primary on 429/5xx |
+| `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts` | same ladder, for the voice (the legacy two use `generateContent`) |
+| `DIGEST_MAX_POSTS` | 20 | posts beyond it are headline links, not summaries; a local run sets 2 |
 
 `250` matches the screenshot; it is a config default, not a promise.
 
@@ -487,6 +535,14 @@ preview, add_mode, done`. I added `error` and `confirming_delete` because S10/S1
 | `kw:def` | /filter | `askDefaultKeywords` | — | FSM `keywordStep` | prompt for the fallback list |
 | `kw:cleardef` | /filter | `clearDefaultKeywords` | — | `users.default_keywords=NULL` | repaint /filter |
 | `kw:page:<n>` | /filter | `openFilterFor` | `subscriptions`+`sources` paged | — | repaint /filter on page n |
+| `menu:digest` | S1 | `openDigest` | `chats` (destination) | — | destination picker, or the digest screen for a single chat |
+| `dg:chat:<chatId>` | digest destinations | `chooseDigestChat` | `chats` ownership | creates `digests` | digest screen for that chat |
+| `dg:open:<d>` | any digest screen | `openDigestScreen` | `digests`, `chats` | — | digest screen |
+| `dg:src:<d>:<p>` / `dg:page:<d>:<p>` | digest | `renderDigestSourcesPage` | own RSS `subscriptions`+`sources` paged | — | source list |
+| `dg:tg:<d>:<sub>` | digest sources | `toggleDigestSourceOf` | ownership of digest and subscription | insert/delete `digest_sources` | repaint the same page |
+| `dg:lang:<d>` / `dg:setlang:<d>:<code>` | digest | `openDigestLanguage` / `setDigestLanguageOf` | `digests.lang` | `digests.lang` | language screen |
+| `dg:time:<d>` / `dg:sethour:<d>:<h>` | digest | `openDigestTime` / `setDigestHourOf` | `digests.hour` | `hour`, `next_run_at` | time screen (24 hours) |
+| `dg:on:<d>` | digest | `switchDigest` | `digest_sources` count | `enabled`, `next_run_at` | on needs a source; off clears the slot |
 | `add:dest:<chatId>` | S4 | `onPickDest` | `chats` row, `chats.can_post` | — | edit to S5 |
 | `add:save` | S5 | `onAddSave` | pending source | insert `sources`/`subscriptions`, backfill job | S6 "Data source «X» is added…" |
 | `add:save_silent` | S5 | `onAddSaveSilent` | pending source | same, `deliver_latest=0` | S6 |
@@ -513,6 +569,7 @@ same message, so the chat does not fill with drafts. `src:check` keeps the list 
 | S9 toast queued | S7 | — | `jobs` |
 | S10 delete confirm | `confirming_delete` | source title | — |
 | S11 toast deleted | S7 | — | deletes |
+| Daily digest | `idle` | `digests`, `digest_sources`, own RSS `subscriptions` | `digests`, `digest_sources` (ADR-029) |
 
 The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source checked: <human age>`.
 
