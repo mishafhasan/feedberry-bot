@@ -32,6 +32,8 @@ export interface ReadMorePage {
   parts: string[];
   /** Image URLs the source already publishes. */
   images: string[];
+  /** The page delivery already published; it is reused instead of writing a second one (ADR-029). */
+  telegraphUrl: string | null;
 }
 
 /** The scheduled-post half: the feed payload carries both the text and the pictures. */
@@ -45,6 +47,7 @@ export function pageOfPost(post: PostRow): ReadMorePage {
     title: payload.title || null,
     parts: bodyParts(post),
     images: payload.media.filter((item) => item.type === 'photo').map((item) => item.url),
+    telegraphUrl: post.telegraph_url,
   };
 }
 
@@ -61,7 +64,7 @@ export async function withReadMore(
   // ADR-023: a rich post carries its whole text; Telegraph stays the RSS/blog path.
   if (plan.kind === 'rich' || !('caption' in plan) || plan.caption.length <= CAPTION_LIMIT || !ctx.telegraph) return plan;
 
-  let url = pages.get(page.id);
+  let url = page.telegraphUrl ?? pages.get(page.id);
   if (url === undefined) {
     url = await pageUrl(ctx.telegraph, ctx, page);
     // A failed publish is remembered too: one attempt per post, not one per chat.

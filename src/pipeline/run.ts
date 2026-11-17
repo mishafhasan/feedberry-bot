@@ -240,6 +240,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       publishedAt: post.published_at,
       sourceTitle,
       platform,
+      telegraphUrl: post.telegraph_url,
     });
     if (article) return article;
   }

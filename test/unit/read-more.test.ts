@@ -80,6 +80,17 @@ test('Read more: an over-long caption keeps the media, ends in an Instant View l
   assert.doesNotMatch(pages[0]?.content ?? '', /clip\.mp4|not a url/, 'video and junk URLs stay out');
 });
 
+test('Read more: a page delivery already published is reused, not written again', async () => {
+  const row = post(LONG);
+  const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });
+  const { client, pages } = recorder();
+
+  const out = await withReadMore(plan, { ...pageOfPost(row), telegraphUrl: 'https://telegra.ph/Cached' }, ctx(client), new Map());
+
+  assert.match(captionOf(out), /<a href="https:\/\/telegra\.ph\/Cached">👉🏻 Read more<\/a>$/, 'the cached page is the link');
+  assert.equal(pages.length, 0, 'nothing is published for a post that already has a page');
+});
+
 test('Read more: a Telegraph failure leaves today’s plan alone', async () => {
   const row = post(LONG);
   const plan = renderPost(row, 'photo', [photo], { platform: 'rss', sourceTitle: 'My Blog' });

@@ -1,4 +1,4 @@
-import { extractArticle } from '../article/readability.ts';
+import { extractArticle, type Article } from '../article/readability.ts';
 import { publishArticle, telegraphClient, type TelegraphClient } from '../article/telegraph.ts';
 import type { Http } from '../platform/http.ts';
 import { isCoded } from '../platform/errors.ts';
@@ -20,6 +20,8 @@ export interface ArticleInput {
   /** The source's platform, printed as the header's label. */
   platform: string;
   tz?: string;
+  /** The Instant View page delivery already published; it is read instead of the site, never republished. */
+  telegraphUrl?: string | null;
 }
 
 export interface ArticleDeps {
@@ -29,14 +31,16 @@ export interface ArticleDeps {
   onPage?: (url: string) => void;
 }
 
-/**
- * Stages 1b → 6 for a single web page: extract, publish to Telegra.ph, format.
+/** Stages 1b → 6 for a single web page: extract, publish to Telegra.ph, format.
  * Returns null only when extraction itself failed, so the caller can fall back to media.
- * A thin page still produces a plan — a link card — because a blog post is never dropped.
+ * The Instant View copy is read first when one exists — static, and it saves the site a fetch
+ * (ADR-029); a dead or thin page falls through to the post itself. A thin page still produces a
+ * plan — a link card — because a blog post is never dropped.
  */
 export async function planArticle(deps: ArticleDeps, input: ArticleInput): Promise<MessagePlan | null> {
   try {
-    const article = await extractArticle(deps.http, input.url);
+    const article = (input.telegraphUrl ? await tryArticle(deps.http, input.telegraphUrl) : null) ?? (await tryArticle(deps.http, input.url));
+    if (article === null) return null;
     // A downloaded page names itself; the host is the last resort only when it declares no site name.
     const sourceTitle = input.sourceTitle ?? article.siteName ?? new URL(input.url).hostname.replace(/^www\./, '');
     // The feed's date wins; a downloaded page only has its own.
@@ -50,11 +54,21 @@ export async function planArticle(deps: ArticleDeps, input: ArticleInput): Promi
     if (article.textLength < ARTICLE_MIN_CHARS) {
       return { kind: 'link_only', text: `${header}\n\n${esc(article.title || input.title || '')}\n\n${esc(input.url)}` };
     }
-    const ivUrl = await publishArticle(deps.telegraph ?? telegraphClient, article);
-    deps.onPage?.(ivUrl);
+    const ivUrl = input.telegraphUrl ?? (await publishArticle(deps.telegraph ?? telegraphClient, article));
+    if (input.telegraphUrl === undefined || input.telegraphUrl === null) deps.onPage?.(ivUrl);
     return renderArticle(article, ivUrl, header);
   } catch (err) {
     log('warn', 'article_failed', { url: input.url, code: isCoded(err) ? err.code : 'unknown' });
+    return null;
+  }
+}
+
+/** One source's extraction; null sends the caller to the other source, never to a lost post. */
+async function tryArticle(http: Http, url: string): Promise<Article | null> {
+  try {
+    return await extractArticle(http, url);
+  } catch (err) {
+    log('warn', 'article_failed', { url, code: isCoded(err) ? err.code : 'unknown' });
     return null;
   }
 }

@@ -170,12 +170,104 @@ test('pictures ask for the page as referer with a browser user-agent', async () 
   const { engine, items } = recordingEngine();
   const { gemini, calls } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
   try {
-    const summary = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    // Even when the text comes from the Instant View copy, the picture's referer is the post's page.
+    const summary = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, { ...post, telegraph_url: 'https://telegra.ph/Post' }, 'en', dir, new AbortController().signal, 'Blog');
     assert.equal(summary.images.length, 1);
     assert.equal(calls(), 1);
     // Hotlink-protected CDNs answer 403 without these two; the referer names the page that showed it.
     assert.equal(items[0]?.headers?.referer, 'https://blog.test/one');
     assert.match(String(items[0]?.headers?.['user-agent'] ?? ''), /^Mozilla\/5\.0/);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('the Instant View copy is the page read first, and its text reaches the prompt', async () => {
+  const { dir, db, post } = seedPost();
+  const seen: string[] = [];
+  const ivHttp: Http = async (url) => {
+    seen.push(url);
+    return { status: 200, url, contentType: 'text/html', body: `<html><head><title>IV title</title></head><body><article><h1>IV title</h1><p>${'instant '.repeat(100)}</p></article></body></html>` };
+  };
+  const prompts: string[] = [];
+  const gemini: Gemini = {
+    async json<T>(_schema: unknown, prompt: string): Promise<T> {
+      prompts.push(prompt);
+      return { headline: 'H', description: 'D', key_points: [] } as T;
+    },
+    async text() {
+      throw new Error('no text in a summary test');
+    },
+    async speak() {
+      throw new Error('no speech in a summary test');
+    },
+  };
+  try {
+    const item = await summarisePost({ db, http: ivHttp, media: noEngine, gemini, maxMb: 100 }, { ...post, telegraph_url: 'https://telegra.ph/P1' }, 'en', dir, new AbortController().signal, 'Blog');
+    assert.deepEqual(seen, ['https://telegra.ph/P1'], 'the static copy is the only page fetched');
+    assert.match(prompts[0] ?? '', /instant instant/, 'its text, not the original page, feeds the model');
+    assert.equal(item.link, 'https://telegra.ph/P1');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a dead Instant View page falls back to the post itself', async () => {
+  const { dir, db, post } = seedPost();
+  const seen: string[] = [];
+  const deadIvHttp: Http = async (url) => {
+    seen.push(url);
+    if (url.startsWith('https://telegra.ph/')) throw new Error('404');
+    return { status: 200, url, contentType: 'text/html', body: `<html><head><title>Post title</title></head><body><article><h1>Post title</h1><p>${'original '.repeat(100)}</p></article></body></html>` };
+  };
+  const prompts: string[] = [];
+  const gemini: Gemini = {
+    async json<T>(_schema: unknown, prompt: string): Promise<T> {
+      prompts.push(prompt);
+      return { headline: 'H', description: 'D', key_points: [] } as T;
+    },
+    async text() {
+      throw new Error('no text in a summary test');
+    },
+    async speak() {
+      throw new Error('no speech in a summary test');
+    },
+  };
+  try {
+    await summarisePost({ db, http: deadIvHttp, media: noEngine, gemini, maxMb: 100 }, { ...post, telegraph_url: 'https://telegra.ph/Dead' }, 'en', dir, new AbortController().signal, 'Blog');
+    assert.deepEqual(seen, ['https://telegra.ph/Dead', 'https://blog.test/one'], 'the post is the fallback source');
+    assert.match(prompts[0] ?? '', /original original/);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('one failed picture does not drop the item’s other pictures', async () => {
+  const { dir, db, post } = seedPost([
+    { url: 'https://cdn.test/a.jpg', type: 'photo' },
+    { url: 'https://cdn.test/b.jpg', type: 'photo' },
+    { url: 'https://cdn.test/c.jpg', type: 'photo' },
+  ]);
+  const saved: MediaItem[] = [];
+  const engine: MediaEngine = {
+    async resolve() {
+      throw new Error('no resolve in a summary test');
+    },
+    async download(item, into) {
+      if (item.url.includes('/b.jpg')) throw new Error('403 hotlink');
+      saved.push(item);
+      const path = join(into, `${saved.length}.jpg`);
+      writeFileSync(path, 'x');
+      return path;
+    },
+  };
+  const { gemini } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const item = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(item.images.length, 2, 'the two good pictures still reach the item');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

@@ -29,3 +29,34 @@ test('planArticle caches nothing when the page is too thin to publish', async ()
   assert.equal(plan?.kind, 'link_only');
   assert.deepEqual(saved, []);
 });
+
+test('planArticle reads the Instant View copy first and never republishes it', async () => {
+  const seen: string[] = [];
+  let published = 0;
+  const http: Http = async (url) => {
+    seen.push(url);
+    return { status: 200, url, contentType: 'text/html', body: article('IV copy', 120) };
+  };
+  const plan = await planArticle(
+    { http, telegraph: { createPage: async () => (published++, 'https://telegra.ph/new') } },
+    { url: 'https://blog.test/post', title: 'Post', publishedAt: null, sourceTitle: 'Blog', platform: 'rss', telegraphUrl: 'https://telegra.ph/Post' },
+  );
+  assert.ok(plan);
+  assert.deepEqual(seen, ['https://telegra.ph/Post'], 'the static copy is the only page fetched');
+  assert.equal(published, 0, 'a cached page is reused, not written again');
+});
+
+test('planArticle falls back to the post when its Instant View page is dead', async () => {
+  const seen: string[] = [];
+  const http: Http = async (url) => {
+    seen.push(url);
+    if (url.startsWith('https://telegra.ph/')) throw new Error('404');
+    return { status: 200, url, contentType: 'text/html', body: article('Post page', 120) };
+  };
+  const plan = await planArticle(
+    { http, telegraph: { createPage: async () => 'https://telegra.ph/fresh' } },
+    { url: 'https://blog.test/post', title: 'Post', publishedAt: null, sourceTitle: 'Blog', platform: 'rss', telegraphUrl: 'https://telegra.ph/Dead' },
+  );
+  assert.ok(plan);
+  assert.deepEqual(seen, ['https://telegra.ph/Dead', 'https://blog.test/post'], 'the post is the fallback source');
+});

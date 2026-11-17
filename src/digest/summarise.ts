@@ -90,7 +90,8 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
 
   // shortcut: on a cache hit only the feed's own photos are downloaded, so a retry may show fewer
   // images than the first run; upgrade when a retry must reproduce the article's pictures.
-  const article = cached === undefined ? await articleOf(deps.http, post.url) : null;
+  // The Instant View page is static and readable; the post itself is the fallback (ADR-029).
+  const article = cached === undefined ? ((await articleOf(deps.http, post.telegraph_url)) ?? (await articleOf(deps.http, post.url))) : null;
   const text = clamp(article === null ? feedText : textOf(article.html), MAX_ARTICLE_CHARS);
   const telegraphUrl = cached?.telegraph_url ?? post.telegraph_url ?? (article === null ? null : await pageLink(deps.telegraph, article));
   const images = await pictures(deps, post, article, dir, signal);
@@ -176,11 +177,20 @@ async function pictures(deps: SummariseDeps, post: PostRow, article: Article | n
 
   try {
     await mkdir(own, { recursive: true });
-    // The picture is only served back to the page that showed it; the referer names that page.
-    const referer = article?.url ?? post.url ?? undefined;
+    // The picture is only served back to the page that showed it; that page is the post's own, even
+    // when the text came from the Instant View copy (its figures keep the original CDN URLs).
+    const referer = post.url ?? article?.url ?? undefined;
     const items = urls.map((url) => ({ kind: 'photo' as const, url, picker: false, ...(referer === undefined ? {} : { headers: { ...IMAGE_HEADERS, referer } }) }));
-    const files = await prepareMedia(deps.media, items, own, { maxMb: deps.maxMb, signal });
-    return files.filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path);
+    // One failed picture costs that picture; the others still reach the item.
+    const files = await Promise.all(
+      items.map((item) =>
+        prepareMedia(deps.media, [item], own, { maxMb: deps.maxMb, signal }).catch((err: unknown) => {
+          log('warn', 'digest_images_failed', { post: post.id, url: item.url, cause: message(err) });
+          return [];
+        }),
+      ),
+    );
+    return files.flat().filter((file) => file.kind === 'photo' && file.path !== '').map((file) => file.path);
   } catch (err) {
     log('warn', 'digest_images_failed', { post: post.id, cause: message(err) });
     return [];
