@@ -127,6 +127,25 @@ test('a cached summary is used as it is and costs no Gemini call', async () => {
   }
 });
 
+test('a cached summary still reads the page for its pictures', async () => {
+  const { dir, db, post } = seedPost();
+  putSummary(db, post.id, 'en', JSON.stringify({ headline: 'Cached headline', description: 'Cached description', key_points: [] }), 'https://telegra.ph/P1', Date.now());
+  const { engine } = recordingEngine();
+  const pageHttp: Http = async (url) => ({ status: 200, url, contentType: 'text/html', body: `<html><head><title>Page title</title></head><body><article><h1>Page title</h1><p>${'word '.repeat(100)}</p><img src="https://cdn.test/pic.jpg"/></article></body></html>` });
+  const { gemini, calls } = countingGemini(() => {
+    throw new Error('the cache must answer');
+  });
+  try {
+    const item = await summarisePost({ db, http: pageHttp, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(calls(), 0, 'the summary is not paid for twice');
+    assert.equal(item.images.length, 1, 'but its picture still reaches the item');
+    assert.equal(item.link, 'https://telegra.ph/P1');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('the cache is per language: an English row does not answer a Tamil run', async () => {
   const { dir, db, post } = seedPost();
   try {

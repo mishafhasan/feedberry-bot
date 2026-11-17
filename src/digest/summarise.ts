@@ -88,10 +88,9 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   const feedText = bodyParts(post).join('\n\n').trim();
   const cached = getSummary(deps.db, post.id, lang);
 
-  // shortcut: on a cache hit only the feed's own photos are downloaded, so a retry may show fewer
-  // images than the first run; upgrade when a retry must reproduce the article's pictures.
-  // The Instant View page is static and readable; the post itself is the fallback (ADR-029).
-  const article = cached === undefined ? ((await articleOf(deps.http, post.telegraph_url)) ?? (await articleOf(deps.http, post.url))) : null;
+  // The Instant View page is static and readable; the post itself is the fallback (ADR-029). A cached
+  // summary still reads the page: a retry must ship the same pictures, not a text-only digest.
+  const article = (await articleOf(deps.http, post.telegraph_url)) ?? (await articleOf(deps.http, post.url));
   const text = clamp(article === null ? feedText : textOf(article.html), MAX_ARTICLE_CHARS);
   const telegraphUrl = cached?.telegraph_url ?? post.telegraph_url ?? (article === null ? null : await pageLink(deps.telegraph, article));
   const images = await pictures(deps, post, article, dir, signal);
