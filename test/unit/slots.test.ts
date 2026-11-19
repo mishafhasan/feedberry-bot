@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { slotAfter } from '../../src/scheduler/slots.ts';
+import { digestSlot, slotAfter } from '../../src/scheduler/slots.ts';
 
 const utc = (year: number, month: number, day: number, hour: number): number => Date.UTC(year, month - 1, day, hour);
 
@@ -32,4 +32,16 @@ test('M4 slots: the next slot is always in the future', () => {
       assert.ok(slotAfter(at, tz, null) > at, `${tz} at ${new Date(at).toISOString()}`);
     }
   }
+});
+
+test('M4 slots: a half-hour zone lands on its own wall clock', () => {
+  // Colombo is UTC+5:30, so 08:00 local is 02:30 UTC - the case a fixed-offset shortcut would miss.
+  assert.equal(slotAfter(utc(2026, 1, 15, 1), 'Asia/Colombo', null), utc(2026, 1, 15, 2) + 30 * 60_000);
+  assert.equal(digestSlot(utc(2026, 1, 15, 1), 'Asia/Colombo', 8), utc(2026, 1, 15, 2) + 30 * 60_000);
+});
+
+test('M4 slots: an unknown zone degrades to UTC instead of throwing inside the tick', () => {
+  // The tick swallows its own errors into a log line, so one bad users.tz would stop every schedule.
+  assert.equal(slotAfter(utc(2025, 10, 24, 7), 'Mars/Base', null), utc(2025, 10, 24, 8));
+  assert.equal(digestSlot(utc(2025, 10, 24, 7), 'Mars/Base', 9), utc(2025, 10, 24, 9));
 });
