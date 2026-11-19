@@ -11,6 +11,50 @@ export const LANGUAGES: Array<{ code: Lang; label: string }> = [
   { code: 'id', label: '🇮🇩 Bahasa Indonesia' },
 ];
 
+/**
+ * The zones the picker offers, as IANA names: an offset would be wrong twice a year. Sri Lanka leads
+ * because it is the zone this screen exists for, and the list is also the whitelist for `tz:` taps.
+ * It is a convenience set, not exhaustive: a zone written straight into `users.tz` still works, it is
+ * just not marked in the picker until it happens to be one of these.
+ */
+export const TIMEZONES: ReadonlyArray<{ zone: string; label: string }> = [
+  { zone: 'Asia/Colombo', label: '🇱🇰 Sri Lanka (Colombo)' },
+  { zone: 'Asia/Kolkata', label: '🇮🇳 India (Kolkata)' },
+  { zone: 'Asia/Kathmandu', label: '🇳🇵 Nepal (Kathmandu)' },
+  { zone: 'Asia/Karachi', label: '🇵🇰 Pakistan (Karachi)' },
+  { zone: 'Asia/Dhaka', label: '🇧🇩 Bangladesh (Dhaka)' },
+  { zone: 'Asia/Yangon', label: '🇲🇲 Myanmar (Yangon)' },
+  { zone: 'Asia/Bangkok', label: '🇹🇭 Thailand (Bangkok)' },
+  { zone: 'Asia/Jakarta', label: '🇮🇩 Indonesia (Jakarta)' },
+  { zone: 'Asia/Singapore', label: '🇸🇬 Singapore' },
+  { zone: 'Asia/Manila', label: '🇵🇭 Philippines (Manila)' },
+  { zone: 'Asia/Shanghai', label: '🇨🇳 China (Shanghai)' },
+  { zone: 'Asia/Tokyo', label: '🇯🇵 Japan (Tokyo)' },
+  { zone: 'Australia/Sydney', label: '🇦🇺 Australia (Sydney)' },
+  { zone: 'Pacific/Auckland', label: '🇳🇿 New Zealand (Auckland)' },
+  { zone: 'Asia/Dubai', label: '🇦🇪 UAE (Dubai)' },
+  { zone: 'Asia/Riyadh', label: '🇸🇦 Saudi Arabia (Riyadh)' },
+  { zone: 'Europe/Istanbul', label: '🇹🇷 Türkiye (Istanbul)' },
+  { zone: 'Europe/Moscow', label: '🇷🇺 Russia (Moscow)' },
+  { zone: 'Africa/Nairobi', label: '🇰🇪 Kenya (Nairobi)' },
+  { zone: 'Europe/Athens', label: '🇬🇷 Greece (Athens)' },
+  { zone: 'Africa/Johannesburg', label: '🇿🇦 South Africa (Johannesburg)' },
+  { zone: 'Europe/Berlin', label: '🇩🇪 Germany (Berlin)' },
+  { zone: 'Europe/Paris', label: '🇫🇷 France (Paris)' },
+  { zone: 'Europe/Madrid', label: '🇪🇸 Spain (Madrid)' },
+  { zone: 'Europe/London', label: '🇬🇧 UK (London)' },
+  { zone: 'UTC', label: '🌐 UTC' },
+  { zone: 'America/Sao_Paulo', label: '🇧🇷 Brazil (São Paulo)' },
+  { zone: 'America/Argentina/Buenos_Aires', label: '🇦🇷 Argentina (Buenos Aires)' },
+  { zone: 'America/Bogota', label: '🇨🇴 Colombia (Bogotá)' },
+  { zone: 'America/New_York', label: '🇺🇸 USA (New York)' },
+  { zone: 'America/Chicago', label: '🇺🇸 USA (Chicago)' },
+  { zone: 'America/Mexico_City', label: '🇲🇽 Mexico (Mexico City)' },
+  { zone: 'America/Denver', label: '🇺🇸 USA (Denver)' },
+  { zone: 'America/Los_Angeles', label: '🇺🇸 USA (Los Angeles)' },
+  { zone: 'Pacific/Honolulu', label: '🇺🇸 USA (Honolulu)' },
+];
+
 /** Two buttons per row; the single digest entry pairs with Schedule. */
 export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
   const keyboard = new InlineKeyboard()
@@ -20,7 +64,7 @@ export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
     .text(t(lang, 'btn.filter'), 'menu:filter')
     .text(t(lang, 'btn.supported'), 'menu:supported')
     .row()
-    .text(t(lang, 'btn.help'), 'menu:help')
+    .text(t(lang, 'btn.settings'), 'menu:settings')
     .text(t(lang, 'btn.download'), 'menu:download');
   // ADR-029: no Gemini key, no digest; the button would open a screen that cannot run.
   if (digest) {
@@ -31,9 +75,36 @@ export function s1Keyboard(lang: Lang = 'en', digest = false): InlineKeyboard {
   return keyboard;
 }
 
-/** Screens that are one message deep: Supported Sites, Help, About, Language. */
+/** Screens that sit one message deep and only need a way home. */
 export function menuKeyboard(lang: Lang = 'en'): InlineKeyboard {
   return new InlineKeyboard().text(t(lang, 'btn.home'), 'nav:home');
+}
+
+/** The Settings hub: the two info screens and the clock every scheduled post and digest follows. */
+export function settingsKeyboard(lang: Lang = 'en'): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(lang, 'btn.help'), 'set:help')
+    .text(t(lang, 'btn.about'), 'set:about')
+    .row()
+    .text(t(lang, 'btn.setTimezone'), 'set:tz')
+    .row()
+    .text(t(lang, 'btn.home'), 'nav:home');
+}
+
+/** Help and About open from Settings, so they return there; the error notice still goes Home. */
+export function settingsBackKeyboard(lang: Lang = 'en'): InlineKeyboard {
+  return new InlineKeyboard().text(t(lang, 'btn.back'), 'menu:settings');
+}
+
+/** Two per row, the active zone marked; a tap cannot leave this list. */
+export function timezoneKeyboard(current: string, lang: Lang = 'en'): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const [index, entry] of TIMEZONES.entries()) {
+    // Break before a pair, never after one: a trailing `.row()` would leave a blank row.
+    if (index > 0 && index % 2 === 0) keyboard.row();
+    keyboard.text(`${entry.zone === current ? '✅ ' : ''}${entry.label}`, `tz:${entry.zone}`);
+  }
+  return keyboard.row().text(t(lang, 'btn.back'), 'menu:settings');
 }
 
 export function languageKeyboard(): InlineKeyboard {

@@ -93,6 +93,9 @@ test('M10 menu: seven buttons, /supported_sites and /language answer, language i
     const rows = (s1?.body.reply_markup as { inline_keyboard: unknown[][] } | undefined)?.inline_keyboard ?? [];
     assert.equal(rows.length, 4, 'four rows: Filter joined the pairs, Check schedule closes the menu');
     assert.equal(rows.flat().length, 7, 'seven buttons');
+    const menu = rows.flat() as Array<{ callback_data?: string }>;
+    assert.ok(menu.some((button) => button.callback_data === 'menu:settings'), 'Help is now one step deeper, behind Settings');
+    assert.ok(!menu.some((button) => button.callback_data === 'menu:help'), 'no standalone Help on S1');
 
     await bot.handleUpdate(commandUpdate(2, USER_ID, 'supported_sites'));
     assert.match(String(api.last('sendMessage')?.body.text), /Supported sites/);
