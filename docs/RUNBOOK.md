@@ -126,7 +126,8 @@ poster, so cobalt already reached Instagram when the error appears.
    A 200 under 60 s means the route is fine and the wait was the bot's cap.
 3. **5xx is the route, not the bot.** `docker compose logs rsshub | tail -40`. A guest scrape that hits
    `/accounts/login/` needs `INSTAGRAM_COOKIE` in `.env` (`sessionid=…; ds_user_id=…`), then
-   `docker compose up -d rsshub`. The bot never receives that value; compose clears it there.
+   `docker compose up -d rsshub`. Both the sidecar and the bot read that value, so restart both after
+   changing it.
 4. **DNS and egress.** `docker compose exec bot getent hosts rsshub` must resolve; the rsshub
    container's egress IP is what Instagram throttles, and RSSHub's healthcheck only proves `/` answers.
 5. **Clear the cache before retrying.** RSSHub holds a route for `CACHE_EXPIRE` (300 s), so

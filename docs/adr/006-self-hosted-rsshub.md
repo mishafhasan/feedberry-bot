@@ -32,9 +32,12 @@ carry a full URL to a different instance if it ever needs one.
 - Cache is on (`CACHE_TYPE=memory`, `CACHE_EXPIRE=600`) so a manual check 30 s after a scheduled one does
   not hit the platform twice — this is the cheapest rate-limit protection we have `[RH-DEPLOY]`.
 - Credentials (`INSTAGRAM_COOKIE`, `FACEBOOK_COOKIE`, `TWITTER_*`, `TELEGRAM_*`) live in RSSHub's env, not
-  in the bot DB. That is a deliberate split: instance-wide credentials never leave the container. Since
-  ADR-017 no per-user credentials are stored at all, and instance tokens are optional and out of the MVP;
-  a login-only route therefore fails cleanly instead of half-working.
+  in the bot DB. That is a deliberate split: no credential is ever stored in the database or exposed
+  through the bot. ADR-030 narrows the remainder: the bot's media extractors read `TWITTER_AUTH_TOKEN`
+  and `INSTAGRAM_COOKIE` from their own env, because neither platform answers gated media otherwise;
+  `FACEBOOK_COOKIE` stays the sidecar's alone. Since ADR-017 no per-user credentials are stored at all,
+  and instance tokens are optional and out of the MVP; a login-only route therefore fails cleanly instead
+  of half-working.
 - RSSHub is AGPL-3.0; we run it unmodified, so no source-publishing obligation is triggered for it.
 - A stuck RSSHub takes down all non-native sources at once; §11 keeps native-RSS sources deliverable, and
   `/status` shows the RSSHub health separately.

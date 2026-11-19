@@ -305,9 +305,9 @@ docker compose logs -f bot   # wait for {"code":"polling_started"}
 
 - `bot` is built from this repo (`node:24-alpine` + ffmpeg), restarts `unless-stopped`, keeps SQLite in
   `./data:/data`, and keeps downloaded media in a 512 MB tmpfs that never touches disk.
-- `rsshub` runs without Chromium, caches in `./rsshub-cache`, and gets the instance-wide credentials
-  (`TWITTER_AUTH_TOKEN`, `INSTAGRAM_COOKIE`, `FACEBOOK_COOKIE`) that the bot itself must never see —
-  compose explicitly clears the two cookies from the bot's environment.
+- `rsshub` runs without Chromium, caches in `./rsshub-cache`, and gets the instance-wide credentials.
+  The bot holds `TWITTER_AUTH_TOKEN` and `INSTAGRAM_COOKIE` too, because its media extractors sign in
+  with them; `FACEBOOK_COOKIE` goes to the sidecar alone, and compose clears it from the bot.
 - Update with `git pull && docker compose build bot && docker compose up -d`; a rebuild is only needed when
   `package.json`, `Dockerfile`, `cobalt-engine` or `schema.sql` changed.
 
@@ -356,7 +356,7 @@ a readable message instead of guessing.
 | `TRIAL_ENABLED` | false | Shows the cosmetic trial line on the main menu. |
 | `TELEGRAM_BETA` | false | Telegram channel sources through the public `t.me/s` page. |
 | `TWITTER_AUTH_TOKEN` | — | The `auth_token` of a logged-in X account. Present: X profiles become subscribable and gated X media downloads work. Absent: only public X posts. Also passed to the RSSHub sidecar. |
-| `INSTAGRAM_COOKIE` | — | `sessionid=…; ds_user_id=…`. **RSSHub container only** — compose clears it from the bot. |
+| `INSTAGRAM_COOKIE` | — | `sessionid=…; ds_user_id=…`. RSSHub scrapes with it and the bot's Instagram extractor signs in with it. Absent: an Instagram post link resolves to nothing. |
 | `FACEBOOK_COOKIE` | — | The whole `Cookie` header of a logged-in Facebook session. **RSSHub container only.** |
 
 ---

@@ -27,6 +27,13 @@ test('parseConfig enables X profile sources only with a Twitter token', () => {
   assert.equal(cfg.twitterAuthToken, 'abc', 'the extractor gets the bare cookie value');
 });
 
+test('parseConfig hands the Instagram session to the extractor, trimmed, without making X addable', () => {
+  const cfg = parseConfig({ ...base, INSTAGRAM_COOKIE: ' sessionid=a; ds_user_id=1 ' });
+  assert.equal(cfg.instagramCookie, 'sessionid=a; ds_user_id=1');
+  assert.equal(cfg.xProfiles, false, 'an Instagram session says nothing about X profile sources');
+  assert.equal(parseConfig(base).instagramCookie, undefined, 'absent: the extractor runs without a session');
+});
+
 test('parseConfig gives each digest role a model ladder', () => {
   const cfg = parseConfig({ ...base, GEMINI_API_KEY: 'k' });
   assert.ok(cfg.digest);

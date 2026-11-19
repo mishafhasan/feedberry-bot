@@ -30,6 +30,8 @@ export interface Config {
   xProfiles: boolean;
   /** The X `auth_token` itself: RSSHub's feed route and the media extractor both authenticate with it. */
   twitterAuthToken: string | undefined;
+  /** The Instagram session itself: RSSHub scrapes with it and the media extractor signs in with it. */
+  instagramCookie: string | undefined;
   /** ADR-029: the daily digest exists only when a Gemini key is configured. */
   digest: DigestConfig | undefined;
 }
@@ -55,6 +57,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   const adminChatId = int(env.ADMIN_CHAT_ID, undefined, 'ADMIN_CHAT_ID');
 
   const twitterAuthToken = (env.TWITTER_AUTH_TOKEN ?? '').trim() || undefined;
+  const instagramCookie = (env.INSTAGRAM_COOKIE ?? '').trim() || undefined;
   const geminiApiKey = (env.GEMINI_API_KEY ?? '').trim();
 
   const rsshubBase = (env.RSSHUB_BASE ?? '').trim().replace(/\/+$/, '');
@@ -84,6 +87,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     // The same token the RSSHub sidecar needs; its presence is what makes an X profile addable.
     xProfiles: twitterAuthToken !== undefined,
     twitterAuthToken,
+    instagramCookie,
     // Model ids rotate, so both are config; the key's presence is the feature switch (ADR-029).
     // Quotas are per model on the free tier, so each role carries a ladder of fallbacks.
     digest: geminiApiKey === ''

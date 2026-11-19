@@ -7,11 +7,10 @@ services:
     environment:
       DB_PATH: /data/bot.db
       RSSHUB_BASE: http://rsshub:1200
-      # .env is this service's env_file, so a secret that belongs to the RSSHub sidecar (ADR-006)
+      # .env is this service's env_file, so a secret that belongs only to the RSSHub sidecar (ADR-006)
       # must be cleared here or compose injects it into the bot as well.
-      INSTAGRAM_COOKIE: ""
       FACEBOOK_COOKIE: ""
-      # TWITTER_AUTH_TOKEN deliberately stays: the media extractor signs in to X with it.
+      # TWITTER_AUTH_TOKEN and INSTAGRAM_COOKIE deliberately stay: the media extractors sign in with them.
     volumes:
       - ./data:/data
     # Media never survives the job that downloaded it (§5.5, stage 9), so keep it in RAM.

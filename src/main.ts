@@ -22,11 +22,15 @@ try {
 
 const db = openDb(cfg.dbPath);
 const http = networkFor(cfg);
-// X refuses gated media to guests; the same auth_token RSSHub uses makes the extraction call signed in.
-if (cfg.twitterAuthToken) setCookies({ twitter: [`auth_token=${cfg.twitterAuthToken}`] });
+// X refuses gated media to guests and Instagram answers only a signed-in session: the operator
+// credentials RSSHub uses make both extraction calls work.
+setCookies({
+  ...(cfg.twitterAuthToken === undefined ? {} : { twitter: [`auth_token=${cfg.twitterAuthToken}`] }),
+  ...(cfg.instagramCookie === undefined ? {} : { instagram: [cfg.instagramCookie] }),
+});
 const bot = createBot({ cfg, db, http, media: cobaltEngine, telegraph: telegraphClient, apiRoot: cfg.telegramApiRoot });
 
-log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase });
+log('info', 'boot', { schema: schemaVersion(db), db: cfg.dbPath, rsshub: cfg.rsshubBase, instagram: cfg.instagramCookie !== undefined });
 
 const sender = new TelegramSender(bot.api);
 const notifier: Notifier = {
