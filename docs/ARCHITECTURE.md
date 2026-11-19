@@ -186,6 +186,10 @@ slot_after(now, tz, interval_minutes):
 `deliver` flag is on. This is how "one fetch per source, shared across subscribers" and "08:00/20:00
 user time" coexist without fetching twice. Full rationale in ADR-004.
 
+A timezone change re-plans what is already stored: every subscription still on the 08:00/20:00 default and
+every enabled digest gets `next_slot_at` / `next_run_at` recomputed in the new zone, in one transaction.
+Interval subscriptions and disabled digests are left alone — a `NULL` slot already means "due now".
+
 ### 4.4 `jobs` semantics
 
 | Column | Meaning |
@@ -518,6 +522,11 @@ preview, add_mode, done`. I added `error` and `confirming_delete` because S10/S1
 | `menu:sources` | S1 | `onSources` | `subscriptions`+`sources` paged | — | S7 page 1 |
 | `menu:filter` | S1 | `openFilterFor` | `users.default_keywords`, `subscriptions`+`sources` paged | — | /filter screen (ADR-020) |
 | `menu:download` | S1 | `onDownload` | — | — | prompt "send a post link", state `awaiting_source_link` + `mode=download` |
+| `menu:settings` | S1 | switch case → `settingsView` | `users.tz` | — | S19 Settings hub |
+| `set:help` | S19 | switch case → `helpView` | — | — | S13 Help, Back → S19 |
+| `set:about` | S19 | switch case → `aboutView` | — | — | S14 About, Back → S19 |
+| `set:tz` | S19 | switch case → `timezoneView` | `users.tz` | — | S20 timezone picker |
+| `tz:<zone>` | S20 | `setTimezoneOf` | `TIMEZONES` whitelist | `users.tz`, `subscriptions.next_slot_at`, `digests.next_run_at` | toast naming the zone, repaint S19 |
 | `src:page:<n>` | S7 | `onPage` | page rows | — | re-render S7 |
 | `src:filter:<platform>` | S7 | `onFilter` | filtered rows | — | re-render S7, filter chip active |
 | `src:on:<id>` / `src:off:<id>` | S7 | `onToggle` | `sources.enabled` | update | toast "Source disabled — new posts will not arrive." (S8) / "Source enabled." |

@@ -4,9 +4,9 @@ import { tx, type Db } from '../db/index.ts';
 import { destinations, ensurePrivateChat, ownChat, personalChat, upsertChat } from '../db/repos/chats.ts';
 import { countDownloadsSince } from '../db/repos/deliveries.ts';
 import { deleteSourceIfOrphan, findSourceByUrl, getSource, setSourceEnabled, setSourceInterval } from '../db/repos/sources.ts';
-import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
-import { digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
-import { ensureUser, setLocale } from '../db/repos/users.ts';
+import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourceCards, ownsSource, platformsForUser, slotIdsForUser, sourceIdsForUser, subscribedByUser, setNextSlot, subscriptionCard, subscriptionSlots, setSubscriptionContentTypes } from '../db/repos/subscriptions.ts';
+import { advanceDigest, digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, enabledDigestSlots, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
+import { ensureUser, setLocale, setUserTimezone } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
 import { type Thumbnailer } from '../media/thumbnail.ts';
@@ -40,7 +40,7 @@ import { morePayload } from '../telegram/more.ts';
 import { targetOf } from '../telegram/target.ts';
 import { PREVIEW_TTL_MS, getSession, resetSession, setSession, type LastError, type PendingSource, type S7State } from './session.ts';
 import { allowAdd, allowCallback, allowCheck } from './quotas.ts';
-import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, LANGUAGES } from './keyboards.ts';
+import { backKeyboard, downloadResultKeyboard, errorKeyboard, noticeKeyboard, openSourcesKeyboard, postLinkKeyboard, settingsBackKeyboard, LANGUAGES, TIMEZONES } from './keyboards.ts';
 import { handleAdminCallback } from './admin.ts';
 import { askDefaultKeywords, askPendingKeywords, askSourceKeywords, clearDefaultKeywords, clearKeywords, openFilterFor } from './keywords.ts';
 import { mainMenuView } from './screens/main-menu.ts';
@@ -52,7 +52,7 @@ import { deliveryOptionsView } from './screens/delivery-options.ts';
 import { sourceAddedView } from './screens/source-added.ts';
 import { mySourcesView, PAGE_SIZE } from './screens/my-sources.ts';
 import { supportedSitesView } from './screens/supported-sites.ts';
-import { helpView, aboutView, languageView } from './screens/static-screens.ts';
+import { helpView, aboutView, languageView, settingsView, timezoneView } from './screens/static-screens.ts';
 import { scheduleListView, schedulePickerView, SCHEDULE_OPTIONS } from './screens/schedule.ts';
 import { digestChatView, digestLanguageView, digestSourcesView, digestTimeView, digestView } from './screens/digest.ts';
 import { contentTypePickerView } from './screens/content-type-picker.ts';
@@ -86,6 +86,11 @@ export const cb = {
   filterMenu: 'menu:filter',
   help: 'menu:help',
   language: 'menu:language',
+  settings: 'menu:settings',
+  setHelp: 'set:help',
+  setAbout: 'set:about',
+  setTimezone: 'set:tz',
+  tz: 'tz:',
   lang: 'lang:',
   schedule: 'menu:schedule',
   schedOpen: 'src:sched:',
@@ -178,6 +183,7 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data === cb.schedAll) return paint(ctx, schedulePickerView(null, lang));
 
   if (data.startsWith(cb.lang)) return setLanguage(ctx, deps, userId, data.slice(cb.lang.length));
+  if (data.startsWith(cb.tz)) return setTimezoneOf(ctx, deps, userId, data.slice(cb.tz.length), lang);
 
   if (data === cb.typesDone) return saveTypes(ctx, deps, userId, lang);
   if (data === cb.typesAll) return selectAllTypes(ctx, deps, userId, lang);
@@ -236,6 +242,14 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
       return paint(ctx, helpView(lang));
     case cb.language:
       return paint(ctx, languageView(lang));
+    case cb.settings:
+      return paint(ctx, settingsView(ensureUser(deps.db, userId).tz, lang));
+    case cb.setHelp:
+      return paint(ctx, helpView(lang, settingsBackKeyboard(lang)));
+    case cb.setAbout:
+      return paint(ctx, aboutView(userId, lang, settingsBackKeyboard(lang)));
+    case cb.setTimezone:
+      return paint(ctx, timezoneView(ensureUser(deps.db, userId).tz, lang));
     case cb.schedule:
       return renderSchedule(ctx, deps, userId, getSession(userId).s16?.page ?? 0);
     case cb.digest:
@@ -904,6 +918,29 @@ async function applySchedule(ctx: Context, deps: BotDeps, userId: number, data: 
   if (card) await paint(ctx, schedulePickerView(card, lang));
 }
 
+/**
+ * `tz:<zone>`: the slots are absolute instants, so a new zone must re-plan them — without this pass
+ * the next delivery still fires on the old clock (ADR-029).
+ */
+async function setTimezoneOf(ctx: Context, deps: BotDeps, userId: number, zone: string, lang: Lang): Promise<void> {
+  // The offered list is the whitelist: callback_data is untrusted, and an unknown zone throws inside the tick.
+  if (!TIMEZONES.some((entry) => entry.zone === zone)) return;
+  const user = ensureUser(deps.db, userId);
+  const now = Date.now();
+  tx(deps.db, () => {
+    setUserTimezone(deps.db, userId, zone);
+    for (const id of slotIdsForUser(deps.db, user.id)) setNextSlot(deps.db, id, slotAfter(now, zone, null));
+    for (const digest of enabledDigestSlots(deps.db, user.id)) advanceDigest(deps.db, digest.id, digestSlot(now, zone, digest.hour));
+  });
+  log('info', 'timezone_set', { user: userId, tz: zone });
+  await paint(ctx, settingsView(zone, lang));
+}
+
+/** `/settings` and `menu:settings` are the same screen; the command answers with a reply. */
+export async function openSettingsFor(ctx: Context, deps: BotDeps, userId: number): Promise<void> {
+  await paintOrReply(ctx, settingsView(ensureUser(deps.db, userId).tz, langOf(deps, userId)));
+}
+
 /** S10: the confirm is a separate message, so a mis-tap cannot delete anything (ADR-016). */
 async function askDelete(ctx: Context, deps: BotDeps, userId: number, sourceId: number): Promise<void> {
   const user = ensureUser(deps.db, userId);
@@ -1408,6 +1445,13 @@ function toastFor(data: string, lang: Lang): string | undefined {
   const toast = actionToast(lang);
   // The digest screens repaint themselves; none of their taps deserves a toast (ADR-029).
   if (data === cb.digest || data === cb.digestChat || data.startsWith('dg:')) return undefined;
+  // A picker tap is its own confirmation; an unlisted zone is a forged tap and gets no toast.
+  if (data.startsWith(cb.tz)) {
+    const zone = data.slice(cb.tz.length);
+    return TIMEZONES.some((entry) => entry.zone === zone) ? t(lang, 'toast.timezoneSet', { tz: zone }) : undefined;
+  }
+  // The Settings screens repaint themselves.
+  if (data === cb.settings || data === cb.setHelp || data === cb.setAbout || data === cb.setTimezone) return undefined;
   if (data.startsWith(cb.on)) return toast.enabled;
   if (data.startsWith(cb.off)) return toast.disabled;
   if (data.startsWith(cb.check)) return toast.checkQueued;

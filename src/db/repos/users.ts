@@ -76,6 +76,11 @@ export function setLocale(db: Db, tgUserId: number, locale: string): void {
   db.prepare('UPDATE users SET locale = ? WHERE tg_user_id = ?').run(locale, tgUserId);
 }
 
+/** The zone every slot, digest and post `⏱️ Time:` line is computed in (ADR-029). */
+export function setUserTimezone(db: Db, tgUserId: number, tz: string): void {
+  db.prepare('UPDATE users SET tz = ? WHERE tg_user_id = ?').run(tz, tgUserId);
+}
+
 /** ADR-020: NULL clears the fallback, which is what turns every source back to "all posts". */
 export function setDefaultKeywords(db: Db, tgUserId: number, raw: string | null): void {
   db.prepare('UPDATE users SET default_keywords = ? WHERE tg_user_id = ?').run(raw, tgUserId);

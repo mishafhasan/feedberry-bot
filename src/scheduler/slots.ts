@@ -41,9 +41,31 @@ interface WallClock {
   second: number;
 }
 
+/**
+ * One probe per zone name. `Intl` throws on a zone it does not know, and the tick swallows that into a
+ * log line — one bad `users.tz` would otherwise stop every user's schedule, every tick.
+ */
+const knownZones = new Map<string, boolean>();
+
+function zoneOrUtc(tz: string): string {
+  // `Intl` accepts `undefined` as "the host zone" without throwing, which must not become the fallback.
+  if (!tz) return 'UTC';
+  let ok = knownZones.get(tz);
+  if (ok === undefined) {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: tz });
+      ok = true;
+    } catch {
+      ok = false;
+    }
+    knownZones.set(tz, ok);
+  }
+  return ok ? tz : 'UTC';
+}
+
 function wallClock(ms: number, tz: string): WallClock {
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
+    timeZone: zoneOrUtc(tz),
     hour12: false,
     year: 'numeric',
     month: '2-digit',

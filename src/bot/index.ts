@@ -11,7 +11,7 @@ import type { TelegraphClient } from '../article/telegraph.ts';
 import { trustedFetch, type Http } from '../platform/http.ts';
 import { safeFetch } from '../platform/ssrf.ts';
 import { TelegramSender } from '../telegram/api.ts';
-import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openScheduleFor, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
+import { handleCallback, handleFreeText, handleReplyMenu, handleSourceLink, mainMenu, openScheduleFor, openSettingsFor, openSourcesFor, startDownload, verifyAndStoreChat } from './callbacks.ts';
 import { handleKeywordInput, openFilterFor } from './keywords.ts';
 import { deny, gate, isAdmin } from './access.ts';
 import { handleAdminInput, openAdminPanel } from './admin.ts';
@@ -65,7 +65,7 @@ export function createBot({ cfg, db, apiRoot, http, media, thumbnail, telegraph 
       { command: 'supported_sites', description: 'Supported Sites' },
       { command: 'language', description: 'Change Interface Language' },
       { command: 'admin_panel', description: 'Admin Panel' },
-      { command: 'about', description: 'About' },
+      { command: 'settings', description: 'Settings' },
     ])
     .catch((err: unknown) => log('warn', 'set_commands_failed', { cause: err instanceof Error ? err.message : String(err) }));
 
@@ -119,6 +119,14 @@ export function createBot({ cfg, db, apiRoot, http, media, thumbnail, telegraph 
 
   bot.command('supported_sites', async (ctx) => replyWith(ctx, supportedSitesView()));
   bot.command('language', async (ctx) => replyWith(ctx, languageView()));
+
+  bot.command('settings', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId === undefined) return;
+    resetSession(userId);
+    await openSettingsFor(ctx, deps, userId);
+  });
+
   bot.command('about', async (ctx) => {
     const userId = ctx.from?.id;
     if (userId === undefined) return;
