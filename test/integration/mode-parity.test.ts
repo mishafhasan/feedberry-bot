@@ -19,6 +19,7 @@ import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser, upsertAllowedUser } from '../../src/db/repos/users.ts';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import { parseYouTubePost } from '../../src/platform/feed/youtube-post.ts';
+import type { FeedMedia } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
@@ -36,7 +37,7 @@ interface Post {
   artist: string;
   publishedAt: number;
   /** Feed media, the only source a community post has. */
-  media?: Array<{ url: string; type: string }>;
+  media?: FeedMedia[];
   /** The feed's own words, when they carry a player line the paste door never sees. */
   summary?: string;
   /** What the extractor answers for the post link, per quality rung. */
@@ -264,6 +265,24 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
       assert.equal(result.media, 1, 'the clip rides inline');
       assert.equal(result.labels, 0, 'a clip that fits is never linked');
       assert.doesNotMatch(result.html, /video\.twimg\.com/, 'and its direct URL never prints');
+    },
+  },
+  {
+    name: '(f) an oversized X clip shows the extractor\'s own poster, never the page card',
+    post: {
+      platform: 'x',
+      link: 'https://x.com/who/status/789',
+      title: 'A long clip',
+      artist: '@who',
+      publishedAt: Date.UTC(2026, 10, 13, 14, 0),
+      // X states the clip's own frame here; the page's og:image is the link card's picture, so it is absent.
+      resolve: () => [small('https://cdn.test/x-1080.mp4', { poster: 'https://pbs.twimg.com/amplify_video_thumb/789/img/a.jpg' })],
+      sizes: { 'https://cdn.test/x-1080.mp4': 60 * MB, 'https://pbs.twimg.com/amplify_video_thumb/789/img/a.jpg': 4096 },
+    },
+    expect: (result) => {
+      assert.equal(result.labels, 1, 'one labelled link');
+      assert.equal(result.media, 1, 'the extractor poster is the only upload');
+      assert.match(result.html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the clip\'s own picture sits above its label');
     },
   },
 ];

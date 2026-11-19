@@ -36,10 +36,12 @@ function needsFixing(media) {
     return mediaTimestamp > badContainerStart && mediaTimestamp < badContainerEnd
 }
 
-// Twitter writes the rendition size in the path (`/vid/avc1/1280x720/…`): that is the only place the
-// height is stated, and a variant without one never qualifies as "at or under" a ceiling.
+// Twitter writes the rendition size in the path (`/vid/avc1/1280x720/…`). The shorter side is the
+// quality class: 720x1280 is a "720p" clip, and reading the second number answered a 1080 request
+// with 480x852. A variant without a size never qualifies as "at or under" a ceiling.
 function heightOf(url) {
-    return Number(/(\d+)x(\d+)\//.exec(url)?.[2] ?? 0);
+    const size = /(\d+)x(\d+)\//.exec(url);
+    return size ? Math.min(Number(size[1]), Number(size[2])) : 0;
 }
 
 /**
@@ -250,7 +252,13 @@ const extractGraphqlMedia = async (thread, dispatcher, id, guestToken, cookie) =
         return parseCard(tweetResult.card);
     }
 
-    return (repostedTweet?.media || baseTweet?.extended_entities?.media);
+    // A quote shows the quoted post's media too, and the focal tweet often carries none of its own:
+    // a signed-in request reaches this route, so the syndication reader alone would lose the clip.
+    const quotedResult = tweetResult?.quoted_status_result?.result;
+    const quotedTweet = quotedResult?.__typename === "TweetWithVisibilityResults" ? quotedResult.tweet : quotedResult;
+    const own = repostedTweet?.media || baseTweet?.extended_entities?.media || [];
+    const quoted = quotedTweet?.legacy?.extended_entities?.media || [];
+    return own.length + quoted.length > 0 ? [...own, ...quoted] : undefined;
 }
 
 export default async function({ id, index, toGif, dispatcher, alwaysProxy, subtitleLang, quality }) {
@@ -289,7 +297,11 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
             }
         } catch {}
 
-        media = tweet?.mediaDetails ?? media;
+        // A quote shows the quoted post's media, and the focal tweet often carries none of its own:
+        // the reported links resolved to nothing because only the focal `mediaDetails` was read.
+        const own = tweet?.mediaDetails ?? [];
+        const quoted = tweet?.quoted_tweet?.mediaDetails ?? [];
+        if (own.length + quoted.length > 0) media = [...own, ...quoted];
     }
 
     if (!media || 'error' in media) {
@@ -366,16 +378,20 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
 
             return {
                 type: subtitles || needsFixing(mediaItem) ? "remux" : "proxy",
-                urls: bestQuality(mediaItem.video_info.variants, quality),
+                urls: bestQuality(mediaItem.video_info?.variants ?? [], quality),
                 filename: `twitter_${id}.mp4`,
                 audioFilename: `twitter_${id}_audio`,
                 isGif: mediaItem.type === "animated_gif",
+                // The post's own picture: a clip past the ceiling shows it instead of bytes (ADR-027).
+                cover: mediaItem.media_url_https,
                 subtitles,
                 ...((text || fileMetadata) && { fileMetadata: { ...(text && { title: text }), ...fileMetadata } }),
             }
         default:
+            // A merged item can arrive without a picture or a playable variant; drop that item alone,
+            // because one bad quote-level entry must not cost the whole post.
             const proxyThumb = (url, i) =>
-                proxyMedia(url, `twitter_${id}_${i + 1}.${getFileExt(url)}`);
+                url ? proxyMedia(url, `twitter_${id}_${i + 1}.${getFileExt(url)}`) : undefined;
 
             const picker = media.map((content, i) => {
                 if (content.type === "photo") {
@@ -391,7 +407,8 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                     }
                 }
 
-                let url = bestQuality(content.video_info.variants, quality);
+                let url = bestQuality(content.video_info?.variants ?? [], quality);
+                if (!url) return;
                 const shouldRenderGif = content.type === "animated_gif" && toGif;
                 const videoFilename = `twitter_${id}_${i + 1}.${shouldRenderGif ? "gif" : "mp4"}`;
 
@@ -415,6 +432,6 @@ export default async function({ id, index, toGif, dispatcher, alwaysProxy, subti
                     thumb: proxyThumb(content.media_url_https, i),
                 }
             });
-            return { picker, ...(text && { fileMetadata: { title: text } }) };
+            return { picker: picker.filter(Boolean), ...(text && { fileMetadata: { title: text } }) };
     }
 }

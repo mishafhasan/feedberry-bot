@@ -49,7 +49,8 @@ test('a login-gated post is retried signed in, once, and that retry carries the 
     globalThis.fetch = realFetch;
   });
 
-  const media = await twitter({ id: '42', index: -1 });
+  // The vendor handler declares every argument key required.
+  const media = await twitter({ id: '42', index: -1, toGif: false, dispatcher: undefined, alwaysProxy: false, subtitleLang: undefined, quality: undefined }) as { isPhoto?: boolean };
   assert.equal(media.isPhoto, true, 'the signed-in retry returns the media instead of content.post.age');
   assert.equal(authed, 2, 'the wall is retried exactly once');
   assert.match(detailCookieNames.at(-1) ?? '', /auth_token/, 'the retried request is the authenticated one');
