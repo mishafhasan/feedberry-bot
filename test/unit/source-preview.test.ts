@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { deliveryOptionsView } from '../../src/bot/screens/delivery-options.ts';
 import { sourcePreviewView } from '../../src/bot/screens/source-preview.ts';
-import { LANGS } from '../../src/bot/i18n/index.ts';
+import { LANGS, type Lang } from '../../src/bot/i18n/index.ts';
 import type { Platform } from '../../src/platform/registry.ts';
 import type { FeedItem } from '../../src/platform/feed/native.ts';
 import { CAPTION_LIMIT } from '../../src/telegram/api.ts';
@@ -27,7 +27,7 @@ const items = (title: (index: number) => string): FeedItem[] =>
 
 const bullets = (text: string): string[] => text.split('\n').filter((line) => line.startsWith('• '));
 
-const view = (platform: Platform, list: FeedItem[], lang = 'en' as const): { text: string; photoUrl: string | null } =>
+const view = (platform: Platform, list: FeedItem[], lang: Lang = 'en'): { text: string; photoUrl: string | null } =>
   sourcePreviewView({ platform, author: 'Someone', avatarUrl: 'https://cdn.test/avatar.jpg', items: list, personalChatId: 1, chats: [], lang });
 
 test('S4: five posts survive the caption cap on every platform', () => {

@@ -14,6 +14,7 @@ const post = (summary: string): PostRow => ({
   kind: 'photo',
   payload_json: JSON.stringify({ title: '', summary, media: [] }),
   first_seen_at: 0,
+  telegraph_url: null,
 });
 const extras = { platform: 'instagram', sourceTitle: 'Evolving AI' };
 const photo = (path = 'a.jpg'): MediaFile => ({ path, kind: 'photo', size: 1024 });

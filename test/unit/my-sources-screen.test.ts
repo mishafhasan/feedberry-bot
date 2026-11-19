@@ -22,6 +22,7 @@ const card = (overrides: Partial<SourceCard>): SourceCard => ({
   interval_minutes: null,
   content_types: null,
   ...overrides,
+  keywords: overrides.keywords ?? null,
 });
 
 const cristiano = card({});

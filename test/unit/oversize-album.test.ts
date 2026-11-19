@@ -31,6 +31,7 @@ const post: PostRow = {
   kind: 'album',
   payload_json: JSON.stringify({ title: 'Three clips, one too big', summary: null, media: [] }),
   first_seen_at: 0,
+  telegraph_url: null,
 };
 
 /** Two clips that fit, one that does not, two photos, and the frame standing in for the big clip. */

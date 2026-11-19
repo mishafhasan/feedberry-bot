@@ -71,6 +71,7 @@ const row = (title: string): PostRow => ({
   kind: 'video',
   payload_json: JSON.stringify({ title, summary: null, media: [] }),
   first_seen_at: 0,
+  telegraph_url: null,
 });
 
 const LARGE: MediaFile = { path: '', kind: 'video', size: 0, url: 'https://cdn.test/large.mp4' };

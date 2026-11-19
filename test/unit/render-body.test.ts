@@ -16,6 +16,7 @@ const post = (title: string, summary: string): PostRow => ({
   kind: 'photo',
   payload_json: JSON.stringify({ title, summary, media: [] }),
   first_seen_at: 0,
+  telegraph_url: null,
 });
 
 const photo = { path: 'work/media-photo', kind: 'photo' as const, size: 1024 };

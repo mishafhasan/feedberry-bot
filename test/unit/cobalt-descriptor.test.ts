@@ -10,7 +10,7 @@ const headers = { 'user-agent': 'Mozilla/5.0', referer: 'https://www.tiktok.com/
 
 test('media descriptor: the extractor headers are forwarded to the download', () => {
   const item: MediaItem = { kind: 'video', url: 'https://v16.tiktokcdn.example/x.mp4', picker: false, headers };
-  const input = downloadInput(item, 'media-video');
+  const input = downloadInput(item);
   assert.equal(input.status, 'ok');
   assert.deepEqual(input.headers, headers, 'without referer + UA the TikTok CDN answers 403');
   assert.deepEqual(input.urls, [item.url]);
@@ -18,13 +18,13 @@ test('media descriptor: the extractor headers are forwarded to the download', ()
 
 test('media descriptor: carousel items keep the headers too', () => {
   const item: MediaItem = { kind: 'photo', url: 'https://p16.tiktokcdn.example/x.jpg', picker: true, headers };
-  const input = downloadInput(item, 'media-photo');
+  const input = downloadInput(item);
   assert.deepEqual(input.headers, headers);
   assert.deepEqual(input.picker, [{ type: 'photo', url: item.url }]);
 });
 
 test('media descriptor: an item without headers stays header-free', () => {
-  const input = downloadInput({ kind: 'photo', url: 'https://cdn.example/x.jpg', picker: false }, 'media-photo');
+  const input = downloadInput({ kind: 'photo', url: 'https://cdn.example/x.jpg', picker: false });
   assert.equal('headers' in input, false);
 });
 

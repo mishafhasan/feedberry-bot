@@ -22,6 +22,7 @@ const post: PostRow = {
   kind: 'video',
   payload_json: JSON.stringify({ title: 'A post', summary: null, media: [] }),
   first_seen_at: 0,
+  telegraph_url: null,
 };
 
 /** Every platform that takes the rich layout, including the two whose clips live on a page. */

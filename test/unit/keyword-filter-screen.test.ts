@@ -47,7 +47,7 @@ test('s19: the pager belongs to this list, and the keyboard keeps only Back', ()
   assert.match(view.html, /data="kw:page:2">›/);
   assert.doesNotMatch(view.html, /src:page:/, 'the source list pager is not reused by accident');
   assert.match(view.html, /<i>Showing 6–6 of 12<\/i>/);
-  assert.deepEqual(view.keyboard.inline_keyboard.flat().map((button) => button.callback_data), ['nav:back']);
+  assert.deepEqual(view.keyboard.inline_keyboard.flat().map((button) => (button as { callback_data?: string }).callback_data), ['nav:back']);
 });
 
 test('s19: a page with one card has no arrows', () => {
