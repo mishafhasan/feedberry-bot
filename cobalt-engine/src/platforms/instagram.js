@@ -135,6 +135,23 @@ export default function instagram(obj) {
         return mediaInfo?.items?.[0];
     }
 
+    // The web surface answers a signed-in session with the post itself; the mobile host answers
+    // login_required/challenge_required, the embed page stopped shipping its payload and GraphQL is
+    // walled. Without a cookie this endpoint answers 429, so it is only asked when one exists.
+    async function requestWebMedia(mediaId, cookie) {
+        const info = await fetch(`https://www.instagram.com/api/v1/media/${mediaId}/info/`, {
+            headers: {
+                ...commonHeaders,
+                cookie
+            },
+            dispatcher
+        }).then(r => r.json()).catch(() => {});
+
+        // A challenged session is a credential problem, not a missing post: say so instead of a wall.
+        if (info?.status === 'fail') return { error: "content.post.private" };
+        return info?.items?.[0];
+    }
+
     async function requestHTML(id, cookie) {
         const data = await fetch(`https://www.instagram.com/p/${id}/embed/captioned/`, {
             headers: {
@@ -350,6 +367,8 @@ export default function instagram(obj) {
                 urls: shortcodeMedia.video_url,
                 filename: `instagram_${id}.mp4`,
                 audioFilename: `instagram_${id}_audio`,
+                // A clip past the ceiling shows the post's own frame instead of bytes (ADR-027).
+                cover: shortcodeMedia.display_url,
                 ...fileMetadata
             }
         }
@@ -410,6 +429,8 @@ export default function instagram(obj) {
                 urls: video.url,
                 filename: `instagram_${id}.mp4`,
                 audioFilename: `instagram_${id}_audio`,
+                // A clip past the ceiling shows the post's own frame instead of bytes (ADR-027).
+                cover: data.image_versions2?.candidates?.[0]?.url,
                 ...fileMetadata
             }
         } else if (data.image_versions2?.candidates) {
@@ -431,9 +452,15 @@ export default function instagram(obj) {
     }
 
     async function getPost(id, alwaysProxy) {
-        const hasData = (data) => data
-                                    && data.gql_data !== null
-                                    && data?.gql_data?.xdt_shortcode_media !== null;
+        /** A payload only counts when a post can be read out of it: `{ gql_data: undefined }` is a
+        ** wall, and `undefined !== null` used to call it data and end the chain. */
+        const hasData = (data) => Boolean(
+            data?.gql_data?.shortcode_media
+            ?? data?.gql_data?.xdt_shortcode_media
+            ?? data?.carousel_media
+            ?? data?.video_versions
+            ?? data?.image_versions2,
+        );
         let data, result;
         try {
             const cookie = getCookie('instagram');
@@ -445,6 +472,13 @@ export default function instagram(obj) {
             let media_id = await getMediaId(id);
             if (!media_id && token) media_id = await getMediaId(id, { token });
             if (!media_id && cookie) media_id = await getMediaId(id, { cookie });
+
+            // the one surface a signed-in session still reaches: oembed names the id, this names the media
+            if (media_id && cookie) {
+                const web = await requestWebMedia(media_id, cookie);
+                if (web?.error) return web;
+                data = web;
+            }
 
             // mobile api (bearer)
             if (media_id && token) data = await requestMobileApi(media_id, { token });
