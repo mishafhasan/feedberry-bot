@@ -329,6 +329,25 @@ test('ADR-028: the transfer budget carries a full clip on a slow line, extractio
   assert.equal(mediaSignal(5).aborted, false, 'a fresh signal starts live');
 });
 
+test('stage 5: a post over the total cap links its biggest clip and keeps the rest', async () => {
+  const dir = work();
+  const second = 'https://cdn.test/second.mp4';
+  const { engine, downloads } = engineOf([
+    { quality: '1080', url: URL_1080, size: 8 * MB, fileSize: 8 * MB },
+    { quality: '1080', url: second, size: 4 * MB, fileSize: 4 * MB },
+  ]);
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080), item(second)], dir, { maxMb: 10, signal: new AbortController().signal });
+
+    assert.deepEqual(downloads, [URL_1080, second], 'each clip fits the upload ceiling on its own');
+    assert.deepEqual(files.map((file) => (file.path === '' ? 'link' : 'inline')), ['link', 'inline'], 'the biggest gave way, the post still ships');
+    assert.equal(files[0]?.url, URL_1080, 'and its label carries the direct URL');
+    assert.equal(files[1]?.size, 4 * MB, 'the clip that fits is untouched');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('stage 5: the RSS album keeps the bytes it needs for a stand-in frame', async () => {
   const dir = work();
   const { engine, downloads } = engineOf([{ quality: '1080', url: URL_1080, size: OVER }]);

@@ -71,8 +71,17 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
   // R15: only a video is withheld from every send; every other file is still uploaded, so it still
   // spends the budget that guards the upload.
   const withheld = (file: MediaFile): boolean => file.kind === 'video' && overCeiling(file);
-  const total = files.filter((file) => !withheld(file)).reduce((sum, file) => sum + file.size, 0);
-  if (total > options.maxMb * 1024 * 1024) throw new Coded(E.TOO_LARGE, `${total} bytes over ${options.maxMb} MB`);
+  const max = options.maxMb * 1024 * 1024;
+  let total = files.filter((file) => !withheld(file)).reduce((sum, file) => sum + file.size, 0);
+  // A post whose files together exceed the cap keeps its pictures and links its biggest clips, one at
+  // a time, instead of losing everything; only a post whose photos alone are too big is refused.
+  for (const file of files.filter((candidate) => !withheld(candidate) && candidate.kind === 'video').sort((a, b) => b.size - a.size)) {
+    if (total <= max) break;
+    total -= file.size;
+    file.path = '';
+    file.size = 0;
+  }
+  if (total > max) throw new Coded(E.TOO_LARGE, `${total} bytes over ${options.maxMb} MB`);
   return [...files, ...(await withPosters(engine, files, dir, options))];
 }
 
