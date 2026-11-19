@@ -260,9 +260,10 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     }
   }
-  // A community post has no extractor: the feed's own photos are the media, so the album still ships.
-  // An upload's feed media is only its thumbnail, so a failed extraction stays a link card (R14).
-  if (items.length === 0 && youtubePost) items = feedPhotos(payload.media);
+  // A community post has no extractor, and Instagram's login wall can hide from the extractor a post
+  // the feed already carries: in both cases the feed's own photos are the media, so the album ships.
+  // Anywhere else a feed photo is merely a clip's thumbnail and stays dropped (R14).
+  if (items.length === 0 && (youtubePost || platform === 'instagram')) items = feedPhotos(payload.media);
   // An attached video is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
   const videoLinks = youtubePost ? feedVideoLinks(payload.media) : [];
 

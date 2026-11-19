@@ -4,7 +4,7 @@
  * the sender sleeps 8 s and succeeds without spending a job attempt.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -21,6 +21,8 @@ import { runOnce } from '../../src/jobs/worker.ts';
 import { enqueue, PRIORITY } from '../../src/jobs/queue.ts';
 import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Notifier } from '../../src/obs/alerts.ts';
+import { Coded, E } from '../../src/platform/errors.ts';
+import type { FeedMedia } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
@@ -177,6 +179,59 @@ test('M8: /status answers the admin only', async () => {
     await api.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
+});
+
+/** A post the extractor cannot read, delivered once on a source whose feed carries the media itself. */
+async function deliverWithoutExtractor(platform: string, media: FeedMedia[]): Promise<{ html: string; media: number }> {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), `feedberry-walled-${platform}-`));
+  const db = openDb(join(dir, 'bot.db'));
+  const link = `https://${platform}.test/p/Walled`;
+  const walled: MediaEngine = {
+    async resolve() {
+      throw new Coded(E.NO_MEDIA, 'login wall');
+    },
+    async download(_item, into) {
+      mkdirSync(into, { recursive: true });
+      const path = join(into, 'photo.jpg');
+      writeFileSync(path, Buffer.alloc(1024, 1));
+      return path;
+    },
+  };
+
+  try {
+    const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+    const user = ensureUser(db, USER_ID);
+    const chat = ensurePrivateChat(db, user.id, USER_ID);
+    const source = upsertSource(db, { platform, canonicalUrl: link, externalId: 'walled', feedUrl: null, strategy: 'native_rss', title: 'Walled', avatarUrl: null });
+    insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+    const post = insertPosts(db, source.id, [{ guid: 'walled', link, title: 'A walled post', publishedAt: Date.parse('2025-10-24T10:00:00Z'), summary: null, media }])[0];
+    assert.ok(post);
+    markPendingDelivery(db, post.id, chat.id);
+    enqueue(db, { kind: 'deliver_post', targetId: source.id, priority: PRIORITY.manual });
+
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http, media: walled });
+    await bot.init();
+    await runOnce({ db, http, cfg, media: walled, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 1 }, Date.now());
+
+    const rich = api.last('sendRichMessage')?.body.rich_message as { html?: string; media?: unknown[] } | undefined;
+    return { html: String(rich?.html ?? ''), media: (rich?.media ?? []).length };
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+}
+
+test('M8: an Instagram post the extractor walls still ships the photos its feed carries', async () => {
+  const photo: FeedMedia = { url: 'https://cdn.example.test/C4.jpg', type: 'photo' };
+
+  const instagram = await deliverWithoutExtractor('instagram', [photo]);
+  assert.match(instagram.html, /tg:\/\/photo\?id=m0/, 'the feed photo rides in the slideshow');
+  assert.equal(instagram.media, 1);
+
+  const x = await deliverWithoutExtractor('x', [photo]);
+  assert.equal(x.media, 0, 'elsewhere a feed photo is only a clip\'s thumbnail and stays dropped (R14)');
 });
 
 test('M8: an unparseable post is resent as plain text, not dropped', async () => {
