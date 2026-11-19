@@ -194,3 +194,10 @@ export function dueDigests(db: Db, now: number): DueDigestRow[] {
 export function advanceDigest(db: Db, id: number, at: number): void {
   db.prepare('UPDATE digests SET next_run_at = ? WHERE id = ?').run(at, id);
 }
+
+/** The digests a timezone change must re-plan: off is NULL by intent, and stays NULL. */
+export function enabledDigestSlots(db: Db, userId: number): Array<{ id: number; hour: number }> {
+  return db
+    .prepare('SELECT id, hour FROM digests WHERE user_id = ? AND enabled = 1 AND next_run_at IS NOT NULL')
+    .all(userId) as unknown as Array<{ id: number; hour: number }>;
+}

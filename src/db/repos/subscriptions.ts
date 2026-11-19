@@ -124,6 +124,20 @@ export function sourceIdsForUser(db: Db, userId: number): number[] {
   return rows.map((row) => row.source_id);
 }
 
+/**
+ * The slots a timezone change must re-plan. A source with its own interval is zone-independent, and a
+ * NULL slot already means "due now" to the tick, so moving either would delay a check (ADR-029).
+ */
+export function slotIdsForUser(db: Db, userId: number): number[] {
+  const rows = db
+    .prepare(
+      `SELECT sub.id AS id FROM subscriptions sub JOIN sources s ON s.id = sub.source_id
+       WHERE sub.user_id = ? AND (s.interval_minutes IS NULL OR s.interval_minutes <= 0) AND sub.next_slot_at IS NOT NULL`,
+    )
+    .all(userId) as Array<{ id: number }>;
+  return rows.map((row) => row.id);
+}
+
 /** Every member of one source with their timezone, for recomputing slots after a cadence change. */
 export function subscriptionSlots(db: Db, sourceId: number): Array<{ id: number; tz: string }> {
   return db
