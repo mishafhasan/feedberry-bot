@@ -47,9 +47,8 @@ their classic layout is unchanged.
   the day first (`ddmmhhmm`). The icons moved from `src/bot/texts.ts` to `src/platform/icons.ts` so the
   render layer can use them without importing the bot layer; `texts.ts` re-exports the one producer.
 - `users.tz` is plumbed into delivery: `deliveryTargets` selects `u.tz`, the scheduled renderer and Download
-  Mode pass it to `postHeader`. It defaults to `UTC` and is set today only by a manual
-  `UPDATE users SET tz = '<IANA zone>' WHERE tg_user_id = <id>`; there is no bot UI for it (no country→zone
-  guess is invented).
+  Mode pass it to `postHeader`. It defaults to `UTC` and is set from Settings → Set Timezone, which also
+  re-plans the stored slots. A country→zone guess is still not invented.
 - Over 32,768 characters the body is clamped at a word boundary with `…` and logged (`rich_clamped`).
   `shortcut:` upgrade when a real source exceeds it. Media past 50 attachments is dropped (`shortcut:`).
 - `withReadMore` returns a rich plan untouched — the Telegraph path stays for RSS/blog. The duration rule
