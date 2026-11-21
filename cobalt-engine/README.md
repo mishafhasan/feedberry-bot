@@ -40,7 +40,7 @@ Requires Node.js 18.17 or newer. ffmpeg is optional and only needed for YouTube 
 | **Instagram** | `instagram.com/p/<id>`, `/reel/<id>`, `/tv/<id>`, `/stories/<user>/<id>`, `ddinstagram.com` |
 | **X / Twitter** | `x.com/<user>/status/<id>`, `twitter.com/…`, `vxtwitter.com`, `fxtwitter`, `/video/<n>` and `/photo/<n>` indexes |
 | **YouTube** | `youtu.be/<id>`, `/watch?v=`, `/shorts/`, `/live/`, `music.youtube.com` |
-| **Facebook** | `facebook.com/<user>/videos/<id>`, `/reel/<id>`, `/share/…`, `/photo?fbid=…`, `fb.watch` |
+| **Facebook** | `facebook.com/<user>/posts/<id>`, `/<user>/videos/<id>`, `/reel/<id>`, `/share/…`, `/photo?fbid=…`, `fb.watch` |
 | **Threads** | `threads.com/@user/post/<code>`, `threads.com`, `/post/<code>`, `/t/<code>` |
 | **Tumblr** | `tumblr.com/<blog>/<postId>`, `/post/<id>`, `/blog/view/<user>/<id>` |
 | **Pinterest** | `pinterest.com/pin/<id>`, `pin/<slug>--<id>`, `pin.it` short links |
