@@ -16,6 +16,7 @@ export const services = {
     facebook: {
         patterns: [
             "_shortLink/:shortLink",
+            ":username/posts/:postId",
             ":username/videos/:caption/:id",
             ":username/videos/:id",
             "reel/:id",
@@ -139,7 +140,8 @@ export const testers = {
         pattern.caption?.length <= 255 ||
         pattern.id?.length <= 20 && !pattern.shareType ||
         pattern.id?.length <= 20 && pattern.shareType?.length === 1 ||
-        pattern.photoId?.length <= 100,
+        pattern.photoId?.length <= 100 ||
+        pattern.postId?.length <= 80,
 
     "instagram": pattern =>
         pattern.postId?.length <= 48 ||
