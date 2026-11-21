@@ -9,3 +9,5 @@ rsshub-cache/
 *.db-shm
 *.log
 .worktrees/
+# Local-only compose override for running against the existing image (no npm-ci rebuild).
+docker-compose.override.yml
