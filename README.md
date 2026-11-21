@@ -192,7 +192,7 @@ post page, then cobalt for the media.
 | TikTok | RSSHub `/tiktok/user/…` | cobalt (short links, photo carousels) |
 | Threads | RSSHub `/threads/…` | the permalink page renders the whole thread |
 | Instagram | RSSHub `/instagram/user/…` | `/p/`, `/reel/`, `/tv/` via cobalt |
-| Facebook | RSSHub `/facebook/page/…` (needs a cookie on a datacenter IP) | videos, reels, photos, `fb.watch` |
+| Facebook | RSSHub `/facebook/page/…` (needs a cookie on a datacenter IP) | `/posts/<id>` and `posts/pfbid…` via cobalt, then the feed's photos; videos, reels, photos, `fb.watch` |
 | Pinterest | RSSHub user route; `/ideas/` and `/search/` are rejected as browse pages | pins, `pin.it` |
 | X / Twitter | only with an operator-supplied `TWITTER_AUTH_TOKEN` | posts via cobalt |
 | Snapchat | not subscribable (no feed exists) | Download Mode only |
@@ -208,7 +208,9 @@ Two layouts, chosen by platform:
 - **Social posts (non-RSS)** ship as **one rich message** (Bot API 10.x `sendRichMessage`): an `<h5>` source
   line, `⏱️` bold `DD/MM HH:MM` in the reader's timezone, an in-message `<tg-slideshow>` of up to 50 media,
   then the whole body inside a `<blockquote expandable>` framed by two rules — one native tap expands it, with
-  no stored payload and no callback. A clip that cannot upload is one `🎬 Video n` link.
+  no stored payload and no callback. A clip that cannot upload is one `🎬 Video n` link. When an Instagram or
+  Facebook extractor is walled or answers less than the post has, the account's own feed supplies the photos
+  (ADR-030, ADR-032); a clip the extractor did find is never replaced by a feed picture.
 - **RSS/blog posts** use the classic rows: text split on word boundaries at 4096 chars (captions at 1024 with
   `(i/n)`), albums of 2–10 via `sendMediaGroup` with sequential messages past 10, mixed kinds sent one by one,
   and articles as a Telegra.ph page opened in Instant View.

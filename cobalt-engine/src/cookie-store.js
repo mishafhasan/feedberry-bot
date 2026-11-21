@@ -12,6 +12,7 @@ import { env } from './settings.js';
 
 const WRITE_INTERVAL = 60000;
 const VALID_SERVICES = new Set([
+    'facebook',
     'instagram',
     'instagram_bearer',
     'reddit',

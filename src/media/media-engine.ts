@@ -1,4 +1,4 @@
-import { download, resolve, type EngineResult } from 'cobalt-engine';
+import { download, resolve, type EngineResult, type PickItem } from 'cobalt-engine';
 import { Coded, E, isCoded, type ErrorCode } from '../platform/errors.ts';
 import type { MediaKind } from '../render/message-plan.ts';
 
@@ -56,10 +56,7 @@ export const cobaltEngine: MediaEngine = {
     if (res.status !== 'ok') throw new Coded(errorCode(res.error?.code), res.error?.code);
 
     if (res.picker?.length) {
-      const items = res.picker.flatMap((pick) => {
-        const kind = KIND[pick.type];
-        return kind && pick.url ? [{ kind, url: pick.url, picker: true, ...(httpOnly(pick.thumb) && { poster: pick.thumb }), headers: res.headers }] : [];
-      });
+      const items = pickerItems(res.picker, res.headers);
       if (items.length === 0) throw new Coded(E.NO_MEDIA, 'picker without playable items');
       return { items, title: res.metadata?.title ?? null, artist: res.metadata?.artist ?? null, publishedAt: res.metadata?.publishedAt ?? null };
     }
@@ -98,6 +95,18 @@ export const cobaltEngine: MediaEngine = {
     return audio === null ? null : video + audio;
   },
 };
+
+/**
+ * The engine's picker as pipeline items: one per playable entry, in the platform's order, each
+ * flagged so its download travels through the picker branch rather than as a single stream.
+ * Pure, so the mapping is testable without a network.
+ */
+export function pickerItems(picker: readonly PickItem[], headers?: Record<string, string>): MediaItem[] {
+  return picker.flatMap((pick) => {
+    const kind = KIND[pick.type];
+    return kind && pick.url ? [{ kind, url: pick.url, picker: true, ...(httpOnly(pick.thumb) && { poster: pick.thumb }), headers }] : [];
+  });
+}
 
 /**
  * Pure so the headers the extractor attached survive the adapter hop: TikTok's CDN answers 403 to

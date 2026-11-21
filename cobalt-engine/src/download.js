@@ -11,7 +11,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { constants as fsConstants } from "node:fs";
-import { join, resolve as resolvePath, basename } from "node:path";
+import { join, resolve as resolvePath, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
 
 import { fetch } from "./net.js";
@@ -106,7 +106,10 @@ async function alignImageExtension(file) {
     if (!imageExt.has(current)) return file;
     if (acceptedImageExt[detected].has(current)) return file;
 
-    const corrected = `${stem}.${detected === "jpeg" ? "jpg" : detected}`;
+    const corrected = await uniquePath(
+        dirname(file),
+        `${basename(stem)}.${detected === "jpeg" ? "jpg" : detected}`
+    );
     await rename(file, corrected);
     return corrected;
 }

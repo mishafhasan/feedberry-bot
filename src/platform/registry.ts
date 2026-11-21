@@ -268,6 +268,10 @@ export function profileFromAuthor(platform: Platform, author: string): string | 
     // youtube is missing on purpose: its artist is the channel title, not a handle.
     case 'bluesky':
       return `https://bsky.app/profile/${name}`;
+    // ADR-032: RSSHub's page route takes a handle or a numeric id, but a post's own reserved path is
+    // not a page name.
+    case 'facebook':
+      return FACEBOOK_POST_PATHS.has(name) ? null : `https://facebook.com/${name}`;
     default:
       // X names no author in cobalt's metadata and needs instance tokens (ADR-017).
       return null;

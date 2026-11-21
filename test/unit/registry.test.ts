@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { classifyLink, detectSource, isListingUrl, isSectionSource, isSectionUrl, isWebsitePage, linksIn, profileOfPost, sectionOf } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource, isListingUrl, isSectionSource, isSectionUrl, isWebsitePage, linksIn, profileFromAuthor, profileOfPost, sectionOf } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -285,6 +285,11 @@ test('M31 facebook: a permalink is one post, and its page is the id it names', (
   assert.equal(profileOfPost(permalink), 'https://facebook.com/100070345475708', 'the page is the id the query names');
   assert.equal(profileOfPost(ref.canonicalUrl), 'https://facebook.com/100070345475708', 'and the canonical keeps ?id=, which is what the chooser reads');
   assert.deepEqual(classifyLink(permalink, opts), { kind: 'post', profileUrl: 'https://facebook.com/100070345475708' });
+
+  // ADR-032: the paste door turns the page the extractor names into the feed it can read.
+  assert.equal(profileFromAuthor('facebook', '@Thinakaran.lk'), 'https://facebook.com/Thinakaran.lk');
+  assert.equal(profileFromAuthor('facebook', '100070345475708'), 'https://facebook.com/100070345475708', 'RSSHub reads a numeric page id too');
+  assert.equal(profileFromAuthor('facebook', '@photo'), null, 'a reserved post path is not a page name');
 });
 
 test('M21 registry: a URL that names a feed is used as a feed, wherever the marker sits', () => {
