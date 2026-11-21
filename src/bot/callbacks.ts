@@ -28,6 +28,7 @@ import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, ladderFor, mediaSignal, prepareM
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
 import { feedPhotos } from '../pipeline/run.ts';
+import { MEDIA_FROM_FEED } from '../pipeline/classify-media.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
@@ -1130,13 +1131,19 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // The post's own item in the account's feed is read only when it can add something: a date the
         // page and the engine both lack, or the media a walled extractor could not hand over (ADR-030).
         const resolvedAt = resolved?.publishedAt ?? null;
-        const missingMedia = resolved === null || resolved.items.length === 0;
-        const own = resolvedAt !== null && meta.publishedAt !== null && !missingMedia
+        const resolvedItems = resolved?.items ?? [];
+        const missingMedia = resolvedItems.length === 0;
+        // A listed platform's extractor answers at most one `og:image` where the feed has the album,
+        // so its feed is worth the request whenever it could add a picture (ADR-032).
+        const thinMedia = MEDIA_FROM_FEED.has(ref.platform) && resolvedItems.length <= 1;
+        const own = resolvedAt !== null && meta.publishedAt !== null && !missingMedia && !thinMedia
           ? null
           : await feedItemOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner)));
-        // ADR-030: the feed's own photos are the media when the extractor is walled, exactly as the
-        // schedule decides it; a platform with no such rule ships the post as its link (ADR-031).
-        const items = missingMedia ? (ref.platform === 'instagram' ? feedPhotos(own?.item.media ?? []) : []) : resolved.items;
+        // The feed's own photos are the media when the extractor is walled or thin, exactly as the
+        // schedule decides it; a clip the extractor did find is never replaced (R14).
+        const fromFeed = MEDIA_FROM_FEED.has(ref.platform) ? feedPhotos(own?.item.media ?? []) : [];
+        const engineClip = resolvedItems.some((item) => item.kind === 'video' || item.kind === 'animation');
+        const items = !engineClip && fromFeed.length > resolvedItems.length ? fromFeed : resolvedItems;
         // The page states the date first, the extractor second; the account's own feed last, because a
         // datacenter IP can lose the page and not every extractor carries a date (§5.4).
         const publishedAt = meta.publishedAt ?? resolvedAt ?? own?.item.publishedAt ?? null;

@@ -4,6 +4,12 @@ import type { MediaItem } from '../media/media-engine.ts';
 export type PostKind = 'text' | 'link_only' | 'photo' | 'album' | 'video' | 'animation' | 'audio';
 
 /**
+ * Platforms where a walled or thin extractor leaves the account's feed as the media (ADR-030, ADR-032):
+ * Instagram's login wall and Facebook's datacenter-IP gate both answer the post's page, not its album.
+ */
+export const MEDIA_FROM_FEED: ReadonlySet<string> = new Set(['instagram', 'facebook']);
+
+/**
  * Stage 3. `items` is cobalt's metadata-only view of the post URL; `hadFeedMedia` is the feed's own
  * hint, used to tell "a text post" from "media we failed to extract" (R14 vs R1).
  */

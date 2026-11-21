@@ -26,7 +26,7 @@ import { payloadOf, type MediaFile, type MessagePlan } from '../render/message-p
 import type { TelegramSender } from '../telegram/api.ts';
 import { targetOf } from '../telegram/target.ts';
 import { fetchSourceFeed } from './fetch-feed.ts';
-import { classifyMedia } from './classify-media.ts';
+import { classifyMedia, MEDIA_FROM_FEED } from './classify-media.ts';
 import { effectiveKeywords, passesFilter } from './keyword-filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './dedupe.ts';
@@ -260,10 +260,13 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     }
   }
-  // A community post has no extractor, and Instagram's login wall can hide from the extractor a post
-  // the feed already carries: in both cases the feed's own photos are the media, so the album ships.
-  // Anywhere else a feed photo is merely a clip's thumbnail and stays dropped (R14).
-  if (items.length === 0 && (youtubePost || platform === 'instagram')) items = feedPhotos(payload.media);
+  // A community post has no extractor, and a listed platform's wall can hand the extractor a single
+  // `og:image` where the feed carries the album: the feed wins only when it has more (ADR-032).
+  // A clip the extractor did find is never replaced, and anywhere else a feed photo is merely a
+  // clip's thumbnail and stays dropped (R14).
+  const fromFeed = feedPhotos(payload.media);
+  const engineClip = items.some((item) => item.kind === 'video' || item.kind === 'animation');
+  if ((youtubePost || MEDIA_FROM_FEED.has(platform)) && !engineClip && fromFeed.length > items.length) items = fromFeed;
   // An attached video is a YouTube page, not a file cobalt can fetch: it ships as its labelled link.
   const videoLinks = youtubePost ? feedVideoLinks(payload.media) : [];
 
