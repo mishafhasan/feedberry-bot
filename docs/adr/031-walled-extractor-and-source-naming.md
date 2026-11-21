@@ -1,6 +1,7 @@
 # ADR-031: A walled extractor is not a failed download, and every source is named
 
-**Status:** Accepted · 2026-11-21 · amends ADR-018 §2, ADR-021 and ADR-030
+**Status:** Accepted · 2026-11-21 · amends ADR-018 §2, ADR-021 and ADR-030 · its Facebook rows are
+amended by ADR-032
 
 ## Context
 
