@@ -48,11 +48,36 @@ export async function fetchAndParse(http: Http, url: string, timeoutMs?: number)
  * The page list a site with no feed publishes (ADR-021). Only discovery's last guess and the URL it
  * stores read a sitemap: a `rel=alternate application/xml` is as often a sitemap as a feed, and that
  * one must still fall through to the conventional paths (ADR-019).
+ * A site may publish only a `<sitemapindex>` (tamilwin.com), so one level of children is followed:
+ * ADR-021 assumed an index implies a feed of its own, which is not true.
+ * shortcut: three children, and the index URL is what a source stores; upgrade when a site's newest
+ * pages sit deeper than that.
  */
 export async function fetchSitemap(http: Http, url: string, timeoutMs?: number): Promise<ParsedFeed> {
+  // The clock starts before the index itself: the caller's budget is the whole search, not per hop.
+  const deadline = Date.now() + (timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const res = await load(http, url, timeoutMs);
-  return { ...parseSitemap(res.body, res.url), feedUrl: res.url };
+  const children = sitemapChildren(res.body, res.url);
+  if (children.length === 0) return { ...parseSitemap(res.body, res.url), feedUrl: res.url };
+
+  const entries: SitemapEntry[] = [];
+  for (const child of children.slice(0, SITEMAP_CHILDREN)) {
+    const left = deadline - Date.now();
+    if (left <= 0) break;
+    try {
+      const part = await load(http, child, left);
+      entries.push(...sitemapEntries(part.body, part.url));
+    } catch {
+      // One child a publisher moved is not the site having no pages; the others still answer.
+    }
+  }
+  // No child answered: the index's own parse is what says so, with the honest NO_FEED.
+  if (entries.length === 0) return { ...parseSitemap(res.body, res.url), feedUrl: res.url };
+  return { ...feedOf(entries), feedUrl: url };
 }
+
+const DEFAULT_TIMEOUT_MS = 20_000;
+const SITEMAP_CHILDREN = 3;
 
 async function load(http: Http, url: string, timeoutMs?: number) {
   const res = await http(url, { maxBytes: FEED_LIMIT, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
@@ -223,16 +248,25 @@ function isSitemapUrl(url: string): boolean {
 const SITEMAP_ITEMS = 50;
 /** An undated sitemap cannot be ordered, so its whole list is the source; this only bounds the parse. */
 const SITEMAP_MAX = 1000;
+/** One page a sitemap lists, with the date it states (unknown for an undated file). */
+interface SitemapEntry {
+  url: string;
+  at: number | null;
+}
 
 /**
  * Last resort for a site that publishes no feed at all (ADR-021): a beehiiv newsletter with RSS
  * switched off still lists its posts in a sitemap. Only the path segment that holds most of the
  * sitemap is followed — a newsletter's `/p/…`, a blog's `/blog/…` — because `/about` and
  * `/subscribe` are the site, not its posts. With no such directory the whole sitemap is the blog.
- * shortcut: `<urlset>` only; a `<sitemapindex>` needs its children fetched, and such a site has a feed.
  */
 export function parseSitemap(xml: string, baseUrl: string): ParsedFeed {
-  const entries: Array<{ url: string; at: number | null }> = [];
+  return feedOf(sitemapEntries(xml, baseUrl));
+}
+
+/** Every `<url>` a `<urlset>` lists; a `<sitemapindex>` lists none (see `sitemapChildren`). */
+function sitemapEntries(xml: string, baseUrl: string): SitemapEntry[] {
+  const entries: SitemapEntry[] = [];
   const seen = new Set<string>();
   for (const match of xml.matchAll(/<url>([\s\S]*?)<\/url>/gi)) {
     const block = match[1] ?? '';
@@ -250,7 +284,28 @@ export function parseSitemap(xml: string, baseUrl: string): ParsedFeed {
     seen.add(href);
     entries.push({ url: href, at: dateOf(firstTag(block, 'lastmod')) });
   }
+  return entries;
+}
 
+/** The `<loc>` children of a `<sitemapindex>`, in the publisher's own order. */
+function sitemapChildren(xml: string, baseUrl: string): string[] {
+  if (!/<sitemapindex\b/i.test(xml)) return [];
+  const children: string[] = [];
+  for (const match of xml.matchAll(/<sitemap\b[^>]*>([\s\S]*?)<\/sitemap>/gi)) {
+    const raw = text(firstTag(match[1] ?? '', 'loc'));
+    if (raw === '') continue;
+    try {
+      const url = new URL(decodeEntities(raw), baseUrl);
+      if (/^https?:$/.test(url.protocol)) children.push(url.toString());
+    } catch {
+      // A broken child URL lists nothing.
+    }
+  }
+  return children;
+}
+
+/** The pages a sitemap lists, as a feed: the newest window, or the whole undated list. */
+function feedOf(entries: SitemapEntry[]): ParsedFeed {
   const directory = postDirectory(entries);
   const pages = entries.filter((entry) => directory === null || pathSegment(entry.url) === directory);
   // A dated sitemap is read newest first and only its window is followed; the rest is history. An

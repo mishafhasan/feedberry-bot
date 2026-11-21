@@ -4,6 +4,7 @@
  */
 import type { ErrorCode } from '../platform/errors.ts';
 import { parseContentTypes } from '../platform/content-types.ts';
+import { platformForHost } from '../platform/allowlist.ts';
 import type { Platform } from '../platform/registry.ts';
 import { formatKeywords, parseKeywords } from '../pipeline/keyword-filter.ts';
 import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
@@ -129,6 +130,63 @@ export function sourceTitle(title: string, section: string | null): string {
   const label = sectionLabel(section);
   const lower = title.toLowerCase();
   return label.toLowerCase().split(' ').some((word) => word.length > 2 && lower.includes(word)) ? title : `${title} · ${label}`;
+}
+
+/**
+ * The name a feed cannot give itself. A CMS feed often publishes its own domain as `<channel><title>`
+ * (dailymirror.lk), so two category feeds of one site would read the same; the site's name plus the
+ * category its URL names is what tells them apart (`Dailymirror · Breaking News`, ADR-031).
+ * `fallback` is the handle a platform source has, which names its account better than its host does.
+ */
+export function feedSourceTitle(title: string | null, url: string, section: string | null, fallback: string | null = null): string {
+  const host = hostOf(url);
+  const site = namesSomething(title, host) || namesSomething(fallback, host) || hostLabel(host);
+  // Only a website's path names a category; a platform's last segment is the account itself.
+  const category = section ?? (platformForHost(host) === undefined ? feedCategory(url) : null);
+  if (site === '') return (title ?? '').trim();
+  return category === null ? site : sourceTitle(site, category);
+}
+
+/** The value itself, when it names something other than the address the reader already sees. */
+function namesSomething(value: string | null, host: string): string {
+  const text = (value ?? '').trim();
+  return text === '' || namesHost(text, host) ? '' : text;
+}
+
+/** The host as a reader writes it: `www.dailymirror.lk` is `Dailymirror`. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '');
+  } catch {
+    return '';
+  }
+}
+
+/** A title that repeats the address names no source: `www.dailymirror.lk` tells no reader anything. */
+function namesHost(title: string, host: string): boolean {
+  const bare = title.toLowerCase().replace(/^www\./, '').replace(/\/+$/, '').trim();
+  return host !== '' && bare === host.toLowerCase();
+}
+
+function hostLabel(host: string): string {
+  // A feed host says nothing: `feeds.bbci.co.uk` is the BBC, and `Feeds` would be a nonsense name.
+  const label = host.split('.').find((part) => part !== '' && !/^feeds?$/i.test(part)) ?? '';
+  return label === '' ? host : `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
+/** Path segments that spell the feed itself rather than the category it carries (`/rss/`, `rss.xml`). */
+const FEED_SEGMENT = /^(?:feed|feeds|rss|atom|index)$|\.(?:xml|rss|atom|rdf|json)$/i;
+
+/** `/rss/breaking_news/108` → `/breaking_news`: the one segment a feed URL names its category with. */
+function feedCategory(url: string): string | null {
+  let seg: string[];
+  try {
+    seg = new URL(url).pathname.split('/').filter((part) => part !== '' && !FEED_SEGMENT.test(part) && !/^\d+$/.test(part));
+  } catch {
+    return null;
+  }
+  const last = seg.at(-1);
+  return last === undefined ? null : `/${last}`;
 }
 
 /** `/category/artificial-intelligence` → `Artificial Intelligence`; a trailing section id names nothing. */

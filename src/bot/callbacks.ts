@@ -8,7 +8,7 @@ import { deleteSubscription, countSubscriptionsForUser, getSourceCard, listSourc
 import { advanceDigest, digestSourceCards, digestSourceCount, digestSourceIndex, digestTimezone, enabledDigestSlots, ensureDigest, ownDigest, setDigestEnabled, setDigestHour, setDigestLang, toggleDigestSource } from '../db/repos/digests.ts';
 import { ensureUser, setLocale, setUserTimezone } from '../db/repos/users.ts';
 import { log } from '../obs/log.ts';
-import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
+import type { MediaEngine, MediaItem, ResolvedMedia } from '../media/media-engine.ts';
 import { type Thumbnailer } from '../media/thumbnail.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { FeedItem, ParsedFeed } from '../platform/feed/native.ts';
@@ -27,6 +27,7 @@ import { addSource, assertWithinSourceLimit } from '../pipeline/dedupe.ts';
 import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, ladderFor, mediaSignal, prepareMedia, withPosters } from '../pipeline/prepare-media.ts';
 import { formatKeywords } from '../pipeline/keyword-filter.ts';
 import { renderDownload } from '../pipeline/render-post.ts';
+import { feedPhotos } from '../pipeline/run.ts';
 import { type MediaFile, type MessagePlan } from '../render/message-plan.ts';
 import { planArticle } from '../pipeline/article-plan.ts';
 import type { TelegraphClient } from '../article/telegraph.ts';
@@ -58,7 +59,7 @@ import { digestChatView, digestLanguageView, digestSourcesView, digestTimeView, 
 import { contentTypePickerView } from './screens/content-type-picker.ts';
 import { ADM } from './screens/admin-screens.ts';
 import { langFor, t, type Lang } from './i18n/index.ts';
-import { actionToast, downloadDone, downloadPrompt, errorText, esc, genericToast, linkInvalid, linkRequired, oneLink, postLinkPrompt, sourceBody, sourceTitle } from './texts.ts';
+import { actionToast, downloadDone, downloadPrompt, errorText, esc, feedSourceTitle, genericToast, linkInvalid, linkRequired, oneLink, postLinkPrompt, sourceBody } from './texts.ts';
 
 /** callback_data values (ARCHITECTURE §7.2). */
 export const cb = {
@@ -673,7 +674,7 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
       feed = await fetchSourceFeed(deps.http, ref, chosenTypes(userId), deps.cfg.rsshubBase);
     }
     const section = sectionOf(ref.canonicalUrl);
-    const author = sourceTitle(feed.title ?? ref.externalId, section);
+    const author = feedSourceTitle(feed.title, ref.canonicalUrl, section, ref.externalId);
     // §5.4: every item is recorded as seen; the preview and the backfill use the newest few.
     const preview = newest(filterByContentTypes(ref.platform, feed.items, chosenTypes(userId)), deps.cfg.limits.backfillCount);
     const pending: PendingSource = {
@@ -691,6 +692,11 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
     pending.photo = await sendPreview(ctx, deps, user.id, ref, feed, preview, lang, section);
     setSession(userId, { state: 'preview', pending });
   } catch (err) {
+    // A site with no feed at all cannot be a source, but the same link still downloads as one post:
+    // say that once, instead of a Retry that can only fail again (ADR-031).
+    if (isCoded(err) && err.code === E.NO_FEED && isPageLink(link, deps)) {
+      return await offerDownloadOnly(ctx, deps, userId, link);
+    }
     await showError(ctx, deps, userId, err, { kind: 'source', link });
   } finally {
     if (working !== undefined && chatId !== undefined) {
@@ -700,11 +706,19 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
   }
 }
 
+/** A page whose site publishes no feed: the download chooser is the only step that can work. */
+async function offerDownloadOnly(ctx: Context, deps: BotDeps, userId: number, link: string): Promise<void> {
+  await dropChooser(ctx, userId);
+  const lang = langOf(deps, userId);
+  const sent = await ctx.reply(t(lang, 'notice.noFeed'), { parse_mode: 'HTML', reply_markup: postLinkKeyboard(false, lang) });
+  setSession(userId, { state: 'choosing', error: undefined, chooser: { link, messageId: sent.message_id } });
+}
+
 /** Returns whether the preview went out as a photo (S5/S6 then edit a caption). */
 async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang, section: string | null): Promise<boolean> {
   const view = sourcePreviewView({
     platform: ref.platform,
-    author: sourceTitle(feed.title ?? ref.externalId, section),
+    author: feedSourceTitle(feed.title, ref.canonicalUrl, section, ref.externalId),
     section,
     avatarUrl: feed.avatarUrl,
     items,
@@ -1101,23 +1115,37 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         channel = page.channel;
         plan = await pagePostDelivery(deps, page, ref.canonicalUrl, dir, transfer, ref.platform, user.tz);
       } else {
-        const resolved = await deps.media.resolve(ref.canonicalUrl, signal);
+        const resolved = await resolvedOrNull(deps, ref.canonicalUrl, signal);
         // X/Twitter, TikTok and Facebook extractors return media only; the page still names its words.
         // X's public text surfaces stop at 280, so the full post comes from the mirror when it answers.
         // One page fetch carries what the extractor did not: the account, the date, the words.
         const meta = await pageMeta(deps.http, ref.canonicalUrl);
         // A video page is too heavy for the page budget; oEmbed names its channel in a fraction of it.
         channel = await youtubeChannelOf(deps.http, ref.canonicalUrl);
-        const engineText = resolved.title?.trim() || null;
+        const engineText = resolved?.title?.trim() || null;
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
-        engineAuthor = resolved.artist?.trim() || null;
+        engineAuthor = resolved?.artist?.trim() || null;
         // The page names the account as it prints it; then the extractor, then the account the link names.
         const owner = profileOfPost(ref.canonicalUrl);
+        // The post's own item in the account's feed is read only when it can add something: a date the
+        // page and the engine both lack, or the media a walled extractor could not hand over (ADR-030).
+        const resolvedAt = resolved?.publishedAt ?? null;
+        const missingMedia = resolved === null || resolved.items.length === 0;
+        const own = resolvedAt !== null && meta.publishedAt !== null && !missingMedia
+          ? null
+          : await feedItemOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner)));
+        // ADR-030: the feed's own photos are the media when the extractor is walled, exactly as the
+        // schedule decides it; a platform with no such rule ships the post as its link (ADR-031).
+        const items = missingMedia ? (ref.platform === 'instagram' ? feedPhotos(own?.item.media ?? []) : []) : resolved.items;
         // The page states the date first, the extractor second; the account's own feed last, because a
         // datacenter IP can lose the page and not every extractor carries a date (§5.4).
-        const publishedAt = meta.publishedAt ?? resolved.publishedAt ?? (await feedDateOf(deps, ref, engineAuthor ?? (owner === null ? null : nameOf(owner))));
-        const source = meta.name ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
-        const files = await prepareMedia(deps.media, resolved.items, dir, {
+        const publishedAt = meta.publishedAt ?? resolvedAt ?? own?.item.publishedAt ?? null;
+        // The account's own title is what the schedule prints above the same post; a bare handle is
+        // the last resort, because the paste door never fetched that account. It only replaces the
+        // extractor's name when the feed is what supplied the media.
+        const account = missingMedia ? own?.account ?? null : null;
+        const source = meta.name ?? account ?? engineAuthor ?? (owner !== null ? nameOf(owner) : text === null ? null : hostOf(ref.canonicalUrl));
+        const files = await prepareMedia(deps.media, items, dir, {
           maxMb: deps.cfg.limits.maxDownloadMb,
           signal: transfer,
           ladderUrl: ladderFor(ref.platform, ref.canonicalUrl),
@@ -1161,15 +1189,30 @@ function samePost(link: string, deps: BotDeps, externalId: string): boolean {
 }
 
 /**
- * The post's date when the page will not state it: a datacenter IP gets Instagram's login wall,
- * while RSSHub reads the same account for the subscriptions. No match means no time, never a guess.
+ * A walled extractor is not a failed download: the schedule degrades to the feed's media and then to
+ * the post's own link, and a paste must not answer with an error where the schedule ships (ADR-031).
  */
-async function feedDateOf(deps: BotDeps, ref: SourceRef, author: string | null): Promise<number | null> {
+async function resolvedOrNull(deps: BotDeps, url: string, signal: AbortSignal): Promise<ResolvedMedia | null> {
+  try {
+    return await deps.media.resolve(url, signal);
+  } catch (err) {
+    log('warn', 'media_resolve_failed', { url, code: isCoded(err) ? err.code : 'unknown', cause: message(err) });
+    return null;
+  }
+}
+
+/**
+ * The post's own item in the account's feed, with the account title the feed carries: RSSHub reads
+ * the account a datacenter IP cannot, and the item carries the media, the date and that name. No
+ * match means nothing, never a guess.
+ */
+async function feedItemOf(deps: BotDeps, ref: SourceRef, author: string | null): Promise<{ item: FeedItem; account: string | null } | null> {
   const profile = author === null ? null : profileFromAuthor(ref.platform, author);
   if (profile === null) return null;
   try {
     const feed = await fetchSourceFeed(deps.http, detectSource(profile, detectOpts(deps)), null, deps.cfg.rsshubBase);
-    return feed.items.find((item) => samePost(item.link, deps, ref.externalId))?.publishedAt ?? null;
+    const item = feed.items.find((candidate) => samePost(candidate.link, deps, ref.externalId));
+    return item === undefined ? null : { item, account: feed.title };
   } catch {
     return null;
   }

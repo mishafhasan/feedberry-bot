@@ -355,8 +355,11 @@ async function threadRow(http: Http, post: PostRow): Promise<PostRow> {
   }
 }
 
-/** A feed that ships photo URLs and no extractor behind them (a YouTube community post album). */
-function feedPhotos(media: Array<{ url: string; type: string }>): MediaItem[] {
+/**
+ * A feed that ships photo URLs and no extractor behind them (a YouTube community post album), and the
+ * media behind an Instagram post whose extractor is walled (ADR-030). Both doors use this one rule.
+ */
+export function feedPhotos(media: Array<{ url: string; type: string }>): MediaItem[] {
   return media.filter((item) => item.type === 'photo').map((item) => ({ kind: 'photo' as const, url: item.url, picker: false }));
 }
 

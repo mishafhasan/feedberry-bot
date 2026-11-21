@@ -99,6 +99,11 @@ export function detectSource(link: string, opts: DetectOptions): SourceRef {
     }
     case 'facebook': {
       const [first, second, third, fourth] = seg;
+      // /permalink.php?story_fbid=<id>&id=<page> is how older pages share a post; it is never a page.
+      const storyId = u.searchParams.get('story_fbid');
+      if ((first === 'permalink.php' || first === 'story.php') && storyId) {
+        return single(u, platform, storyId, `https://facebook.com/${first}?story_fbid=${storyId}${pageQuery(u)}`);
+      }
       // /photo?fbid=<id> keeps its query: cobalt matches `photo?fbid=:id`.
       if (first === 'photo' || first === 'photo.php') {
         const fbid = u.searchParams.get('fbid');
@@ -212,8 +217,11 @@ export function profileOfPost(link: string): string | null {
     case 'facebook': {
       // fb.watch/<code> names no page at all.
       if (normalizeHost(u.hostname) === 'fb.watch') return null;
-      // /photo?fbid=… and /watch?v=… name the post, not its page; `set=pb.<pageId>…` is what names it.
-      const pageId = /^pb\.(\d+)\./.exec(u.searchParams.get('set') ?? '')?.[1];
+      // /photo?fbid=… and /watch?v=… name the post, not its page; `set=pb.<pageId>…` is what names it,
+      // and the permalink forms carry the page as a plain `id`.
+      const fromSet = /^pb\.(\d+)\./.exec(u.searchParams.get('set') ?? '')?.[1];
+      const fromId = FACEBOOK_POST_PATHS.has(seg[0] ?? '') ? /^\d+$/.exec(u.searchParams.get('id') ?? '')?.[0] : undefined;
+      const pageId = fromSet ?? fromId;
       if (pageId !== undefined) return `https://facebook.com/${pageId}`;
       return seg[0] === undefined || FACEBOOK_POST_PATHS.has(seg[0]) ? null : `https://facebook.com/${owner}`;
     }
@@ -238,7 +246,13 @@ export function profileOfPost(link: string): string | null {
 const HANDLE = /^[A-Za-z0-9._-]{1,30}$/;
 
 /** Facebook path segments that name a post rather than the page that posted it. */
-const FACEBOOK_POST_PATHS = new Set(['photo', 'photo.php', 'watch', 'videos', 'reel', 'reels', 'share', 'story.php']);
+const FACEBOOK_POST_PATHS = new Set(['photo', 'photo.php', 'watch', 'videos', 'reel', 'reels', 'share', 'story.php', 'permalink.php']);
+
+/** The page a permalink's `?id=` names, kept on the canonical URL so cobalt still reads the post. */
+function pageQuery(u: URL): string {
+  const pageId = /^\d+$/.exec(u.searchParams.get('id') ?? '')?.[0];
+  return pageId === undefined ? '' : `&id=${pageId}`;
+}
 
 /** The profile URL for an author a download named, when that platform has profile feeds. */
 export function profileFromAuthor(platform: Platform, author: string): string | null {
@@ -301,12 +315,26 @@ const countOf = (text: string, char: string): number => text.split(char).length 
 
 const withScheme = (link: string): string => (/^www\./i.test(link) ? `https://${link}` : link);
 
-/** A website page the URL alone calls a category listing: `/category/science`, `/top-stories/155`. */
+/** A website page the URL alone calls a category listing: `/category/science`, `/top-stories/155`, `/popular`. */
 export function isSectionSource(ref: SourceRef): boolean {
   if (ref.platform !== 'rss') return false;
   const section = sectionOf(ref.canonicalUrl);
-  return section !== null && isSectionUrl(section);
+  return section !== null && isListingUrl(section);
 }
+
+/**
+ * The URL alone calls this a listing: a marker, a section id, or a one-segment navigation word.
+ * ADR-018 leaves a one-segment page to its feed, because `/science` and `/my-article` look alike; a
+ * listed word is navigation, never an article slug.
+ */
+export function isListingUrl(section: string): boolean {
+  if (isSectionUrl(section)) return true;
+  const seg = section.split('/').filter(Boolean);
+  return seg.length === 1 && LISTING_WORDS.has((seg[0] ?? '').toLowerCase());
+}
+
+/** Single path segments that name one of a site's listings (`tamilwin.com/popular`). */
+const LISTING_WORDS = new Set(['popular', 'trending', 'latest', 'top', 'hot', 'breaking', 'most-read', 'most-popular', 'top-stories']);
 
 /**
  * The page path a category subscription would follow, with any trailing page number cut off, or null
@@ -334,7 +362,8 @@ const FEED_PAGE = /(^|\/)(feed|feeds|rss|atom)(\/|$)|\.(xml|rss|atom)$/i;
 
 /**
  * The URL alone says "listing": a category marker, or a section id as the second segment. A single
- * segment stays ambiguous with an article slug, so those are left to the feed to prove.
+ * segment stays ambiguous with an article slug, so those are left to the feed to prove — except the
+ * navigation words `isListingUrl` names, which are never a feed's promise (ADR-018 §2, ADR-031).
  */
 export function isSectionUrl(section: string): boolean {
   const seg = section.split('/').filter(Boolean);
