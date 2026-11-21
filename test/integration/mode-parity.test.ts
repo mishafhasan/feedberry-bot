@@ -44,7 +44,7 @@ interface Post {
   /** The words the post page states (`og:description`), which the paste door reads when the engine walls. */
   text?: string;
   /** The account's own feed, as RSSHub answers it: where a walled extract leaves the two doors equal. */
-  feed?: { url: string; itemUrl: string; photo: string; publishedAt: number };
+  feed?: { url: string; itemUrl: string; photo: string; photos?: string[]; publishedAt: number };
   /** What the extractor answers for the post link, per quality rung. */
   resolve: (quality?: string) => MediaItem[];
   /** Poster the extractor states, when it states one. */
@@ -86,12 +86,13 @@ function engineOf(post: Post, calls: { downloads: string[]; sizes: number[] }): 
 const pageHttp = (post: Post): Http => async (url) => {
   if (url.includes('api.fxtwitter.com')) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ tweet: { text: post.title } }) };
   if (post.feed !== undefined && url === post.feed.url) {
-    const { itemUrl, photo, publishedAt } = post.feed;
+    const { itemUrl, photo, photos, publishedAt } = post.feed;
+    const enclosures = (photos ?? [photo]).map((each) => `<enclosure url="${each}" type="image/jpeg"/>`).join('');
     return {
       status: 200,
       url,
       contentType: 'application/rss+xml',
-      body: `<?xml version="1.0"?><rss version="2.0"><channel><title>creator</title><item><title>${post.title}</title><link>${itemUrl}</link><guid>${itemUrl}</guid><pubDate>${new Date(publishedAt).toUTCString()}</pubDate><enclosure url="${photo}" type="image/jpeg"/></item></channel></rss>`,
+      body: `<?xml version="1.0"?><rss version="2.0"><channel><title>creator</title><item><title>${post.title}</title><link>${itemUrl}</link><guid>${itemUrl}</guid><pubDate>${new Date(publishedAt).toUTCString()}</pubDate>${enclosures}</item></channel></rss>`,
     };
   }
   if (post.page !== undefined) return { status: 200, url, contentType: 'text/html', body: post.page };
@@ -347,12 +348,40 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
       assert.match(result.html, /<a href="https:\/\/facebook\.com\/TrollMafia\/posts\/pfbid[^"]+">(?:@)?TrollMafia<\/a>/, 'the header links the post');
     },
   },
+  {
+    name: '(i) a Facebook post the page states with one picture ships the feed\'s album',
+    post: {
+      platform: 'facebook',
+      link: 'https://facebook.com/TrollMafia/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk',
+      title: 'Four pictures of the parade',
+      artist: 'TrollMafia',
+      publishedAt: Date.UTC(2026, 10, 13, 17, 0),
+      // The generic extractor reads the page's single og:image; the feed carries the whole album.
+      media: [
+        { url: 'https://cdn.test/album-1.jpg', type: 'photo' },
+        { url: 'https://cdn.test/album-2.jpg', type: 'photo' },
+      ],
+      feed: {
+        url: 'http://rsshub.test/facebook/page/TrollMafia',
+        itemUrl: 'https://facebook.com/TrollMafia/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk',
+        photo: 'https://cdn.test/album-1.jpg',
+        photos: ['https://cdn.test/album-1.jpg', 'https://cdn.test/album-2.jpg'],
+        publishedAt: Date.UTC(2026, 10, 13, 17, 0),
+      },
+      resolve: () => [{ kind: 'photo', url: 'https://cdn.test/page-cover.jpg', picker: false }],
+      sizes: { 'https://cdn.test/page-cover.jpg': 2048, 'https://cdn.test/album-1.jpg': 4096, 'https://cdn.test/album-2.jpg': 4096 },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 2, 'the album, never the page\'s single picture');
+      assert.equal(result.labels, 0, 'nothing to link');
+    },
+  },
 ];
 
 for (const entry of cases) {
   // The paste door never fetched a Facebook page, so it prints the handle where the schedule prints
-  // the page's title; case (h) pins its own rendering instead of a byte-for-byte comparison.
-  const sameHeader = entry.name.startsWith('(h)') ? false : true;
+  // the page's title; cases (h) and (i) pin their own rendering instead of a byte comparison.
+  const sameHeader = !/^\((h|i)\)/.test(entry.name);
   test(`parity ${entry.name}`, async () => {
     const fromSchedule = await scheduled(entry.post);
     const fromPaste = await download(entry.post);

@@ -182,15 +182,17 @@ test('M8: /status answers the admin only', async () => {
 });
 
 /** A post the extractor cannot read, delivered once on a source whose feed carries the media itself. */
-async function deliverWithoutExtractor(platform: string, media: FeedMedia[]): Promise<{ html: string; media: number }> {
+async function deliverWithoutExtractor(
+  platform: string,
+  media: FeedMedia[],
+  resolve: MediaEngine['resolve'] = async () => { throw new Coded(E.NO_MEDIA, 'login wall'); },
+): Promise<{ html: string; media: number }> {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), `feedberry-walled-${platform}-`));
   const db = openDb(join(dir, 'bot.db'));
   const link = `https://${platform}.test/p/Walled`;
   const walled: MediaEngine = {
-    async resolve() {
-      throw new Coded(E.NO_MEDIA, 'login wall');
-    },
+    resolve,
     async download(_item, into) {
       mkdirSync(into, { recursive: true });
       const path = join(into, 'photo.jpg');
@@ -223,15 +225,37 @@ async function deliverWithoutExtractor(platform: string, media: FeedMedia[]): Pr
   }
 }
 
-test('M8: an Instagram post the extractor walls still ships the photos its feed carries', async () => {
+test('M8: an Instagram or Facebook post the extractor walls still ships the photos its feed carries', async () => {
   const photo: FeedMedia = { url: 'https://cdn.example.test/C4.jpg', type: 'photo' };
 
   const instagram = await deliverWithoutExtractor('instagram', [photo]);
   assert.match(instagram.html, /tg:\/\/photo\?id=m0/, 'the feed photo rides in the slideshow');
   assert.equal(instagram.media, 1);
 
+  const facebook = await deliverWithoutExtractor('facebook', [photo]);
+  assert.match(facebook.html, /tg:\/\/photo\?id=m0/, 'ADR-032 reaches Facebook too');
+  assert.equal(facebook.media, 1);
+
   const x = await deliverWithoutExtractor('x', [photo]);
   assert.equal(x.media, 0, 'elsewhere a feed photo is only a clip\'s thumbnail and stays dropped (R14)');
+});
+
+test('M8: the feed album beats the single picture the page stated', async () => {
+  const cover = {
+    items: [{ kind: 'photo' as const, url: 'https://cdn.example.test/cover.jpg', picker: false }],
+    title: null,
+    artist: null,
+  };
+  const album: FeedMedia[] = [
+    { url: 'https://cdn.example.test/A1.jpg', type: 'photo' },
+    { url: 'https://cdn.example.test/A2.jpg', type: 'photo' },
+  ];
+
+  const facebook = await deliverWithoutExtractor('facebook', album, async () => cover);
+  assert.equal(facebook.media, 2, 'the whole album, not the og:image the generic extractor read');
+
+  const instagram = await deliverWithoutExtractor('instagram', album, async () => cover);
+  assert.equal(instagram.media, 2, 'one rule for both doors');
 });
 
 test('M8: an unparseable post is resent as plain text, not dropped', async () => {
