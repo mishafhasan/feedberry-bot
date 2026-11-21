@@ -112,6 +112,14 @@ test("facebook photo link", () => {
     matches("https://web.facebook.com/photo/?fbid=1270547115300126", "facebook", { photoId: "1270547115300126" });
 });
 
+test("facebook post permalink", () => {
+    const pfbid = "pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk69mQJUwt13s8dg1gLfJTQ9l";
+    matches(`https://www.facebook.com/Thinakaran.lk/posts/${pfbid}`, "facebook", {
+        username: "Thinakaran.lk",
+        postId: pfbid,
+    });
+});
+
 test("pinterest pin link", () => {
     matches("https://www.pinterest.com/pin/774124930871803/", "pinterest", { id: "774124930871803" });
 });
