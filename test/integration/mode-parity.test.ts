@@ -18,6 +18,7 @@ import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser, upsertAllowedUser } from '../../src/db/repos/users.ts';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
+import { Coded, E } from '../../src/platform/errors.ts';
 import { parseYouTubePost } from '../../src/platform/feed/youtube-post.ts';
 import type { FeedMedia } from '../../src/platform/feed/native.ts';
 import type { Http } from '../../src/platform/http.ts';
@@ -40,6 +41,10 @@ interface Post {
   media?: FeedMedia[];
   /** The feed's own words, when they carry a player line the paste door never sees. */
   summary?: string;
+  /** The words the post page states (`og:description`), which the paste door reads when the engine walls. */
+  text?: string;
+  /** The account's own feed, as RSSHub answers it: where a walled extract leaves the two doors equal. */
+  feed?: { url: string; itemUrl: string; photo: string; publishedAt: number };
   /** What the extractor answers for the post link, per quality rung. */
   resolve: (quality?: string) => MediaItem[];
   /** Poster the extractor states, when it states one. */
@@ -80,9 +85,19 @@ function engineOf(post: Post, calls: { downloads: string[]; sizes: number[] }): 
 /** The post page as the app reads it: no name, no description, no date — the engine carries those. */
 const pageHttp = (post: Post): Http => async (url) => {
   if (url.includes('api.fxtwitter.com')) return { status: 200, url, contentType: 'application/json', body: JSON.stringify({ tweet: { text: post.title } }) };
+  if (post.feed !== undefined && url === post.feed.url) {
+    const { itemUrl, photo, publishedAt } = post.feed;
+    return {
+      status: 200,
+      url,
+      contentType: 'application/rss+xml',
+      body: `<?xml version="1.0"?><rss version="2.0"><channel><title>creator</title><item><title>${post.title}</title><link>${itemUrl}</link><guid>${itemUrl}</guid><pubDate>${new Date(publishedAt).toUTCString()}</pubDate><enclosure url="${photo}" type="image/jpeg"/></item></channel></rss>`,
+    };
+  }
   if (post.page !== undefined) return { status: 200, url, contentType: 'text/html', body: post.page };
   const image = post.poster === undefined ? '' : `<meta property="og:image" content="${post.poster}"/>`;
-  return { status: 200, url, contentType: 'text/html', body: `<html><head>${image}</head><body></body></html>` };
+  const description = post.text === undefined ? '' : `<meta property="og:description" content="${post.text}"/>`;
+  return { status: 200, url, contentType: 'text/html', body: `<html><head>${image}${description}</head><body></body></html>` };
 };
 
 /** A YouTube community post, read from the captured page the parser tests already rely on. */
@@ -285,15 +300,65 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
       assert.match(result.html, /<tg-slideshow><img src="tg:\/\/photo\?id=m0"\/><\/tg-slideshow>/, 'the clip\'s own picture sits above its label');
     },
   },
+  {
+    name: '(g) a walled Instagram extract ships the account feed\'s own photo',
+    post: {
+      platform: 'instagram',
+      link: 'https://instagram.com/creator/p/Post1',
+      title: 'A post the extractor cannot read',
+      artist: 'creator',
+      publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      // The feed the schedule reads carries the same post, with the picture the session could not fetch.
+      media: [{ url: 'https://cdn.test/from-feed.jpg', type: 'photo' }],
+      text: 'A post the extractor cannot read',
+      feed: {
+        url: 'http://rsshub.test/instagram/user/creator',
+        itemUrl: 'https://instagram.com/creator/p/Post1',
+        photo: 'https://cdn.test/from-feed.jpg',
+        publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      },
+      resolve: () => {
+        throw new Coded(E.COOKIE_REQUIRED, 'error.fetch.empty');
+      },
+      sizes: { 'https://cdn.test/from-feed.jpg': 4096 },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 1, 'the feed photo is uploaded, not an error message');
+      assert.equal(result.labels, 0, 'nothing to link');
+      assert.match(result.html, /<blockquote expandable>A post the extractor cannot read<\/blockquote>/);
+    },
+  },
+  {
+    name: '(h) a Facebook post no extractor reads ships as its link, on both doors',
+    post: {
+      platform: 'facebook',
+      link: 'https://facebook.com/TrollMafia/posts/pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk',
+      title: 'A post only the page states',
+      artist: 'TrollMafia',
+      publishedAt: Date.UTC(2026, 10, 13, 16, 0),
+      text: 'A post only the page states',
+      resolve: () => {
+        throw new Coded(E.NO_MEDIA, 'error.link.unsupported');
+      },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 0, 'no media is invented');
+      assert.match(result.html, /<blockquote expandable>A post only the page states<\/blockquote>/, 'the words still arrive');
+      assert.match(result.html, /<a href="https:\/\/facebook\.com\/TrollMafia\/posts\/pfbid[^"]+">(?:@)?TrollMafia<\/a>/, 'the header links the post');
+    },
+  },
 ];
 
 for (const entry of cases) {
+  // The paste door never fetched a Facebook page, so it prints the handle where the schedule prints
+  // the page's title; case (h) pins its own rendering instead of a byte-for-byte comparison.
+  const sameHeader = entry.name.startsWith('(h)') ? false : true;
   test(`parity ${entry.name}`, async () => {
     const fromSchedule = await scheduled(entry.post);
     const fromPaste = await download(entry.post);
 
     entry.expect(fromSchedule);
     entry.expect(fromPaste);
-    assert.equal(fromPaste.html, fromSchedule.html, 'the two doors render the same message');
+    if (sameHeader) assert.equal(fromPaste.html, fromSchedule.html, 'the two doors render the same message');
   });
 }

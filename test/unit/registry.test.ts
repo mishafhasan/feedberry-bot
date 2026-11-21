@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Coded, E } from '../../src/platform/errors.ts';
-import { classifyLink, detectSource, isSectionSource, isSectionUrl, isWebsitePage, linksIn, sectionOf } from '../../src/platform/registry.ts';
+import { classifyLink, detectSource, isListingUrl, isSectionSource, isSectionUrl, isWebsitePage, linksIn, profileOfPost, sectionOf } from '../../src/platform/registry.ts';
 
 const opts = { rsshubBase: 'http://rsshub.test', telegramBeta: false };
 
@@ -265,6 +265,26 @@ test('M19 sections: only a marker or a section id is a listing on the URL alone'
   assert.equal(isSectionSource(detectSource('https://www.wired.com/category/science/', opts)), true);
   assert.equal(isSectionSource(detectSource('https://www.wired.com/story/a-quiet-return/', opts)), false);
   assert.equal(isSectionSource(detectSource('https://www.instagram.com/cristiano', opts)), false);
+});
+
+test('M31 sections: a navigation word is a listing on the URL alone', () => {
+  assert.equal(isSectionSource(detectSource('https://tamilwin.com/popular', opts)), true, 'a one-segment listing is not an article');
+  assert.deepEqual(classifyLink('https://tamilwin.com/popular', opts), { kind: 'source' }, 'so no flow calls it a post link');
+  assert.equal(isSectionUrl('/popular'), false, 'a listing word is not a promised category: the site feed may still answer');
+
+  // An article slug that merely shares the shape is untouched.
+  assert.equal(isListingUrl('/technology'), false);
+  assert.deepEqual(classifyLink('https://tamilwin.com/article/a-quiet-return-1795091344', opts), { kind: 'post', profileUrl: 'https://tamilwin.com' });
+});
+
+test('M31 facebook: a permalink is one post, and its page is the id it names', () => {
+  const permalink = 'https://www.facebook.com/permalink.php?story_fbid=pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk&id=100070345475708';
+  const ref = detectSource(permalink, opts);
+  assert.equal(ref.strategy, 'single_post', 'never a page feed under /facebook/page/permalink.php');
+  assert.equal(ref.externalId, 'pfbid02aYgKUGgf31rSVh7rAEb6gq9xopg3SUo6w2FTJVPowk');
+  assert.equal(profileOfPost(permalink), 'https://facebook.com/100070345475708', 'the page is the id the query names');
+  assert.equal(profileOfPost(ref.canonicalUrl), 'https://facebook.com/100070345475708', 'and the canonical keeps ?id=, which is what the chooser reads');
+  assert.deepEqual(classifyLink(permalink, opts), { kind: 'post', profileUrl: 'https://facebook.com/100070345475708' });
 });
 
 test('M21 registry: a URL that names a feed is used as a feed, wherever the marker sits', () => {

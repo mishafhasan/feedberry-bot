@@ -347,6 +347,26 @@ test('M23 discovery: a sitemap that lists no page is still E_NO_FEED', async () 
   );
 });
 
+test('M31 discovery: a site that publishes only a sitemap index is followed one level down', async () => {
+  const index = '<sitemapindex><sitemap><loc>https://cdn.test/articles-0.xml</loc></sitemap><sitemap><loc>https://cdn.test/articles-1.xml</loc></sitemap></sitemapindex>';
+  const child = (n: number): string => `<urlset><url><loc>https://site.test/article/p-${n}</loc><lastmod>2026-11-2${n}</lastmod></url></urlset>`;
+  const seen: string[] = [];
+  const http: Http = async (url) => {
+    seen.push(url);
+    if (url === 'https://site.test') return { status: 200, url, contentType: 'text/html', body: '<html><head></head></html>' };
+    if (url === 'https://site.test/sitemap.xml') return { status: 200, url, contentType: 'application/xml', body: index };
+    const childMatch = /articles-(\d)\.xml$/.exec(url);
+    if (childMatch !== null) return { status: 200, url, contentType: 'application/xml', body: child(Number(childMatch[1])) };
+    throw new Coded(E.NO_FEED, `nothing at ${url}`);
+  };
+
+  const feed = await fetchNativeFeed(http, { platform: 'rss', canonicalUrl: 'https://site.test', externalId: 'site.test', feedUrl: null, strategy: 'native_rss' });
+
+  assert.deepEqual(seen.slice(-3), ['https://site.test/sitemap.xml', 'https://cdn.test/articles-0.xml', 'https://cdn.test/articles-1.xml'], 'the index, then its children');
+  assert.deepEqual(feed.items.map((item) => item.link), ['https://site.test/article/p-1', 'https://site.test/article/p-0'], 'both children are read, newest first');
+  assert.equal(feed.feedUrl, 'https://site.test/sitemap.xml', 'the index is what a source stores');
+});
+
 test('M23 discovery: an undated sitemap is followed whole, never a frozen first window', async () => {
   const locs = Array.from({ length: 60 }, (_, index) => `<url><loc>https://site.test/p/post-${index}</loc></url>`).join('');
   const http: Http = async (url) => {

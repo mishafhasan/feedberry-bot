@@ -119,3 +119,132 @@ test('M19: a category link is previewed as a category and stored with its own fe
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+const MIRROR = 'https://dailymirror.lk/rss/breaking_news/108';
+const MIRROR_TOP = 'https://dailymirror.lk/rss/top_story/155';
+
+/** The site publishes its own domain as the channel title, which names no category at all. */
+const mirrorFeed = (title: string, slug: string, id: string): string => `<?xml version="1.0"?><rss version="2.0"><channel><title>www.dailymirror.lk</title>
+  <item><title>${title}</title><link>https://www.dailymirror.lk/breaking_news/${slug}</link><guid>${id}</guid></item>
+</channel></rss>`;
+
+test('M31 source title: two category feeds of one domain are named apart', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-titles-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  let updateId = 1;
+  const http: Http = async (url) => {
+    if (url === MIRROR) return { status: 200, url, contentType: 'application/rss+xml', body: mirrorFeed('Airbag recall', 'airbag', 'm1') };
+    if (url === MIRROR_TOP) return { status: 200, url, contentType: 'application/rss+xml', body: mirrorFeed('Scam probe', 'scam', 'm2') };
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(updateId++, USER_ID));
+
+    const titles: string[] = [];
+    for (const link of [MIRROR, MIRROR_TOP]) {
+      resetSession(USER_ID);
+      await bot.handleUpdate(textUpdate(updateId++, USER_ID, link));
+      titles.push(String(api.last('sendMessage')?.body.text ?? ''));
+      const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };
+      await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, `add:dest:${personal.id}`));
+      await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'add:save'));
+    }
+
+    assert.match(titles[0] ?? '', /<b>Dailymirror · Breaking News<\/b>/, 'the feed path names the category its own title does not');
+    assert.match(titles[1] ?? '', /<b>Dailymirror · Top Story<\/b>/);
+    assert.notEqual(titles[0], titles[1], 'two categories of one site never preview the same');
+
+    const rows = db.prepare('SELECT canonical_url, title FROM sources ORDER BY id').all() as Array<{ canonical_url: string; title: string }>;
+    assert.deepEqual(rows.map((row) => row.title), ['Dailymirror · Breaking News', 'Dailymirror · Top Story'], 'and the list prints the same two names');
+    assert.equal(rows[0]?.canonical_url, MIRROR, 'each source keeps its own feed');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M31 sections: a listing word is followed to the feed the site publishes for it', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-listing-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  const POPULAR = 'https://listing.test/popular';
+  const POPULAR_FEED = `${POPULAR}/feed/`;
+  const http: Http = async (url) => {
+    if (url === POPULAR) return { status: 200, url, contentType: 'text/html', body: page('') };
+    if (url === POPULAR_FEED) {
+      const feed = `<?xml version="1.0"?><rss version="2.0"><channel><title>Listing News</title>
+  <item><title>Most read today</title><link>https://listing.test/popular/most-read</link><guid>l1</guid></item>
+</channel></rss>`;
+      return { status: 200, url, contentType: 'application/rss+xml', body: feed };
+    }
+    // The site-wide guesses must fail, or the section feed would never be the one that answers.
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, POPULAR));
+
+    const preview = String(api.last('sendMessage')?.body.text ?? '');
+    assert.match(preview, /<b>Listing News · Popular<\/b>/, 'the feed names the site, the path names the category');
+    assert.match(preview, /📂 Category: Popular/, 'S4 says which listing is followed');
+    assert.match(preview, /Most read today/, 'and the listing’s own posts');
+
+    const personal = db.prepare("SELECT id FROM chats WHERE type = 'private'").get() as { id: number };
+    await bot.handleUpdate(callbackUpdate(3, USER_ID, `add:dest:${personal.id}`));
+    await bot.handleUpdate(callbackUpdate(4, USER_ID, 'add:save'));
+
+    const stored = row(db, POPULAR);
+    assert.equal(stored.canonical_url, POPULAR, 'the listing is the source');
+    assert.equal(stored.feed_url, POPULAR_FEED, 'and its own feed is what every later check reads');
+    assert.equal(stored.title, 'Listing News · Popular');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('M31: a listing whose site publishes no feed offers the download, never a dead Retry', async () => {
+  const api = await fakeBotApi();
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-nofeed-'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
+  const db = openDb(join(dir, 'bot.db'));
+  allowUser(db, USER_ID);
+  // No rel=alternate, no /feed, no /rss, no sitemap: the site publishes nothing to follow.
+  const http: Http = async (url) => {
+    if (url === 'https://no-feed.test/popular' || url === 'https://no-feed.test') {
+      return { status: 200, url, contentType: 'text/html', body: '<html><head><title>No feed</title></head><body></body></html>' };
+    }
+    return { status: 404, url, contentType: 'text/html', body: '' };
+  };
+
+  try {
+    const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
+    await bot.init();
+    await bot.handleUpdate(startUpdate(1, USER_ID));
+    await bot.handleUpdate(textUpdate(2, USER_ID, 'https://no-feed.test/popular'));
+
+    const notice = api.last('sendMessage');
+    assert.match(String(notice?.body.text ?? ''), /publishes no feed/, 'the reason is said once');
+    const buttons = ((notice?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> } | undefined)?.inline_keyboard ?? []).flat().map((button) => button.callback_data);
+    assert.ok(buttons.includes('dl:post'), 'the download the link still supports is offered');
+    assert.ok(!buttons.includes('add:post'), 'no Add button that can only fail');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM sources').get() as { n: number }).n, 0, 'nothing was stored');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
