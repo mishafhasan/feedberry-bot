@@ -121,3 +121,7 @@ Four reports came from the live bot, and each one traced to a different layer:
   one call. English over two more: `{"code":"digest_sent","parts":1,"audioSec":60}`, three text
   calls all on `gemini-4-hydrogen`, one voice call. Neither run logged `digest_language_mixed`, and the
   ledger recorded each model's calls (4-hydrogen 3, 3.8-flash 1, 3.6-flash 1, 3.8-flash-tts 1).
+- The wide window, live: 502 posts (2 summarised, 500 overflow stories already carrying a stored page,
+  so no Telegra.ph traffic) sent as `{"code":"digest_sent","posts":502,"parts":2,"audioSec":55}` —
+  the list split across two accepted messages, no `digest_part_over_budget`, and the voice intact. 198
+  overflow links had fitted one part, which is the same code choosing not to split.
