@@ -134,13 +134,18 @@ test('digest: sources, language, time and the switch, with ownership on every ta
 
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest'));
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Daily AI Summary/);
+    const digestByChat = row<{ id: number; lang: string; hour: number; enabled: number; next_run_at: number | null }>(db, 'SELECT id, lang, hour, enabled, next_run_at FROM digests WHERE chat_id = ?', chat.id);
     const screenRows = rowsOf(api.last('editMessageText'));
     assert.ok(
       screenRows.some((row) => row.some((data) => data.startsWith('dg:time:')) && row.some((data) => data.startsWith('dg:on:'))),
       'the digest screen pairs Time with the switch',
     );
-    assert.ok(screenRows.some((row) => row.includes('menu:digest:chat')), 'and puts Deliver to below them');
-    const digest = row<{ id: number; lang: string; hour: number; enabled: number; next_run_at: number | null }>(db, 'SELECT id, lang, hour, enabled, next_run_at FROM digests WHERE chat_id = ?', chat.id);
+    assert.deepEqual(
+      screenRows,
+      [[`dg:src:${digestByChat.id}:0`, `dg:lang:${digestByChat.id}`], [`dg:time:${digestByChat.id}`, `dg:on:${digestByChat.id}`], ['nav:home']],
+      'sources, language, time, the switch and Home — no second door to the picker',
+    );
+    const digest = digestByChat;
     assert.match(String(api.last('editMessageText')?.body.text ?? ''), /Status: Off/);
 
     // Sources: RSS only, and the tap writes the choice.
@@ -193,9 +198,11 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:time'));
     assert.equal(api.callsSince(legacy).filter((call) => call.method === 'editMessageText').length, 0, 'the removed hour shortcut is dead');
 
-    // The digest screen's Deliver to still lists the destinations.
+    // The removed "Deliver to" button is dead: a stale message repaints nothing and says so.
+    const afterDeliverTo = api.calls.length;
     await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:chat'));
-    assert.ok(callbacksOf(api.last('editMessageText')).includes(`dg:chat:${chat.id}`), 'Deliver to lists the destinations');
+    assert.equal(api.callsSince(afterDeliverTo).filter((call) => call.method === 'editMessageText').length, 0, 'the removed shortcut is dead');
+    assert.match(String(api.last('answerCallbackQuery')?.body.text ?? ''), /no longer available/);
 
     // Another user's digest and subscription are refused without a word.
     const mark = api.calls.length;
@@ -213,7 +220,7 @@ test('digest: sources, language, time and the switch, with ownership on every ta
     const empty = ensureDigest(db, user.id, channel.id);
 
     // The picker names the personal chat once: `btn.personal` already carries its icon.
-    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest:chat'));
+    await bot.handleUpdate(callbackUpdate(updateId++, USER_ID, 'menu:digest'));
     const pickerLabels = labelsOf(api.last('editMessageText'));
     assert.ok(pickerLabels.includes('👤 Personal account'), 'the personal row names itself');
     assert.ok(!pickerLabels.some((label) => label.includes('👤 👤')), 'the icon is not printed twice');
