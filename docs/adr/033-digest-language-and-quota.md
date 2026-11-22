@@ -53,10 +53,11 @@ Four reports came from the live bot, and each one traced to a different layer:
   go to exactly one), and on a 429 blocks that rung until the provider's own deadline: end of the
   UTC day when the message says "per day", else 60 seconds. A per-day 429 must not disable a
   500-a-day rung for 24 hours, which is why the block is not simply "spent for today".
-- **The summaries reserve the script's slots.** Every summary call leaves two slots free on whichever
-  rung it uses (`SUMMARY_RESERVE`), so the script and its own language re-ask always find one; a busy
-  day costs the voice its preferred timbre before it costs it existence. TTS capacity cannot be eaten
-  by text at all, because the ladders are disjoint model sets.
+- **The summaries reserve the script's slots.** Every summary call leaves three slots free on whichever
+  rung it uses (`SUMMARY_RESERVE`, one call plus its two re-asks), so the script always finds a rung; a
+  busy day costs the voice its preferred timbre before it costs it existence. TTS capacity cannot be
+  eaten by text at all, because the ladders are disjoint model sets. A failed re-ask never costs the
+  audio: the script in hand is read as it is.
 - **The ladders are the published free-tier table, latest to oldest** (`gemini-4-hydrogen` →
   `3.8-flash` → `3.6-flash` → `3.5-flash-lite` → `3.1-flash-lite` → `3-flash-preview` →
   `2.5-flash-lite` → `2.5-flash`; the voice's four are unchanged). `gemini-3.1-pro-preview` is gone:
@@ -87,6 +88,11 @@ Four reports came from the live bot, and each one traced to a different layer:
 - `shortcut:` the ledger's day is UTC while the provider's resets at Pacific midnight, so for a few
   hours the counters reset early; the block from a real 429 covers the gap. Upgrade if a rung is
   ever skipped while it still answers.
+- `shortcut:` a 429's deadline is read from the provider's message ("… per day"); a differently worded
+  per-day 429 blocks a minute instead, and the rung's own day counter then stops it at its `rpd`.
+- **A paid key is capped by the same table.** The ledger has no off switch, so a paid host still gets
+  about 1 160 text calls and 40 voice calls a day across the ladders — far above this bot's need
+  (20 posts a digest, a handful of digests). Raise a row in `FREE_TIER` if that ever binds.
 - `shortcut:` the language check is a share test, not a tokenizer. It catches Tanglish (no Tamil
   script) and English sentences inside Tamil, but a Tamil sentence with a romanised verb inside an
   otherwise Tamil paragraph passes.
@@ -101,10 +107,17 @@ Four reports came from the live bot, and each one traced to a different layer:
   33 media with 24 224 Tamil characters of text in 28 632 characters of HTML).
 - Probe, real TTS through `geminiClient`: `{"chars":3929,"words":405,"pcmBytes":12462720,"seconds":260,"ms":31650}`;
   `{"chars":9169,"words":945,"ok":false,"error":"fetch failed","ms":61532}`.
-- `npm run typecheck`: exit 0. `npm test`: 545/545 pass. `npm run build`: exit 0.
+- `npm run typecheck`: exit 0. `npm test`: 548/548 pass. `npm run build`: exit 0.
 - The unit tests that pin this decision: `digest-lang` (a real Tamil headline passes, Tanglish does
   not), `digest-quota` (day, minute, reserve and block buckets), `digest-gemini` (a spent rung costs
   no request, a per-day 429 blocks every rung that answered, a too-long payload blocks none),
-  `digest-audio` (a refused piece is split, a rate-limited one is not), `digest-summary` (Tanglish
-  ships after three calls and is cached), `digest-render` (a 400-story list is split and no story is
-  lost), `digest-menu` (the screen has no second destination row and the old callback is dead).
+  `digest-audio` (a refused piece is split, a rate-limited one is not), `digest-script` (a failed
+  re-ask still reads the script in hand), `digest-summary` (Tanglish ships after three calls and is
+  cached), `digest-render` (a 400-story list is split and no story is lost), `digest-menu` (the screen
+  has no second destination row and the old callback is dead).
+- Live, through `runDigest` with the real Telegram sender and real Gemini (no polling: the test bot
+  allows one `getUpdates` caller). Tamil over two Tamilwin articles: `{"code":"digest_sent",
+  "parts":1,"audioSec":78}`, the ladder walking two 503s to `gemini-3.6-flash` and the voice taking
+  one call. English over two more: `{"code":"digest_sent","parts":1,"audioSec":60}`, three text
+  calls all on `gemini-4-hydrogen`, one voice call. Neither run logged `digest_language_mixed`, and the
+  ledger recorded each model's calls (4-hydrogen 3, 3.8-flash 1, 3.6-flash 1, 3.8-flash-tts 1).

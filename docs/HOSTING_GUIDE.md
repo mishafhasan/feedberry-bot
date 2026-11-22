@@ -241,8 +241,10 @@ Defaults are in `.env.example`; all are optional:
 
 A free-tier key is enough to try it: quotas are per model (5–15 requests a minute, 10–500 requests a
 day), so the ladder runs latest to oldest and the quota ledger in `gemini_quota` skips a rung whose
-day or minute is spent instead of earning a `429` (ADR-033). A busy day hands calls to the next model;
-a paid key removes the limits without any code change.
+day or minute is spent instead of earning a `429` (ADR-033). A busy day hands calls to the next model.
+A paid key removes the provider's limits; the local caps stay, and the ladders still allow about
+1 160 text calls and 40 voice calls a day, far above this bot's need. Raise a row in `FREE_TIER`
+(`src/config.ts`) if you ever run more than that.
 
 ### 5.7 Start it
 

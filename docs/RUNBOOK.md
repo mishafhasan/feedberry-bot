@@ -171,7 +171,8 @@ sources in the last 24 h. It is extra: per-post delivery is unchanged. Full beha
 4. Free-tier Gemini keys are per-model: 5–15 requests a minute and 10–500 a day depending on the rung,
    and the ledger in `gemini_quota` skips a spent rung instead of earning a 429 (ADR-033). A busy day
    shows `gemini_rung_spent` and `gemini_model_fallback` and still ships; only when every rung is spent
-   does the job wait on the rate-limit ladder. A paid key removes the limits without a code change.
+   does the job wait on the rate-limit ladder. A paid key removes the provider's limits; the local caps
+   in `FREE_TIER` stay (about 1 160 text and 40 voice calls a day), far above this bot's need.
 5. `FLOOD_WAIT_525` in the log is Telegra.ph blocking the IP for ~9 minutes after ~40 rapid page
    writes. Pages are cached per post (`posts.telegraph_url`), so this is a first-run cost on a large
    backlog; the affected “Also today” entries keep their post URL until a later run.

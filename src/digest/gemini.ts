@@ -134,6 +134,9 @@ export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, t
         return await send(model);
       } catch (err) {
         if (inputTooLong(err)) throw err;
+        // shortcut: the deadline is read from the provider's message ("… per day"); a differently
+        // worded per-day 429 blocks a minute instead, and the day counter stops that rung at its rpd.
+        // Upgrade when a rung keeps answering 429 inside one day.
         if (isCoded(err) && err.code === E.RATE_LIMIT) ledger.block(model, /per day/i.test(err.message) ? endOfUtcDay() : Date.now() + 60_000);
         const next = models[index + 1];
         if (!isCoded(err) || next === undefined) throw err;
