@@ -112,7 +112,6 @@ export const cb = {
   kwClearDefault: 'kw:cleardef',
   kwPage: 'kw:page:',
   digest: 'menu:digest',
-  digestChat: 'menu:digest:chat',
   djChat: 'dg:chat:',
   djOpen: 'dg:open:',
   djSources: 'dg:src:',
@@ -205,7 +204,6 @@ export async function handleCallback(ctx: Context, deps: BotDeps): Promise<void>
   if (data.startsWith(cb.dest)) return pickDest(ctx, deps, userId, idOf(data, cb.dest));
 
   // ADR-029: every digest tap re-checks ownership inside its handler, never here.
-  if (data === cb.digestChat) return menuDigestChat(ctx, deps, userId, lang);
   if (data.startsWith(cb.djChat)) return chooseDigestChat(ctx, deps, userId, idOf(data, cb.djChat), lang);
   if (data.startsWith(cb.djOpen)) return openDigestScreen(ctx, deps, userId, idOf(data, cb.djOpen), lang);
   if (data.startsWith(cb.djSources) || data.startsWith(cb.djPage)) return renderDigestSourcesPage(ctx, deps, userId, data, lang);
@@ -1484,17 +1482,10 @@ async function switchDigest(ctx: Context, deps: BotDeps, userId: number, digestI
   return openDigestScreen(ctx, deps, userId, digestId, lang, result.notice);
 }
 
-/** `menu:digest:chat`: the destination picker, from the digest screen. */
-async function menuDigestChat(ctx: Context, deps: BotDeps, userId: number, lang: Lang): Promise<void> {
-  const user = ensureUser(deps.db, userId);
-  const chats = [personalChat(deps.db, user.id), ...destinations(deps.db, user.id)];
-  await paint(ctx, digestChatView({ chats, lang }));
-}
-
 function toastFor(data: string, lang: Lang): string | undefined {
   const toast = actionToast(lang);
   // The digest screens repaint themselves; none of their taps deserves a toast (ADR-029).
-  if (data === cb.digest || data === cb.digestChat || data.startsWith('dg:')) return undefined;
+  if (data === cb.digest || data.startsWith('dg:')) return undefined;
   // A picker tap is its own confirmation; an unlisted zone is a forged tap and gets no toast.
   if (data.startsWith(cb.tz)) {
     const zone = data.slice(cb.tz.length);

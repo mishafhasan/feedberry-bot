@@ -1,5 +1,7 @@
 import type { DigestItem, DigestLang } from './summarise.ts';
 import type { Gemini } from './gemini.ts';
+import { LANGUAGE_REASKS, LANGUAGE_RETRY, languageRule, offLanguage } from './lang.ts';
+import { log } from '../obs/log.ts';
 
 /**
  * The spoken script of the digest (ADR-029): the radio-host read of the items, in digest order.
@@ -16,11 +18,7 @@ export function scriptWordBudget(items: number): number {
   return Math.min(80 + 45 * items, 1400);
 }
 
-export function scriptPrompt(input: ScriptInput): string {
-  const language =
-    input.lang === 'ta'
-      ? 'Write in simple, everyday spoken Tamil. Keep names, brands, products and technical terms in English.'
-      : 'Write in simple, everyday spoken English.';
+export function scriptPrompt(input: ScriptInput, retry = false): string {
   const stories = input.items
     .map((item, index) => {
       const points = item.points.length === 0 ? '' : `\n${item.points.map((point) => `- ${point}`).join('\n')}`;
@@ -30,7 +28,8 @@ export function scriptPrompt(input: ScriptInput): string {
 
   return [
     'You write the spoken script of a daily news digest, to be read aloud by a text-to-speech voice.',
-    language,
+    languageRule(input.lang),
+    ...(retry ? [LANGUAGE_RETRY] : []),
     `Length: at most ${scriptWordBudget(input.items.length)} words.`,
     `Open with one sentence that names the date (${input.date}) and how many stories follow.`,
     'Then one short paragraph per story, in this order. Move from one to the next with words like "First", "Next", "Finally"; never numbers or lists.',
@@ -43,8 +42,22 @@ export function scriptPrompt(input: ScriptInput): string {
   ].join('\n');
 }
 
+/** A mixed script is asked again at most twice and then read as it is: a silent digest is worse. */
 export async function writeScript(gemini: Gemini, input: ScriptInput, signal: AbortSignal): Promise<string> {
-  const script = (await gemini.text(scriptPrompt(input), signal)).replace(/\r\n?/g, '\n').trim();
-  if (script === '') throw new Error('gemini wrote an empty script');
-  return script;
+  let mixed = '';
+  for (let reasks = 0; reasks <= LANGUAGE_REASKS; reasks++) {
+    let script: string;
+    try {
+      script = (await gemini.text(scriptPrompt(input, reasks > 0), signal)).replace(/\r\n?/g, '\n').trim();
+      if (script === '') throw new Error('gemini wrote an empty script');
+    } catch (err) {
+      // The re-ask must never cost the audio: a script already in hand is a voice, silence is not.
+      if (mixed !== '') return mixed;
+      throw err;
+    }
+    if (!offLanguage(input.lang, [script])) return script;
+    mixed = script;
+    log('warn', 'digest_script_language_mixed', { lang: input.lang, reasks });
+  }
+  return mixed;
 }

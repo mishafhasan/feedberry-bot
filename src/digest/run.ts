@@ -11,10 +11,10 @@ import { runFetchSource, type RunDeps } from '../pipeline/run.ts';
 import { payloadOf, type MessagePlan } from '../render/message-plan.ts';
 import { targetOf } from '../telegram/target.ts';
 import { audioOverview } from './audio.ts';
-import { geminiClient } from './gemini.ts';
-import { renderDigest } from './render.ts';
+import { digestGemini } from './quota.ts';
+import { MAX_PART_CHARS, renderDigest, visibleChars } from './render.ts';
 import { writeScript } from './script.ts';
-import { publishPage, summarisePost, type DigestLang } from './summarise.ts';
+import { publishPage, summarisePost, clamp, MAX_HEADLINE, type DigestLang } from './summarise.ts';
 
 /**
  * ADR-029: one digest run. The job ends before the queue's stale-lock window, so the same digest can
@@ -37,7 +37,7 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
   const chat = ownChat(deps.db, digest.user_id, digest.chat_id);
   if (chat === undefined) return;
 
-  const gemini = deps.gemini ?? geminiClient(cfg);
+  const gemini = deps.gemini ?? digestGemini(cfg, deps.db);
   const lang: DigestLang = digest.lang === 'ta' ? 'ta' : 'en';
   const tz = digestTimezone(deps.db, digestId);
   const signal = mediaSignal(DIGEST_BUDGET_MS);
@@ -89,6 +89,10 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
         : await plansFor(deps, { lang, date, tz, digestId, items, overflow, postCount: posts.length, dir, signal, gemini });
 
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
+    // A part over the budget would be refused by Telegram and lose every part after it (ADR-033).
+    built.plans.forEach((plan, index) => {
+      if (plan.kind === 'rich' && visibleChars(plan.html) > MAX_PART_CHARS) log('warn', 'digest_part_over_budget', { part: index + 1, chars: visibleChars(plan.html) });
+    });
     // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
     // The stored links live as long as the post row (retention prunes posts): a retry, the other
@@ -137,7 +141,8 @@ async function plansFor(
   // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
   const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => publishPage({ db: deps.db, http: deps.http, telegraph: deps.telegraph }, post, input.signal));
   const extra = input.overflow.map((post, index) => ({
-    headline: payloadOf(post.payload_json).title || post.url || 'Post',
+    // A feed can hand over a whole paragraph as a title; one unbounded label would blow a whole part.
+    headline: clamp(payloadOf(post.payload_json).title || post.url || 'Post', MAX_HEADLINE),
     url: pages[index] ?? post.url,
   }));
 

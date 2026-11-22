@@ -3,12 +3,18 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { log } from '../obs/log.ts';
-import type { Gemini } from './gemini.ts';
+import { isCoded } from '../platform/errors.ts';
+import { inputTooLong, type Gemini } from './gemini.ts';
 
 const run = promisify(execFile);
 
-/** The TTS model takes 8 192 input tokens, so the script goes out in pieces (ADR-029). */
-export const AUDIO_CHUNK_CHARS = 2_500;
+/**
+ * Measured (ADR-033): 3 929 Tamil characters came back as 260 s of PCM in 31 s, while 9 169 failed at
+ * the transport level after 61 s. 5 000 keeps the call well inside both, and halves the request count.
+ */
+export const AUDIO_CHUNK_CHARS = 5_000;
+/** The size ADR-029 shipped with, kept as the one retry a failed chunk gets. */
+export const AUDIO_RETRY_CHARS = 2_500;
 /** +10% keeps a long script inside a shorter file; atempo time-stretches without shifting pitch. */
 export const SPEECH_RATE = 1.1;
 const SAMPLE_RATE = 24_000;
@@ -120,13 +126,29 @@ function wrapWords(sentence: string, limit: number): string[] {
 }
 
 /**
- * Script → one MP3 with its title in the file's own tags. Any failure returns null: the digest still
- * ships, with the "audio unavailable" line instead of a player (ADR-029).
+ * Script → one MP3 with its title in the file's own tags. A failed chunk is retried at half its size —
+ * a transport failure on a long response is commoner than a broken voice — and any failure still
+ * returns null: the digest ships without a player (ADR-029, ADR-033).
  */
 export async function audioOverview(gemini: Gemini, script: string, dir: string, title: string, signal: AbortSignal, encode: AudioEncoder = ffmpegEncode): Promise<AudioOverview | null> {
+  let calls = 0;
+  const speak = async (text: string): Promise<Buffer> => {
+    calls++;
+    try {
+      return await gemini.speak(text, signal);
+    } catch (err) {
+      // A 429 already walked the ladder; only a payload the voice could not swallow is worth splitting.
+      if (signal.aborted || text.length <= AUDIO_RETRY_CHARS || (isCoded(err) && !inputTooLong(err))) throw err;
+      log('warn', 'digest_audio_split', { chars: text.length, calls });
+      const out: Buffer[] = [];
+      for (const half of chunkScript(text, AUDIO_RETRY_CHARS)) out.push(await speak(half));
+      return Buffer.concat(out);
+    }
+  };
+
   try {
     const pieces: Buffer[] = [];
-    for (const chunk of chunkScript(script)) pieces.push(await gemini.speak(chunk, signal));
+    for (const chunk of chunkScript(script)) pieces.push(await speak(chunk));
     const pcm = Buffer.concat(pieces);
     if (pcm.length === 0) throw new Error('no audio bytes');
 
@@ -134,7 +156,8 @@ export async function audioOverview(gemini: Gemini, script: string, dir: string,
     await encode(pcm, file, title);
     return { file, seconds: secondsOf(pcm.length) / SPEECH_RATE };
   } catch (err) {
-    log('warn', 'digest_audio_failed', { cause: err instanceof Error ? err.message : String(err) });
+    // `code` separates "the quota is gone" from "the script is broken" without reading the message.
+    log('warn', 'digest_audio_failed', { code: isCoded(err) ? err.code : undefined, cause: err instanceof Error ? err.message : String(err), chars: script.length, calls });
     return null;
   }
 }

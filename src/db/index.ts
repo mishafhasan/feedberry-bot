@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 export type Db = DatabaseSync;
 
 /** Bump when schema.sql changes; the version lives in PRAGMA user_version (ADR-009). */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /** v1 → v2: Download mode stores deliveries with post_id = NULL (ADR-013). */
 const MIGRATION_V2 = `
@@ -91,6 +91,21 @@ const MIGRATION_V7 = `
   ALTER TABLE posts ADD COLUMN telegraph_url TEXT;
 `;
 
+/**
+ * v7 → v8: the Gemini quota ledger (ADR-033). Additive only: a v7 file gains one empty table, and no
+ * existing row changes.
+ */
+const MIGRATION_V8 = `
+  CREATE TABLE IF NOT EXISTS gemini_quota (
+    model         TEXT PRIMARY KEY,
+    day           TEXT NOT NULL,
+    day_count     INTEGER NOT NULL DEFAULT 0,
+    minute        INTEGER NOT NULL,
+    minute_count  INTEGER NOT NULL DEFAULT 0,
+    blocked_until INTEGER NOT NULL DEFAULT 0
+  );
+`;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -118,6 +133,7 @@ function migrate(db: Db): void {
       if (current <= 4) db.exec(MIGRATION_V5);
       if (current <= 5) db.exec(MIGRATION_V6);
       if (current <= 6) db.exec(MIGRATION_V7);
+      if (current <= 7) db.exec(MIGRATION_V8);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

@@ -36,6 +36,38 @@ export interface Config {
   digest: DigestConfig | undefined;
 }
 
+/** A free-tier rung's published ceiling: requests per minute and per day, per model. */
+export interface ModelCaps {
+  rpm: number;
+  rpd: number;
+}
+
+/**
+ * The free-tier rate table, latest to oldest, as the digest's ladders order it. Quotas are per model,
+ * so an exhausted rung is skipped instead of answered 429 (ADR-033).
+ */
+export const FREE_TIER: Record<string, ModelCaps> = {
+  'gemini-4-hydrogen': { rpm: 5, rpd: 20 },
+  'gemini-3.8-flash': { rpm: 5, rpd: 20 },
+  'gemini-3.6-flash': { rpm: 5, rpd: 20 },
+  'gemini-3.5-flash-lite': { rpm: 15, rpd: 500 },
+  'gemini-3.1-flash-lite': { rpm: 15, rpd: 500 },
+  'gemini-3-flash-preview': { rpm: 5, rpd: 20 },
+  'gemini-2.5-flash-lite': { rpm: 10, rpd: 20 },
+  'gemini-2.5-flash': { rpm: 5, rpd: 20 },
+  'gemini-3.8-flash-tts': { rpm: 3, rpd: 10 },
+  'gemini-3.8-flash-lite-tts': { rpm: 3, rpd: 10 },
+  'gemini-3.1-flash-tts-preview': { rpm: 3, rpd: 10 },
+  'gemini-2.5-flash-preview-tts': { rpm: 3, rpd: 10 },
+};
+
+/** Unknown models (an env-supplied id) get the tightest published rung: never uncapped, never blocked. */
+const UNKNOWN_CAPS: ModelCaps = { rpm: 5, rpd: 20 };
+
+export function capsFor(model: string): ModelCaps {
+  return Object.hasOwn(FREE_TIER, model) ? (FREE_TIER[model] as ModelCaps) : UNKNOWN_CAPS;
+}
+
 /** One key for both halves of the digest: the text models and the speech model (ADR-029). */
 export interface DigestConfig {
   apiKey: string;
@@ -89,14 +121,15 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     twitterAuthToken,
     instagramCookie,
     // Model ids rotate, so both are config; the key's presence is the feature switch (ADR-029).
-    // Quotas are per model on the free tier, so each role carries a ladder of fallbacks.
+    // Quotas are per model on the free tier, so each role carries a ladder of fallbacks; the order is
+    // the free-tier table's, latest to oldest (ADR-033).
     digest: geminiApiKey === ''
       ? undefined
       : {
           apiKey: geminiApiKey,
-          textModel: (env.GEMINI_TEXT_MODEL ?? '').trim() || 'gemini-3.8-flash',
+          textModel: (env.GEMINI_TEXT_MODEL ?? '').trim() || 'gemini-4-hydrogen',
           ttsModel: (env.GEMINI_TTS_MODEL ?? '').trim() || 'gemini-3.8-flash-tts',
-          textFallbacks: modelList(env.GEMINI_TEXT_FALLBACKS, ['gemini-3.6-flash', 'gemini-4-hydrogen', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.5-flash-lite']),
+          textFallbacks: modelList(env.GEMINI_TEXT_FALLBACKS, ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']),
           ttsFallbacks: modelList(env.GEMINI_TTS_FALLBACKS, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']),
           maxPosts: int(env.DIGEST_MAX_POSTS, 20, 'DIGEST_MAX_POSTS'),
         },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseConfig } from '../../src/config.ts';
+import { capsFor, FREE_TIER, parseConfig } from '../../src/config.ts';
 import { redact } from '../../src/obs/log.ts';
 
 const base = { BOT_TOKEN: '123456:fake', ADMIN_CHAT_ID: '42', RSSHUB_BASE: 'http://rsshub:1200/' };
@@ -34,12 +34,21 @@ test('parseConfig hands the Instagram session to the extractor, trimmed, without
   assert.equal(parseConfig(base).instagramCookie, undefined, 'absent: the extractor runs without a session');
 });
 
-test('parseConfig gives each digest role a model ladder', () => {
+test('parseConfig gives each digest role a model ladder in free-tier order', () => {
   const cfg = parseConfig({ ...base, GEMINI_API_KEY: 'k' });
   assert.ok(cfg.digest);
-  assert.equal(cfg.digest?.textModel, 'gemini-3.8-flash');
+  assert.deepEqual([cfg.digest?.textModel, ...(cfg.digest?.textFallbacks ?? [])], [
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+  ], 'the table order, latest to oldest');
+  assert.ok(!(cfg.digest?.textFallbacks ?? []).includes('gemini-3.1-pro-preview'), 'no free quota, no rung');
   assert.equal(cfg.digest?.ttsModel, 'gemini-3.8-flash-tts');
-  assert.deepEqual(cfg.digest?.textFallbacks, ['gemini-3.6-flash', 'gemini-4-hydrogen', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.5-flash-lite']);
   assert.deepEqual(cfg.digest?.ttsFallbacks, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']);
   assert.equal(cfg.digest?.maxPosts, 20, 'the digest summarises at most 20 posts');
   assert.equal(parseConfig({ ...base, GEMINI_API_KEY: 'k', DIGEST_MAX_POSTS: '2' }).digest?.maxPosts, 2, 'a local run caps the summaries at two');
@@ -47,6 +56,15 @@ test('parseConfig gives each digest role a model ladder', () => {
   const custom = parseConfig({ ...base, GEMINI_API_KEY: 'k', GEMINI_TEXT_FALLBACKS: ' a , b ,', GEMINI_TTS_FALLBACKS: 'c' });
   assert.deepEqual(custom.digest?.textFallbacks, ['a', 'b'], 'a comma list is trimmed');
   assert.deepEqual(custom.digest?.ttsFallbacks, ['c'], 'the env list replaces the default tail');
+});
+
+test('the free-tier table covers every default rung and defaults an unknown id to the tightest caps', () => {
+  const cfg = parseConfig({ ...base, GEMINI_API_KEY: 'k' });
+  for (const model of [cfg.digest?.textModel, ...(cfg.digest?.textFallbacks ?? []), cfg.digest?.ttsModel, ...(cfg.digest?.ttsFallbacks ?? [])]) {
+    assert.ok(FREE_TIER[String(model)] !== undefined, `${model} must carry its published caps`);
+  }
+  assert.deepEqual(capsFor('some-new-model'), { rpm: 5, rpd: 20 }, 'an env-supplied id is never uncapped');
+  assert.deepEqual(capsFor('gemini-3.5-flash-lite'), { rpm: 15, rpd: 500 }, 'the wide rung keeps its 500 a day');
 });
 
 test('parseConfig normalizes the RSSHub base and rejects garbage limits', () => {

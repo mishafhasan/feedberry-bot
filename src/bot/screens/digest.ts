@@ -40,8 +40,6 @@ export function digestView(params: { digest: DigestRow; chatTitle: string; sourc
     .text(t(lang, 'digest.btnTime'), `dg:time:${id}`)
     .text(t(lang, params.digest.enabled === 1 ? 'digest.disable' : 'digest.enable'), `dg:on:${id}`)
     .row()
-    .text(t(lang, 'digest.btnChat'), 'menu:digest:chat')
-    .row()
     .text(t(lang, 'btn.home'), 'nav:home');
 
   return { text: lines.join('\n'), keyboard };

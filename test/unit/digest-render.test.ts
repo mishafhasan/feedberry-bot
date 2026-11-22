@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_PART_MEDIA, renderDigest, type RenderInput } from '../../src/digest/render.ts';
+import { MAX_PART_MEDIA, MAX_PART_CHARS, renderDigest, visibleChars, type RenderInput } from '../../src/digest/render.ts';
 import type { DigestItem } from '../../src/digest/summarise.ts';
 
 const item = (over: Partial<DigestItem> = {}): DigestItem => ({
@@ -157,7 +157,8 @@ test('digest: the text and block budgets split before Telegram rejects a part', 
   const byText = renderDigest(input({ items: long, postCount: long.length }));
   assert.ok(byText.length > 1);
   for (const plan of byText) {
-    assert.ok((plan.kind === 'rich' ? plan.html.length : 0) <= 32_768, 'each part stays under the rich-text cap');
+    const html = plan.kind === 'rich' ? plan.html : '';
+    assert.ok(visibleChars(html) <= MAX_PART_CHARS, 'each part stays inside the measured text cap');
   }
 
   const many = Array.from({ length: 40 }, (_, index) => item({ postId: index + 1, points: ['a', 'b', 'c', 'd', 'e', 'f'] }));
@@ -165,6 +166,42 @@ test('digest: the text and block budgets split before Telegram rejects a part', 
   assert.ok(byBlocks.length > 1, 'forty items with six points each pass the 480-block cap');
   const firstItems = (htmlOf(byBlocks).match(/<h3>/g) ?? []).length;
   assert.ok(firstItems <= 33, `Part 1 holds ${firstItems} items, each about 14 blocks`);
+});
+
+test('digest: a 400-story "Also today" list is split and no story is lost', () => {
+  // The one piece whose size the clamps do not bound: the list that used to ride in a single part.
+  const extra = Array.from({ length: 400 }, (_, index) => ({ headline: `Story ${index + 1} ${'x'.repeat(100)}`, url: 'https://telegra.ph/Overflow-11-22' }));
+  const plans = renderDigest(input({ postCount: 401, extra }));
+  const html = plans.map((plan) => (plan.kind === 'rich' ? plan.html : '')).join('');
+
+  assert.ok(plans.length > 1, 'the list alone cannot fit one part');
+  assert.equal(html.match(/Story \d+ /g)?.length, 400, 'every story is still in the message');
+  for (const plan of plans) {
+    const part = plan.kind === 'rich' ? plan.html : '';
+    assert.ok(visibleChars(part) <= MAX_PART_CHARS, 'and no part needs to be refused');
+  }
+});
+
+test('digest: Tamil parts are measured in characters, so a part may exceed 32 768 bytes', () => {
+  // The measured cap counts characters; a byte budget would split this same digest into twice as many parts.
+  const items = Array.from({ length: 20 }, (_, index) =>
+    item({
+      postId: index + 1,
+      headline: 'த'.repeat(110),
+      originalTitle: 'An original English page title',
+      description: 'ட'.repeat(580),
+      points: Array.from({ length: 6 }, () => 'க'.repeat(230)),
+    }),
+  );
+  const plans = renderDigest(input({ lang: 'ta', items, postCount: items.length }));
+
+  assert.ok(plans.length >= 2, 'twenty maximal stories cannot ride in one part');
+  for (const plan of plans) {
+    const part = plan.kind === 'rich' ? plan.html : '';
+    assert.ok(visibleChars(part) <= MAX_PART_CHARS, 'the character budget holds');
+  }
+  const bytes = plans.map((plan) => Buffer.byteLength(plan.kind === 'rich' ? plan.html : '', 'utf8'));
+  assert.ok(Math.max(...bytes) > 32_768, 'and no part was split for its byte count');
 });
 
 test('digest: posts past the cap are numbered headline links under "Also today"', () => {

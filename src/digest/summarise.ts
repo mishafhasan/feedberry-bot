@@ -14,6 +14,7 @@ import { prepareMedia } from '../pipeline/prepare-media.ts';
 import { bodyParts } from '../pipeline/render-post.ts';
 import { payloadOf } from '../render/message-plan.ts';
 import type { Gemini } from './gemini.ts';
+import { LANGUAGE_REASKS, LANGUAGE_RETRY, languageRule, offLanguage } from './lang.ts';
 
 /** The digest writes in one of two languages (ADR-029); every other UI language is not a digest language. */
 export type DigestLang = 'en' | 'ta';
@@ -58,10 +59,18 @@ export interface SummariseDeps {
 /** The trust boundary's input clamp: a 40 k-character page costs tokens and adds nothing (ADR-029). */
 export const MAX_ARTICLE_CHARS = 12_000;
 export const MAX_IMAGES = 3;
-const MAX_HEADLINE = 120;
+export const MAX_HEADLINE = 120;
+/** The page's own title, printed under a Tamil headline: a feed can hand over a whole paragraph. */
+const MAX_ORIGINAL_TITLE = 400;
 const MAX_DESCRIPTION = 600;
 const MAX_POINT = 240;
 const MAX_POINTS = 6;
+
+/**
+ * ADR-033: each summary leaves the script's three slots free on every rung it uses — one call plus its
+ * two language re-asks — so a busy day costs the voice its rung last.
+ */
+export const SUMMARY_RESERVE = 1 + LANGUAGE_REASKS;
 
 interface Summary {
   headline: string;
@@ -126,7 +135,7 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
   return {
     postId: post.id,
     headline,
-    originalTitle: article?.title || payload.title || null,
+    originalTitle: clamp(article?.title || payload.title || '', MAX_ORIGINAL_TITLE) || null,
     description,
     points,
     images,
@@ -211,19 +220,29 @@ async function pictures(deps: SummariseDeps, post: PostRow, article: Article | n
   }
 }
 
-/** One retry, then null: the caller renders the feed's own words and does not cache them. */
+/** Two transport attempts, then two language re-asks; a still-mixed answer ships as it is (ADR-033). */
 async function askSummary(gemini: Gemini, lang: DigestLang, title: string, text: string, signal: AbortSignal): Promise<Summary | null> {
-  const prompt = summaryPrompt(lang, title, text);
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let mixed: Summary | null = null;
+  let failures = 0;
+  let reasks = 0;
+  while (failures < 2 && reasks <= LANGUAGE_REASKS) {
     try {
-      const clean = cleanSummary(await gemini.json<unknown>(SUMMARY_SCHEMA, prompt, signal));
-      if (clean !== null) return clean;
+      const clean = cleanSummary(await gemini.json<unknown>(SUMMARY_SCHEMA, summaryPrompt(lang, title, text, reasks > 0), signal, SUMMARY_RESERVE));
+      if (clean === null) {
+        failures++;
+        continue;
+      }
+      if (!offLanguage(lang, [clean.headline, clean.description, ...clean.key_points])) return clean;
+      mixed ??= clean;
+      log('warn', 'digest_language_mixed', { lang, reasks });
+      reasks++;
     } catch (err) {
       if (signal.aborted) throw err;
-      log('warn', 'digest_summary_failed', { attempt, cause: message(err) });
+      failures++;
+      log('warn', 'digest_summary_failed', { attempt: failures, cause: message(err) });
     }
   }
-  return null;
+  return mixed;
 }
 
 /**
@@ -248,14 +267,11 @@ function parseSummary(json: string): Summary | null {
   }
 }
 
-export function summaryPrompt(lang: DigestLang, title: string, text: string): string {
-  const language =
-    lang === 'ta'
-      ? 'Write in simple, everyday spoken Tamil. Keep names, brands, products and technical terms in English.'
-      : 'Write in simple, everyday English.';
+export function summaryPrompt(lang: DigestLang, title: string, text: string, retry = false): string {
   return [
     'You summarise ONE article for a daily news digest.',
-    language,
+    languageRule(lang),
+    ...(retry ? [LANGUAGE_RETRY] : []),
     'headline: faithful, at most 90 characters, no clickbait.',
     'description: 2-3 short sentences: what happened and why it matters.',
     'key_points: 3-6 one-sentence facts from the article that the description does not already say; fewer when the article is thin.',
@@ -287,7 +303,7 @@ function flat(value: unknown): string {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 }
 
-function clamp(text: string, limit: number): string {
+export function clamp(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`;
 }
 

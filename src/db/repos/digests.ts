@@ -201,3 +201,37 @@ export function enabledDigestSlots(db: Db, userId: number): Array<{ id: number; 
     .prepare('SELECT id, hour FROM digests WHERE user_id = ? AND enabled = 1 AND next_run_at IS NOT NULL')
     .all(userId) as unknown as Array<{ id: number; hour: number }>;
 }
+
+/** One model's quota state (ADR-033): the day and minute buckets, plus a 429's own deadline. */
+export interface QuotaRow {
+  model: string;
+  day: string;
+  day_count: number;
+  minute: number;
+  minute_count: number;
+  blocked_until: number;
+}
+
+const utcDay = (now: number): string => new Date(now).toISOString().slice(0, 10);
+const minuteOf = (now: number): number => Math.floor(now / 60_000);
+
+export function quotaRow(db: Db, model: string): QuotaRow | undefined {
+  return db.prepare('SELECT model, day, day_count, minute, minute_count, blocked_until FROM gemini_quota WHERE model = ?').get(model) as unknown as QuotaRow | undefined;
+}
+
+/** One request is about to go out: the buckets roll over with the day or the minute, then count it. */
+export function spendQuota(db: Db, model: string, now: number): void {
+  db.prepare(
+    `INSERT INTO gemini_quota (model, day, day_count, minute, minute_count) VALUES (?, ?, 1, ?, 1)
+     ON CONFLICT(model) DO UPDATE SET
+       day_count = CASE WHEN day <> excluded.day THEN 1 ELSE day_count + 1 END,
+       day = excluded.day,
+       minute_count = CASE WHEN minute <> excluded.minute THEN 1 ELSE minute_count + 1 END,
+       minute = excluded.minute`,
+  ).run(model, utcDay(now), minuteOf(now));
+}
+
+/** A 429 names the wait; until then the rung is skipped without a request. */
+export function blockQuota(db: Db, model: string, until: number): void {
+  db.prepare('UPDATE gemini_quota SET blocked_until = ? WHERE model = ?').run(until, model);
+}

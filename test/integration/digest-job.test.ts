@@ -322,7 +322,7 @@ test('digest job: a quota error walks the model ladder instead of failing the jo
     assert.ok(rich, 'the digest ships on the fallback models');
     assert.match(String(rich?.html ?? ''), /tg:\/\/audio\?id=overview/, 'the voice survives its primary being out of quota');
     const models = new Set(bodies.map((body) => body.model));
-    assert.ok(models.has('gemini-3.6-flash'), 'summaries and script moved to the first text fallback');
+    assert.ok(models.has('gemini-3.8-flash'), 'summaries and script moved to the first text fallback');
     assert.ok(models.has('gemini-3.8-flash-lite-tts'), 'the voice moved to the first TTS fallback');
   } finally {
     db.close();

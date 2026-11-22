@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DigestConfig } from '../../src/config.ts';
-import { geminiClient } from '../../src/digest/gemini.ts';
+import { geminiClient, type Ledger } from '../../src/digest/gemini.ts';
 
 const cfg = (over: Partial<DigestConfig> = {}): DigestConfig => ({
   apiKey: 'test-key',
@@ -62,6 +62,54 @@ test('speak: an overloaded voice falls back to the lite voice', async () => {
   const pcm = await geminiClient(cfg(), doFetch).speak('script', new AbortController().signal);
   assert.equal(pcm.length, 48_000);
   assert.deepEqual(models, ['tts-primary', 'tts-fallback']);
+});
+
+test('a ledger that reports a spent rung skips it without a request', async () => {
+  const { doFetch, models } = recorder(() => ok(textReply('the script')));
+  const spent: string[] = [];
+  const ledger: Ledger = {
+    spent: (model) => model === 'text-primary',
+    spend: (model) => spent.push(model),
+    block: () => undefined,
+  };
+  assert.equal(await geminiClient(cfg(), doFetch, undefined, ledger).text('prompt', new AbortController().signal), 'the script');
+  assert.deepEqual(models, ['text-fallback'], 'the spent rung costs no request');
+  assert.deepEqual(spent, ['text-fallback'], 'and only the rung that went out is counted');
+});
+
+test('a per-day 429 blocks the rung until the day turns', async () => {
+  const { doFetch } = recorder(() => new Response(JSON.stringify({ error: { message: 'quota exceeded, 20 requests per day' } }), { status: 429 }));
+  const blocked: number[] = [];
+  const ledger: Ledger = { spent: () => false, spend: () => undefined, block: (_model, until) => blocked.push(until) };
+  await assert.rejects(geminiClient(cfg(), doFetch, undefined, ledger).json({}, 'prompt', new AbortController().signal), /gemini 429/);
+  assert.equal(blocked.length, 2, 'every rung that answered 429 is blocked, not only the first');
+  assert.equal(new Date(blocked[0] ?? 0).getUTCHours(), 0, 'a per-day 429 ends at the UTC midnight');
+});
+
+test('a per-minute 429 blocks for about a minute, not for the day', async () => {
+  const { doFetch } = recorder(() => new Response(JSON.stringify({ error: { message: 'rate limit exceeded' } }), { status: 429 }));
+  const blocked: number[] = [];
+  const ledger: Ledger = { spent: () => false, spend: () => undefined, block: (_model, until) => blocked.push(until) };
+  const before = Date.now();
+  await assert.rejects(geminiClient(cfg(), doFetch, undefined, ledger).text('prompt', new AbortController().signal), /gemini 429/);
+  const until = blocked[0] ?? 0;
+  assert.ok(until >= before + 59_000 && until <= Date.now() + 61_000, `about a minute, not midnight (got ${until - before} ms)`);
+});
+
+test('every rung spent throws a rate limit without a request', async () => {
+  const { doFetch, models } = recorder(() => ok(textReply('never')));
+  const ledger: Ledger = { spent: () => true, spend: () => undefined, block: () => undefined };
+  await assert.rejects(geminiClient(cfg(), doFetch, undefined, ledger).text('prompt', new AbortController().signal), /every gemini model is spent/);
+  assert.deepEqual(models, [], 'no request is spent on a rung that cannot answer');
+});
+
+test('a too-long payload ends the ladder at once and blocks no rung', async () => {
+  const { doFetch, models } = recorder(() => new Response(JSON.stringify({ error: { message: 'input is too long' } }), { status: 400 }));
+  const blocked: string[] = [];
+  const ledger: Ledger = { spent: () => false, spend: () => undefined, block: (model) => blocked.push(model) };
+  await assert.rejects(geminiClient(cfg(), doFetch, undefined, ledger).speak('script', new AbortController().signal), /gemini 400/);
+  assert.deepEqual(models, ['tts-primary'], 'the next voice cannot fit the same payload either');
+  assert.deepEqual(blocked, [], 'and a healthy voice is not marked spent');
 });
 
 test('an abort ends the ladder at once — no other model is called', async () => {
