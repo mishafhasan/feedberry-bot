@@ -46,8 +46,15 @@ export function scriptPrompt(input: ScriptInput, retry = false): string {
 export async function writeScript(gemini: Gemini, input: ScriptInput, signal: AbortSignal): Promise<string> {
   let mixed = '';
   for (let reasks = 0; reasks <= LANGUAGE_REASKS; reasks++) {
-    const script = (await gemini.text(scriptPrompt(input, reasks > 0), signal)).replace(/\r\n?/g, '\n').trim();
-    if (script === '') throw new Error('gemini wrote an empty script');
+    let script: string;
+    try {
+      script = (await gemini.text(scriptPrompt(input, reasks > 0), signal)).replace(/\r\n?/g, '\n').trim();
+      if (script === '') throw new Error('gemini wrote an empty script');
+    } catch (err) {
+      // The re-ask must never cost the audio: a script already in hand is a voice, silence is not.
+      if (mixed !== '') return mixed;
+      throw err;
+    }
     if (!offLanguage(input.lang, [script])) return script;
     mixed = script;
     log('warn', 'digest_script_language_mixed', { lang: input.lang, reasks });
