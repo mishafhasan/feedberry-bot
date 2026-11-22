@@ -86,6 +86,16 @@ test('a per-day 429 blocks the rung until the day turns', async () => {
   assert.equal(new Date(blocked[0] ?? 0).getUTCHours(), 0, 'a per-day 429 ends at the UTC midnight');
 });
 
+test('a per-minute 429 blocks for about a minute, not for the day', async () => {
+  const { doFetch } = recorder(() => new Response(JSON.stringify({ error: { message: 'rate limit exceeded' } }), { status: 429 }));
+  const blocked: number[] = [];
+  const ledger: Ledger = { spent: () => false, spend: () => undefined, block: (_model, until) => blocked.push(until) };
+  const before = Date.now();
+  await assert.rejects(geminiClient(cfg(), doFetch, undefined, ledger).text('prompt', new AbortController().signal), /gemini 429/);
+  const until = blocked[0] ?? 0;
+  assert.ok(until >= before + 59_000 && until <= Date.now() + 61_000, `about a minute, not midnight (got ${until - before} ms)`);
+});
+
 test('every rung spent throws a rate limit without a request', async () => {
   const { doFetch, models } = recorder(() => ok(textReply('never')));
   const ledger: Ledger = { spent: () => true, spend: () => undefined, block: () => undefined };
