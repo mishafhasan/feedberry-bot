@@ -14,7 +14,7 @@ import { audioOverview } from './audio.ts';
 import { digestGemini } from './quota.ts';
 import { MAX_PART_CHARS, renderDigest, visibleChars } from './render.ts';
 import { writeScript } from './script.ts';
-import { publishPage, summarisePost, type DigestLang } from './summarise.ts';
+import { publishPage, summarisePost, clamp, MAX_HEADLINE, type DigestLang } from './summarise.ts';
 
 /**
  * ADR-029: one digest run. The job ends before the queue's stale-lock window, so the same digest can
@@ -141,7 +141,8 @@ async function plansFor(
   // Overflow stories get a Telegraph page too, so every "Also today" link matches the items' links.
   const pages = await mapLimit(input.overflow, SUMMARY_CONCURRENCY, (post) => publishPage({ db: deps.db, http: deps.http, telegraph: deps.telegraph }, post, input.signal));
   const extra = input.overflow.map((post, index) => ({
-    headline: payloadOf(post.payload_json).title || post.url || 'Post',
+    // A feed can hand over a whole paragraph as a title; one unbounded label would blow a whole part.
+    headline: clamp(payloadOf(post.payload_json).title || post.url || 'Post', MAX_HEADLINE),
     url: pages[index] ?? post.url,
   }));
 

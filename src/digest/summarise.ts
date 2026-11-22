@@ -59,7 +59,7 @@ export interface SummariseDeps {
 /** The trust boundary's input clamp: a 40 k-character page costs tokens and adds nothing (ADR-029). */
 export const MAX_ARTICLE_CHARS = 12_000;
 export const MAX_IMAGES = 3;
-const MAX_HEADLINE = 120;
+export const MAX_HEADLINE = 120;
 /** The page's own title, printed under a Tamil headline: a feed can hand over a whole paragraph. */
 const MAX_ORIGINAL_TITLE = 400;
 const MAX_DESCRIPTION = 600;
@@ -67,10 +67,10 @@ const MAX_POINT = 240;
 const MAX_POINTS = 6;
 
 /**
- * ADR-033: each summary leaves the last two slots of every rung to the spoken script and its own
- * re-ask, so a busy day costs the voice its rung last.
+ * ADR-033: each summary leaves the script's three slots free on every rung it uses — one call plus its
+ * two language re-asks — so a busy day costs the voice its rung last.
  */
-export const SUMMARY_RESERVE = 2;
+export const SUMMARY_RESERVE = 1 + LANGUAGE_REASKS;
 
 interface Summary {
   headline: string;
@@ -303,7 +303,7 @@ function flat(value: unknown): string {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 }
 
-function clamp(text: string, limit: number): string {
+export function clamp(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`;
 }
 
