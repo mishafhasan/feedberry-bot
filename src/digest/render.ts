@@ -8,6 +8,10 @@ import type { DigestItem, DigestLang } from './summarise.ts';
  * no Telegram. The budgets sit under the Bot API's 50 media / 32 768 chars / 500 blocks.
  */
 export const MAX_PART_MEDIA = 49;
+/**
+ * Measured (ADR-033): 33 000 characters answers RICH_MESSAGE_TEXT_TOO_LONG, 24 000 Tamil characters
+ * (64 kB of UTF-8) pass, so the cap counts visible text and this budget counts the same thing.
+ */
 export const MAX_PART_CHARS = 30_000;
 export const MAX_PART_BLOCKS = 480;
 /** Worst-case header and footer: reserved so a part can never be composed past the hard limits. */
@@ -15,6 +19,9 @@ const HEADER_CHARS = 400;
 const HEADER_BLOCKS = 6;
 const FOOTER_CHARS = 300;
 const FOOTER_BLOCKS = 2;
+/** One "Also today" chunk: small enough that the greedy packer can always place it whole. */
+const EXTRA_PIECE_LINES = 50;
+const EXTRA_PIECE_CHARS = 8_000;
 
 export interface RenderAudio {
   file: string;
@@ -38,8 +45,9 @@ export interface RenderInput {
 
 interface Piece {
   html: string;
-  media: Array<{ id: string; file: string; kind: 'photo' | 'audio' }>;
+  /** Visible characters, the unit of the API's 32 768 cap; markup does not count. */
   chars: number;
+  media: Array<{ id: string; file: string; kind: 'photo' | 'audio' }>;
   blocks: number;
 }
 
@@ -50,8 +58,7 @@ export function renderDigest(input: RenderInput): MessagePlan[] {
   }
 
   const pieces = input.items.map((item, index) => itemPiece(input, item, index + 1));
-  const extra = extraPiece(input, input.items.length + 1);
-  if (extra !== null) pieces.push(extra);
+  pieces.push(...extraPieces(input, input.items.length + 1));
 
   const groups = pack(pieces);
   const total = groups.length;
@@ -112,18 +119,44 @@ function itemPiece(input: RenderInput, item: DigestItem, number: number): Piece 
     (link === '' ? 0 : 1) +
     1; // rule
 
-  return { html, media, chars: html.length, blocks };
+  return { html, media, chars: visibleChars(html), blocks };
 }
 
-/** "Also today": the posts past the cost cap, as numbered headline links in the last part. */
-function extraPiece(input: RenderInput, first: number): Piece | null {
-  if (input.extra.length === 0) return null;
-  const lines = input.extra.map((entry, index) => {
+/**
+ * "Also today": the posts past the cost cap, as numbered headline links. The list is the only piece
+ * whose size the clamps do not bound, so it is emitted in chunks a part can always hold (ADR-033).
+ * Numbering runs across the chunks; only the first carries the heading.
+ */
+function extraPieces(input: RenderInput, first: number): Piece[] {
+  if (input.extra.length === 0) return [];
+  const heading = `<p><b>${esc(t(input.lang, 'digest.alsoToday'))}</b></p>`;
+  const pieces: Piece[] = [];
+  let lines: string[] = [];
+  let chars = 0;
+
+  const close = (): void => {
+    if (lines.length === 0) return;
+    const lead = pieces.length === 0 ? heading : '';
+    const html = `${lead}<ul>${lines.join('')}</ul>`;
+    pieces.push({ html, media: [], chars: visibleChars(html), blocks: lines.length + (lead === '' ? 1 : 2) });
+    lines = [];
+    chars = 0;
+  };
+
+  for (const [index, entry] of input.extra.entries()) {
     const label = `${first + index}. ${esc(entry.headline)}`;
-    return entry.url === null ? label : `<a href="${esc(entry.url)}">${label}</a>`;
-  });
-  const html = `<p><b>${esc(t(input.lang, 'digest.alsoToday'))}</b></p><ul>${lines.map((line) => `<li>${line}</li>`).join('')}</ul>`;
-  return { html, media: [], chars: html.length, blocks: input.extra.length + 2 };
+    const line = entry.url === null ? `<li>${label}</li>` : `<li><a href="${esc(entry.url)}">${label}</a></li>`;
+    if (lines.length > 0 && (lines.length >= EXTRA_PIECE_LINES || chars + line.length > EXTRA_PIECE_CHARS)) close();
+    lines.push(line);
+    chars += line.length;
+  }
+  close();
+  return pieces;
+}
+
+/** The visible characters of one piece: entities are the three `esc` writes, tags are noise. */
+export function visibleChars(html: string): number {
+  return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').length;
 }
 
 /** Greedy split in digest order: a part closes before an item would break a budget. */
