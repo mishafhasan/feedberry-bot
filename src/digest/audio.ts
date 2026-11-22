@@ -156,7 +156,8 @@ export async function audioOverview(gemini: Gemini, script: string, dir: string,
     await encode(pcm, file, title);
     return { file, seconds: secondsOf(pcm.length) / SPEECH_RATE };
   } catch (err) {
-    log('warn', 'digest_audio_failed', { cause: err instanceof Error ? err.message : String(err), chars: script.length, calls });
+    // `code` separates "the quota is gone" from "the script is broken" without reading the message.
+    log('warn', 'digest_audio_failed', { code: isCoded(err) ? err.code : undefined, cause: err instanceof Error ? err.message : String(err), chars: script.length, calls });
     return null;
   }
 }
