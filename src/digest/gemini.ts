@@ -5,11 +5,25 @@ import { mediaSignal } from '../pipeline/prepare-media.ts';
 
 /** ADR-029: the only door to Gemini. Text and speech share one key; tests inject their own fetch. */
 export interface Gemini {
-  json<T>(schema: unknown, prompt: string, signal: AbortSignal): Promise<T>;
-  text(prompt: string, signal: AbortSignal): Promise<string>;
+  /** `reserve` is how many of the rung's slots this call must leave free — the summaries keep the script's. */
+  json<T>(schema: unknown, prompt: string, signal: AbortSignal, reserve?: number): Promise<T>;
+  text(prompt: string, signal: AbortSignal, reserve?: number): Promise<string>;
   /** Raw PCM: s16le, 24 kHz, mono, no container — the chunks concatenate as they are. */
   speak(text: string, signal: AbortSignal): Promise<Buffer>;
 }
+
+/**
+ * ADR-033: the free tier's per-model caps, remembered across restarts. A spent rung is skipped before
+ * any request, and a 429 of the provider's own blocks that rung until the wait it names.
+ */
+export interface Ledger {
+  spent(model: string, reserve: number): boolean;
+  spend(model: string): void;
+  block(model: string, until: number): void;
+}
+
+/** No ledger (tests, or a caller without a database): every rung is always available. */
+export const NO_LEDGER: Ledger = { spent: () => false, spend: () => undefined, block: () => undefined };
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const API_REVISION = '2026-05-20';
@@ -47,7 +61,21 @@ function pcmOf(base64: string, mime: string): Buffer {
   throw new Coded(E.FEED_DOWN, `unsupported audio type ${mime}`);
 }
 
-export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, timeoutMs = CALL_TIMEOUT_MS): Gemini {
+/**
+ * A "too long" answer is about the payload, not the model: re-sending it to the next rung wastes every
+ * call, and marking the rung spent would cost the voice its quota for the day (ADR-033).
+ */
+export function inputTooLong(err: unknown): boolean {
+  return isCoded(err) && /^gemini 400\b/.test(err.message) && /too long|too large|too many|maximum/i.test(err.message);
+}
+
+/** Free-tier days reset on the provider's clock; the ledger's own day is UTC, which resets earlier. */
+function endOfUtcDay(now = Date.now()): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+}
+
+export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, ledger: Ledger = NO_LEDGER): Gemini {
   /** Primary first, deduped; an empty id never enters a ladder. */
   const ladder = (primary: string, fallbacks: string[]): string[] => [primary, ...fallbacks].filter((model, index, all) => model !== '' && all.indexOf(model) === index);
 
@@ -91,20 +119,29 @@ export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, t
   };
 
   /**
-   * One role's ladder: a 429/5xx (or a model that answers with nothing usable) moves to the next model,
-   * because free-tier quotas and capacity are per model. A network error or an abort ends it at once.
+   * One role's ladder: a spent rung is skipped with no request, a 429/5xx (or a model that answers with
+   * nothing usable) moves to the next model, and a too-long payload ends it at once (ADR-033).
    */
-  const attempt = async <R>(role: 'text' | 'tts', models: string[], send: (model: string) => Promise<R>): Promise<R> => {
+  const attempt = async <R>(role: 'text' | 'tts', models: string[], reserve: number, send: (model: string) => Promise<R>): Promise<R> => {
     for (const [index, model] of models.entries()) {
+      if (ledger.spent(model, reserve)) {
+        log('info', 'gemini_rung_spent', { role, model });
+        continue;
+      }
+      // Counted before the call: three summaries run at once, so the last slot must go to exactly one.
+      ledger.spend(model);
       try {
         return await send(model);
       } catch (err) {
+        if (inputTooLong(err)) throw err;
+        if (isCoded(err) && err.code === E.RATE_LIMIT) ledger.block(model, /per day/i.test(err.message) ? endOfUtcDay() : Date.now() + 60_000);
         const next = models[index + 1];
         if (!isCoded(err) || next === undefined) throw err;
         log('warn', 'gemini_model_fallback', { role, from: model, to: next, cause: err.message });
       }
     }
-    throw new Coded(E.FEED_DOWN, 'gemini model ladder is empty');
+    // Every rung is spent or blocked: a retry later is cheaper than a request that must fail.
+    throw new Coded(E.RATE_LIMIT, 'every gemini model is spent');
   };
 
   /** A legacy voice's only audio door: generateContent with the AUDIO modality. */
@@ -125,8 +162,8 @@ export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, t
   };
 
   return {
-    async json<T>(schema: unknown, prompt: string, signal: AbortSignal): Promise<T> {
-      return attempt('text', textModels, async (model) => {
+    async json<T>(schema: unknown, prompt: string, signal: AbortSignal, reserve = 0): Promise<T> {
+      return attempt('text', textModels, reserve, async (model) => {
         const body = textOf(await call({ model, input: prompt, response_format: { type: 'text', mime_type: 'application/json', schema } }, signal));
         try {
           return JSON.parse(body) as T;
@@ -136,12 +173,12 @@ export function geminiClient(cfg: DigestConfig, doFetch: typeof fetch = fetch, t
       });
     },
 
-    async text(prompt, signal) {
-      return attempt('text', textModels, async (model) => textOf(await call({ model, input: prompt }, signal)));
+    async text(prompt, signal, reserve = 0) {
+      return attempt('text', textModels, reserve, async (model) => textOf(await call({ model, input: prompt }, signal)));
     },
 
     async speak(text, signal) {
-      return attempt('tts', ttsModels, async (model) => {
+      return attempt('tts', ttsModels, 0, async (model) => {
         if (LEGACY_TTS.has(model)) return speakLegacy(text, model, signal);
         const reply = await call(
           {

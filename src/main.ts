@@ -3,7 +3,7 @@ import { setCookies } from 'cobalt-engine';
 import { createBot, networkFor } from './bot/index.ts';
 import { telegraphClient } from './article/telegraph.ts';
 import { parseConfig, type Config } from './config.ts';
-import { geminiClient } from './digest/gemini.ts';
+import { digestGemini } from './digest/quota.ts';
 import { openDb, schemaVersion } from './db/index.ts';
 import { startWorker } from './jobs/worker.ts';
 import { cobaltEngine } from './media/media-engine.ts';
@@ -47,7 +47,7 @@ const worker = startWorker({
   sender,
   telegraph: telegraphClient,
   // ADR-029: no key means no digest, and the scheduler stops asking for one.
-  ...(cfg.digest === undefined ? {} : { gemini: geminiClient(cfg.digest) }),
+  ...(cfg.digest === undefined ? {} : { gemini: digestGemini(cfg.digest, db) }),
   workerConcurrency: cfg.limits.workerConcurrency,
 });
 

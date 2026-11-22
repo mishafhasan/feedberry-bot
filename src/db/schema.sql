@@ -153,3 +153,14 @@ CREATE TABLE IF NOT EXISTS post_summaries (
 );
 
 CREATE INDEX IF NOT EXISTS digests_due ON digests (enabled, next_run_at);
+
+-- ADR-033: the Gemini free tier's per-model caps, remembered across restarts. One row per model;
+-- `day` and `minute` are the buckets the counts belong to, so a new bucket starts at 1.
+CREATE TABLE IF NOT EXISTS gemini_quota (
+  model         TEXT PRIMARY KEY,
+  day           TEXT NOT NULL,
+  day_count     INTEGER NOT NULL DEFAULT 0,
+  minute        INTEGER NOT NULL,
+  minute_count  INTEGER NOT NULL DEFAULT 0,
+  blocked_until INTEGER NOT NULL DEFAULT 0
+);
