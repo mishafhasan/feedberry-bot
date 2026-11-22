@@ -69,7 +69,7 @@ function recordingEngine(): { engine: MediaEngine; items: MediaItem[] } {
   };
 }
 
-function seedPost(media: FeedMedia[] = []): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
+function seedPost(media: FeedMedia[] = [], title = 'Feed title'): { dir: string; db: ReturnType<typeof openDb>; post: PostRow } {
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-digest-summary-'));
   const db = openDb(join(dir, 'bot.db'));
   const source = upsertSource(db, {
@@ -81,7 +81,7 @@ function seedPost(media: FeedMedia[] = []): { dir: string; db: ReturnType<typeof
     title: 'Blog',
     avatarUrl: null,
   });
-  const rows = insertPosts(db, source.id, [{ guid: 'g1', link: 'https://blog.test/one', title: 'Feed title', summary: 'The feed body of the post.', publishedAt: null, media }]);
+  const rows = insertPosts(db, source.id, [{ guid: 'g1', link: 'https://blog.test/one', title, summary: 'The feed body of the post.', publishedAt: null, media }]);
   const post = rows[0];
   assert.ok(post);
   return { dir, db, post };
@@ -181,6 +181,21 @@ test('a dead model twice falls back to the feed and writes no cache', async () =
     assert.deepEqual(item.points, []);
     assert.equal(getSummary(db, post.id, 'en'), undefined, 'a fallback is never cached');
     assert.equal(getPost(db, post.id)?.id, post.id);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a page title longer than the clamp is cut before it can reach a part', async () => {
+  const { dir, db, post } = seedPost([], 'T'.repeat(900));
+  try {
+    const { gemini } = countingGemini(() => {
+      throw new Error('gemini down');
+    });
+
+    const item = await summarisePost({ db, http, media: noEngine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(item.originalTitle?.length, 400, 'a feed title is not a paragraph');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

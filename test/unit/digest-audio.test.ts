@@ -73,8 +73,8 @@ test('audioOverview: chunks are spoken in order and the duration comes from the 
     const overview = await audioOverview(gemini, script, dir, 'FeedBerry Daily Digest · test', new AbortController().signal, (pcm, file) => writeFile(file, pcm));
 
     assert.ok(overview);
-    assert.equal(spoken.length, chunkScript(script).length, 'one call per chunk');
-    assert.ok(Math.abs((overview?.seconds ?? 0) - spoken.length / SPEECH_RATE) < 1e-9, 'one second of PCM per chunk, played 10% faster');
+    assert.equal(spoken.length, 1, 'one call speaks the whole script, not one per piece');
+    assert.ok(Math.abs((overview?.seconds ?? 0) - 1 / SPEECH_RATE) < 1e-9, 'one second of PCM, played 10% faster');
     assert.ok(statSync(overview?.file ?? '').size > 0);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

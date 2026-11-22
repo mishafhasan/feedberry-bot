@@ -182,6 +182,28 @@ test('digest: a 400-story "Also today" list is split and no story is lost', () =
   }
 });
 
+test('digest: Tamil parts are measured in characters, so a part may exceed 32 768 bytes', () => {
+  // The measured cap counts characters; a byte budget would split this same digest into twice as many parts.
+  const items = Array.from({ length: 20 }, (_, index) =>
+    item({
+      postId: index + 1,
+      headline: 'த'.repeat(110),
+      originalTitle: 'An original English page title',
+      description: 'ட'.repeat(580),
+      points: Array.from({ length: 6 }, () => 'க'.repeat(230)),
+    }),
+  );
+  const plans = renderDigest(input({ lang: 'ta', items, postCount: items.length }));
+
+  assert.ok(plans.length >= 2, 'twenty maximal stories cannot ride in one part');
+  for (const plan of plans) {
+    const part = plan.kind === 'rich' ? plan.html : '';
+    assert.ok(visibleChars(part) <= MAX_PART_CHARS, 'the character budget holds');
+  }
+  const bytes = plans.map((plan) => Buffer.byteLength(plan.kind === 'rich' ? plan.html : '', 'utf8'));
+  assert.ok(Math.max(...bytes) > 32_768, 'and no part was split for its byte count');
+});
+
 test('digest: posts past the cap are numbered headline links under "Also today"', () => {
   const html = htmlOf(
     renderDigest(

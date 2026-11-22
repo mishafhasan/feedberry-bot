@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb } from '../../src/db/index.ts';
 import { quotaLedger } from '../../src/digest/quota.ts';
+import { SUMMARY_RESERVE } from '../../src/digest/summarise.ts';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -35,12 +36,12 @@ test('the reserve keeps the script its last slots on every rung', () => {
   const db = openDb(':memory:');
   let now = Date.UTC(2026, 10, 22, 9, 0, 0);
   const ledger = quotaLedger(db, () => now);
-  for (let call = 0; call < 18; call++) {
+  for (let call = 0; call < 20 - SUMMARY_RESERVE; call++) {
     now += MINUTE;
     ledger.spend('gemini-3.6-flash');
   }
   assert.equal(ledger.spent('gemini-3.6-flash', 0), false, 'the summaries may still ask');
-  assert.equal(ledger.spent('gemini-3.6-flash', 2), true, 'but not the two slots the script keeps');
+  assert.equal(ledger.spent('gemini-3.6-flash', SUMMARY_RESERVE), true, 'but not the slots the script keeps');
   db.close();
 });
 
