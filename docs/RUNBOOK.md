@@ -32,7 +32,7 @@ Then, from the admin account:
 | Health | `/status` in Telegram; `docker compose ps` for container state |
 | Restart | `docker compose restart bot` |
 | Update | `git pull && docker compose build bot && docker compose up -d` |
-| Digest state | `docker compose logs bot \| grep -E 'digest_sent\|digest_item_fallback\|digest_audio_failed\|gemini_model_fallback\|telegraph_flood_wait\|digest_page'` |
+| Digest state | `docker compose logs bot \| grep -E 'digest_sent\|digest_item_fallback\|digest_audio_failed\|digest_audio_split\|gemini_model_fallback\|gemini_rung_spent\|digest_language_mixed\|digest_part_over_budget\|telegraph_flood_wait\|digest_page'` |
 | RSSHub credentials (only if you ever add instance tokens) | edit `.env`, `docker compose up -d rsshub` — the bot needs no restart |
 
 Idle cost is one long-poll request per 25 s plus a 30 s tick; nothing else runs while no source is due.
@@ -153,8 +153,13 @@ sources in the last 24 h. It is extra: per-post delivery is unchanged. Full beha
 | `digest_sent` | the message went out: `{posts, parts, images, audioSec}` |
 | `digest_page` | a Telegraph page was published for a story that had none; it is stored on the post |
 | `digest_item_fallback` | one summary failed twice; the feed's own words shipped |
-| `digest_audio_failed` | the script or voice failed; the digest shipped without a player |
+| `digest_audio_failed` | the script or voice failed; the digest shipped without a player (`code`, `chars`, `calls`) |
 | `gemini_model_fallback` | a model was over quota or erroring; the next model in the ladder answered |
+| `gemini_rung_spent` | a rung's day or minute was already spent; it was skipped without a request (ADR-033) |
+| `digest_language_mixed` | a summary came back in the wrong script twice; it shipped as written |
+| `digest_script_language_mixed` | the spoken script did the same; the voice read it as written |
+| `digest_audio_split` | a TTS piece was refused and retried at half its size |
+| `digest_part_over_budget` | a part exceeded the render budget; Telegram would refuse it (a bug, not a state) |
 | `telegraph_flood_wait` | Telegra.ph asked the bot to wait; the client waited and retried |
 
 **Digest did not arrive at its hour:**
@@ -163,9 +168,10 @@ sources in the last 24 h. It is extra: per-post delivery is unchanged. Full beha
 2. `/status`: a large queued count means the worker is busy; the digest job has priority `scheduled`.
 3. Confirm the digest is on and has a source: the settings screen shows `Status: On` and `Sources: n`.
    Turning the last source off switches the digest off on purpose.
-4. Free-tier Gemini keys are per-model: about 5 requests/minute and, for `gemini-3.8-flash`, ~20 a day.
-   A busy day shows `gemini_model_fallback` and still ships; only when every rung is spent does the job
-   wait on the rate-limit ladder. A paid key removes the limits without a code change.
+4. Free-tier Gemini keys are per-model: 5–15 requests a minute and 10–500 a day depending on the rung,
+   and the ledger in `gemini_quota` skips a spent rung instead of earning a 429 (ADR-033). A busy day
+   shows `gemini_rung_spent` and `gemini_model_fallback` and still ships; only when every rung is spent
+   does the job wait on the rate-limit ladder. A paid key removes the limits without a code change.
 5. `FLOOD_WAIT_525` in the log is Telegra.ph blocking the IP for ~9 minutes after ~40 rapid page
    writes. Pages are cached per post (`posts.telegraph_url`), so this is a first-run cost on a large
    backlog; the affected “Also today” entries keep their post URL until a later run.

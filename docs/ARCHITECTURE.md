@@ -471,9 +471,9 @@ N per source for the operator.
 | `BACKFILL_COUNT` | 5 | "showing latest posts" (S4) |
 | `MAX_SOURCE_AGE_DAYS` | 30 | cleanup of `posts` |
 | `GEMINI_API_KEY` | unset | the whole digest feature (ADR-029); unset hides it |
-| `GEMINI_TEXT_MODEL` | `gemini-3.8-flash` | summaries and the script |
+| `GEMINI_TEXT_MODEL` | `gemini-4-hydrogen` | summaries and the script |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | the audio overview |
-| `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-4-hydrogen,gemini-3-flash-preview,gemini-3.1-pro-preview,gemini-3.5-flash-lite` | tried in order after the primary on 429/5xx |
+| `GEMINI_TEXT_FALLBACKS` | `gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash` | tried in order after the primary, skipping any rung the quota ledger marks spent (ADR-033) |
 | `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts` | same ladder, for the voice (the legacy two use `generateContent`) |
 | `DIGEST_MAX_POSTS` | 20 | posts beyond it are headline links, not summaries; a local run sets 2 |
 

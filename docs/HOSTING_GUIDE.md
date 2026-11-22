@@ -234,14 +234,15 @@ Defaults are in `.env.example`; all are optional:
 | Variable | Default | Meaning |
 |---|---|---|
 | `DIGEST_MAX_POSTS` | `20` | Full summaries per day; posts past it become “Also today” links. |
-| `GEMINI_TEXT_MODEL` | `gemini-3.8-flash` | Summaries and the script. |
+| `GEMINI_TEXT_MODEL` | `gemini-4-hydrogen` | Summaries and the script. |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | The audio overview (fixed voice, `Kore`). |
-| `GEMINI_TEXT_FALLBACKS` | `gemini-3.6-flash,gemini-4-hydrogen,gemini-3-flash-preview,gemini-3.1-pro-preview,gemini-3.5-flash-lite` | Tried in order on `429`/`4xx`/`5xx` or a per-call timeout. |
+| `GEMINI_TEXT_FALLBACKS` | `gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash` | Tried in order on `429`/`4xx`/`5xx` or a per-call timeout. |
 | `GEMINI_TTS_FALLBACKS` | `gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts` | Same ladder for the voice. |
 
-A free-tier key is enough to try it: quotas are per model (about 5 requests a minute, and ~20 requests
-a day for `gemini-3.8-flash`), which is why the ladders exist. A busy day simply hands calls to the next
-model; a paid key removes the limits without any code change.
+A free-tier key is enough to try it: quotas are per model (5–15 requests a minute, 10–500 requests a
+day), so the ladder runs latest to oldest and the quota ledger in `gemini_quota` skips a rung whose
+day or minute is spent instead of earning a `429` (ADR-033). A busy day hands calls to the next model;
+a paid key removes the limits without any code change.
 
 ### 5.7 Start it
 

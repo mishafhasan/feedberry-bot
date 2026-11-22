@@ -53,10 +53,11 @@ Four questions decided the shape:
   rendered and the tick passes `digests: false`, so no job is ever queued.
 - **Each role walks a model ladder.** Quotas and capacity are per model, so a 429/5xx (or an answer
   with nothing usable in it) moves summaries and the script to the next text model and the voice to
-  the next TTS model: `gemini-3.8-flash → 3.6-flash → 4-hydrogen → 3-flash-preview → 3.1-pro-preview →
-  3.5-flash-lite`, `gemini-3.8-flash-tts → 3.8-flash-lite-tts → 3.1-flash-tts-preview →
-  2.5-flash-preview-tts`. A network error or an abort ends the ladder at once; every step is logged
-  (`gemini_model_fallback`). Both tails are config (`GEMINI_TEXT_FALLBACKS`, `GEMINI_TTS_FALLBACKS`).
+  the next TTS model. The order is the free tier's own rate table, latest to oldest, and a ledger in
+  `gemini_quota` skips a rung whose day or minute is spent instead of earning a 429 (ADR-033): the
+  current ladders live in `src/config.ts` and in `.env.example`. A network error or an abort ends the
+  ladder at once; every step is logged (`gemini_model_fallback`, `gemini_rung_spent`). Both tails are
+  config (`GEMINI_TEXT_FALLBACKS`, `GEMINI_TTS_FALLBACKS`).
   The two legacy TTS previews predate the interactions audio format: they speak through
   `models/{id}:generateContent` with the AUDIO modality and return raw L16 PCM, which joins the same
   chunks. The Live models are not part of it: they speak only over the Live API's stateful WebSocket,
@@ -93,21 +94,26 @@ Four questions decided the shape:
   say the same thing: an opening sentence with the date and the count, one paragraph per story, a
   sign-off. Word budget `min(80 + 45 × items, 1400)`.
 - **The voice is chunked.** The TTS model takes 8 192 input tokens, so the script is split on
-  paragraph → sentence → word boundaries into pieces of at most 2 500 characters, each requested as
-  raw PCM (`audio/l16`, 24 kHz, mono). The pieces concatenate, and `ffmpeg` writes one 64 kbps MP3
-  with the digest's title in its own tags. Duration is `PCM bytes / 48 000`. The encode runs
-  `atempo=1.1`, so the same words play 10% faster (no pitch shift) and a fixed-length script fits
-  more of the day; the reported duration is scaled to match.
+  paragraph → sentence → word boundaries, each piece requested as raw PCM (`audio/l16`, 24 kHz,
+  mono). The pieces concatenate, and `ffmpeg` writes one 64 kbps MP3 with the digest's title in its own
+  tags. Duration is `PCM bytes / 48 000`. The encode runs `atempo=1.1`, so the same words play 10%
+  faster (no pitch shift) and a fixed-length script fits more of the day; the reported duration is
+  scaled to match. ADR-033 measured the ceiling: 3 929 Tamil characters came back as 260 s of PCM in
+  31 s, while 9 169 failed at the transport level, so a piece is 5 000 characters and a refused piece
+  is retried once at 2 500 — the size this ADR originally shipped.
 - **The message splits under the Bot API caps.** Greedy in digest order, a part closes before an item
-  would pass 49 media (the audio takes the 50th slot in Part 1), 30 000 characters of HTML or 480
-  blocks — under 50 / 32 768 / 500. Numbering continues across parts; the player is Part 1's; the
-  footer is the last part's. Posts past `DIGEST_MAX_POSTS` are numbered headline links under
-  "Also today" instead of being summarised: a cost guard on the model, not a summary. Every one of
-  them links to its own Telegraph page, published from the extracted article with no model call, so
-  the section reads like the items above; a story whose page cannot be read or published keeps its
-  original URL, and a story skipped because the job budget is spent does too. The cap defaults to 20
-  for production; a local run sets `DIGEST_MAX_POSTS=2`. Twenty summarised posts with their pictures
-  exceed one message, so the split above lands them in two balanced parts.
+  would pass 49 media (the audio takes the 50th slot in Part 1), 30 000 characters or 480 blocks —
+  under 50 / 32 768 / 500. ADR-033 measured what the cap counts: 33 000 characters answer
+  `RICH_MESSAGE_TEXT_TOO_LONG`, 24 000 Tamil characters (64 kB of UTF-8) pass, so the budget counts
+  the visible text, not the markup, and the one piece whose size the clamps do not bound — the "Also
+  today" list — is emitted in chunks a part can always hold. Numbering continues across parts; the
+  player is Part 1's; the footer is the last part's. Posts past `DIGEST_MAX_POSTS` are numbered
+  headline links under "Also today" instead of being summarised: a cost guard on the model, not a
+  summary. Every one of them links to its own Telegraph page, published from the extracted article
+  with no model call, so the section reads like the items above; a story whose page cannot be read or
+  published keeps its original URL, and a story skipped because the job budget is spent does too. The
+  cap defaults to 20 for production; a local run sets `DIGEST_MAX_POSTS=2`. Twenty summarised posts
+  with their pictures exceed one message, so the split above lands them in two balanced parts.
 - **The read-full link is a label, not a URL.** Each item ends with
   `<a href="telegraph">📖 Read full article</a>`; the raw address never appears as visible text.
 - **One budget for the whole job.** `DIGEST_BUDGET_MS = 8 min` aborts every network step, because a
@@ -139,7 +145,10 @@ Four questions decided the shape:
   "AI-generated summary" sentence and its post count are gone.
 - **Tamil mode** writes headline, description, key points and audio in simple spoken Tamil, keeps
   names/brands/technical terms in English, and prints the original title in italics under the
-  headline. Screens follow the interface language; the message's own labels do not (see above).
+  headline. The rule names the script: every Tamil word in Tamil letters, never romanised. ADR-033
+  added the check behind it — a summary with no Tamil script at all (Tanglish) or an English summary
+  carrying Tamil is asked again up to twice and then ships as written, never dropped. Screens follow
+  the interface language; the message's own labels do not (see above).
 - **Every `dg:*` handler authorises.** The digest must belong to the tapper, and a subscription must
   be one of the tapper's own RSS rows; the repo enforces both in `toggleDigestSource`. A refused tap
   writes nothing and paints nothing.
@@ -159,11 +168,12 @@ Four questions decided the shape:
   acknowledged exactly once.
 - Removing the last source from an enabled digest switches it off, so nobody receives "no new posts"
   every day with no way to tell why.
-- A free-tier Gemini key allows only ~5 requests a minute, and `gemini-3.8-flash` is capped at 20
-  requests **per day** on the current free tier: a busy day exhausts that rung and the model ladder
-  carries the digest to `gemini-3.6-flash` (or the lite model). When every rung is spent the digest
-  waits on the rate-limit ladder (30 min → 8 h). A paid tier removes the limits; the code needs no
-  change.
+- A free-tier Gemini key allows 5–15 requests a minute per model and 10–500 requests **per day**
+  depending on the rung; a busy day spends the narrow rungs first and the ladder carries the digest
+  to the wide ones. The ledger in ADR-033 makes that a decision instead of a 429, and keeps the last
+  slots of every rung for the spoken script. When every rung is spent the digest waits on the
+  rate-limit ladder (30 min → 8 h). A paid tier removes the limits; the caps are a table in
+  `src/config.ts`.
 
 ## Evidence
 
