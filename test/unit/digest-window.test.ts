@@ -91,21 +91,35 @@ test('the window query tiles two runs and never reaches past 24 hours', () => {
     assert.equal(toggleDigestSource(db, user.id, digest.id, subscription.id), 'added');
 
     const t0 = Date.UTC(2026, 10, 16, 8, 0);
-    const seed = (guid: string, seen: number, sourceId = source.id): number => {
-      const rows = insertPosts(db, sourceId, [{ guid, link: `https://blog.test/${guid}`, title: guid, summary: 'body', publishedAt: null, media: [] }], seen);
+    const seed = (guid: string, seen: number, published: number | null = null, sourceId = source.id): number => {
+      const rows = insertPosts(db, sourceId, [{ guid, link: `https://blog.test/${guid}`, title: guid, summary: 'body', publishedAt: published, media: [] }], seen);
       return rows[0]?.id ?? 0;
     };
-    const insideFirst = seed('first-window', t0 - 2 * HOUR);
+    const insideFirst = seed('first-window', t0 - 2 * HOUR, t0 - 3 * HOUR);
     const tooOld = seed('older-than-a-day', t0 - 25 * HOUR);
-    const notSelected = seed('not-in-digest', t0 - 2 * HOUR, other.id);
+    const notSelected = seed('not-in-digest', t0 - 2 * HOUR, null, other.id);
+    // Recorded inside the window, published three days ago: a source serving its backlog (a fresh
+    // subscription, a republished archive) must not push yesterday's news into today's digest.
+    const backlog = seed('backlog-recorded-now', t0 - HOUR, t0 - 3 * DAY);
+    // A feed that carries no date has only its fetch stamp to go by.
+    const undated = seed('undated', t0 - HOUR);
+    // Publication order, not fetch order: this one was recorded first and published later.
+    const fetchedFirst = seed('fetched-first', t0 - 4 * HOUR, t0 - 2 * HOUR);
+    const publishedFirst = seed('published-first', t0 - 2 * HOUR, t0 - 5 * HOUR);
+    // The bounds: the previous window stopped before `from`, so a post exactly at it is still ours;
+    // the next window starts at `to`, so a post exactly there is not.
+    const atFrom = seed('at-from', t0 - 20 * HOUR, t0 - DAY);
+    const atTo = seed('at-to', t0 - 10 * 60_000, t0);
 
     // Run 1: pin at t0, select, commit.
     const pin1 = pinDigestWindow(db, digest.id, t0);
     assert.equal(pin1, t0);
     assert.equal(pinDigestWindow(db, digest.id, t0 + HOUR), t0, 'a retry reuses the pin');
     const first = digestPosts(db, digest.id, Math.max(digest.last_window_end ?? 0, pin1 - DAY), pin1);
-    assert.deepEqual(first.map((post) => post.id), [insideFirst], 'only the selected source, only the last 24 h');
+    assert.deepEqual(first.map((post) => post.id), [undated, fetchedFirst, insideFirst, publishedFirst, atFrom], 'the window holds what was published inside it, newest first');
     assert.ok(!first.some((post) => post.id === notSelected), 'a source outside digest_sources never appears');
+    assert.ok(!first.some((post) => post.id === backlog), 'a post published before the window never appears, however late it was recorded');
+    assert.ok(!first.some((post) => post.id === atTo), 'the upper bound is strict');
     commitDigestWindow(db, digest.id, pin1);
 
     // Run 2: the window starts where run 1 ended.
@@ -116,9 +130,10 @@ test('the window query tiles two runs and never reaches past 24 hours', () => {
     const late = seed('second-window', t0 + 10 * 60_000);
     const pin2 = pinDigestWindow(db, digest.id, t1);
     const second = digestPosts(db, digest.id, Math.max(afterCommit.w, pin2 - DAY), pin2);
-    assert.deepEqual(second.map((post) => post.id), [late], 'a post after t0 belongs to run 2 only');
+    assert.deepEqual(second.map((post) => post.id), [late, atTo], 'a post after t0 belongs to run 2 only, and the one exactly at t0 opens it');
     assert.ok(!second.some((post) => post.id === insideFirst), 'and run 2 never repeats run 1');
     assert.ok(!second.some((post) => post.id === tooOld), 'nothing older than a day is ever selected');
+    assert.ok(!second.some((post) => post.id === backlog), 'nor does the backlog arrive in a later window');
     commitDigestWindow(db, digest.id, pin2);
 
     // Run 3: a last_window_end older than 24 h is clamped to the 24 h lookback.

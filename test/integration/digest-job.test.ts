@@ -20,6 +20,7 @@ import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
 import { ensureUser } from '../../src/db/repos/users.ts';
 import { geminiClient, type Gemini } from '../../src/digest/gemini.ts';
 import { runDigest } from '../../src/digest/run.ts';
+import { MAX_PART_BYTES, MAX_PART_HTML } from '../../src/digest/render.ts';
 import { enqueue, PRIORITY } from '../../src/jobs/queue.ts';
 import { runOnce, type WorkerDeps } from '../../src/jobs/worker.ts';
 import type { MediaEngine } from '../../src/media/media-engine.ts';
@@ -351,6 +352,49 @@ test('digest job: every summary failing leaves the window pinned and the job que
     const after = getDigest(db, digest.id);
     assert.equal(after?.window_end, now + 1, 'the retry must select the same posts');
     assert.equal(after?.last_window_end, null);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest job: a digest too big for one message is sent as every part, losing no story', async () => {
+  const api = await fakeBotApi();
+  const { dir, db, digest, sourceIds } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+
+  try {
+    // 400 overflow stories, each a 110-character headline link: the list alone is past one part's text
+    // budget, so the packer must split it and the send loop must send the tail as well.
+    const stories = Array.from({ length: 400 }, (_, index) => ({
+      guid: `overflow-${String(index + 1).padStart(3, '0')}`,
+      link: `https://blog.test/overflow-${index + 1}`,
+      title: `Overflow title ${String(index + 1).padStart(3, '0')} ${'x'.repeat(90)}`,
+      summary: 'Feed body',
+      publishedAt: now - 20 * HOUR,
+      media: [],
+    }));
+    insertPosts(db, sourceIds[0] as number, stories, now - 5 * 60_000);
+
+    await runDigest(deps, digest.id, now);
+
+    const parts = api.callsSince(0).filter((call) => call.method === 'sendRichMessage');
+    assert.ok(parts.length > 1, `the digest needs more than one message, got ${parts.length}`);
+    const html = parts.map((call) => String((call.body.rich_message as { html?: string } | undefined)?.html ?? ''));
+    const all = html.join('');
+
+    assert.match(html[html.length - 1] ?? '', /<footer><b><i>By FeedBerry Bot<\/i><\/b><\/footer>/, 'the last part closes the digest');
+    for (const part of html) {
+      assert.ok(part.length <= MAX_PART_HTML && Buffer.byteLength(part, 'utf8') <= MAX_PART_BYTES, 'and no part would be refused for its size');
+    }
+    assert.equal(all.match(/<li><a href=/g)?.length, 401, 'every overflow story is in one of the parts');
+    assert.match(all, /Overflow title 001 /, 'including the oldest, which only the last part could carry');
+
+    const after = getDigest(db, digest.id);
+    assert.equal(after?.last_window_end, now + 1, 'the window is committed only after the last part is sent');
   } finally {
     db.close();
     await api.close();

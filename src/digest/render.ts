@@ -9,10 +9,27 @@ import type { DigestItem, DigestLang } from './summarise.ts';
  */
 export const MAX_PART_MEDIA = 49;
 /**
- * Measured (ADR-033): 33 000 characters answers RICH_MESSAGE_TEXT_TOO_LONG, 24 000 Tamil characters
- * (64 kB of UTF-8) pass, so the cap counts visible text and this budget counts the same thing.
+ * Measured (ADR-033): 33 000 characters answers RICH_MESSAGE_TEXT_TOO_LONG and 30 000 pass, counted
+ * on the text the reader sees. The source string and the UTF-8 payload are bounded separately below,
+ * because the probe never settled which of the three the API counts.
  */
 export const MAX_PART_CHARS = 30_000;
+/**
+ * The same 30 000, counted on the source string. Which figure the API counts was never settled: the
+ * probe refused 33 000 characters of plain text (source and visible are the same there) and accepted
+ * a real part of 28 632 characters of HTML, and every other rich-message clamp in this repo measures
+ * `html.length` against `RICH_TEXT_LIMIT`. A source length also bounds the visible count, so a part
+ * that fits this fits both readings (ADR-034).
+ */
+export const MAX_PART_HTML = 30_000;
+/**
+ * The probe accepted a 24 000-character Tamil payload and reported it as 64 000 UTF-8 bytes,
+ * and nothing above that was tried. A character budget cannot enforce it — 24 533 Tamil characters
+ * fit the text budget at 77 186 bytes — so every part is bounded in bytes as well, at the figure the
+ * API was seen to accept (ADR-034). English never reaches it: its markup is ASCII, so the character
+ * budgets bind first.
+ */
+export const MAX_PART_BYTES = 64_000;
 export const MAX_PART_BLOCKS = 480;
 /** Worst-case header and footer: reserved so a part can never be composed past the hard limits. */
 const HEADER_CHARS = 400;
@@ -47,6 +64,8 @@ interface Piece {
   html: string;
   /** Visible characters, the unit of the API's 32 768 cap; markup does not count. */
   chars: number;
+  /** The whole markup as UTF-8: the larger of the two units, so bounding it bounds either reading. */
+  bytes: number;
   media: Array<{ id: string; file: string; kind: 'photo' | 'audio' }>;
   blocks: number;
 }
@@ -119,7 +138,7 @@ function itemPiece(input: RenderInput, item: DigestItem, number: number): Piece 
     (link === '' ? 0 : 1) +
     1; // rule
 
-  return { html, media, chars: visibleChars(html), blocks };
+  return { html, media, chars: visibleChars(html), bytes: Buffer.byteLength(html, 'utf8'), blocks };
 }
 
 /**
@@ -138,7 +157,7 @@ function extraPieces(input: RenderInput, first: number): Piece[] {
     if (lines.length === 0) return;
     const lead = pieces.length === 0 ? heading : '';
     const html = `${lead}<ul>${lines.join('')}</ul>`;
-    pieces.push({ html, media: [], chars: visibleChars(html), blocks: lines.length + (lead === '' ? 1 : 2) });
+    pieces.push({ html, media: [], chars: visibleChars(html), bytes: Buffer.byteLength(html, 'utf8'), blocks: lines.length + (lead === '' ? 1 : 2) });
     lines = [];
     chars = 0;
   };
@@ -164,6 +183,8 @@ function pack(pieces: Piece[]): Piece[][] {
   const groups: Piece[][] = [];
   let current: Piece[] = [];
   let chars = 0;
+  let htmlChars = 0;
+  let bytes = 0;
   let blocks = 0;
   let media = 0;
 
@@ -171,17 +192,25 @@ function pack(pieces: Piece[]): Piece[][] {
     const over =
       current.length > 0 &&
       (chars + piece.chars + HEADER_CHARS + FOOTER_CHARS > MAX_PART_CHARS ||
+        htmlChars + piece.html.length + HEADER_CHARS + FOOTER_CHARS > MAX_PART_HTML ||
+        // The header and the footer are our own labels, mostly ASCII, so their character count is
+        // their byte count; the emoji in them fit inside the reserve.
+        bytes + piece.bytes + HEADER_CHARS + FOOTER_CHARS > MAX_PART_BYTES ||
         blocks + piece.blocks + HEADER_BLOCKS + FOOTER_BLOCKS > MAX_PART_BLOCKS ||
         media + piece.media.length > MAX_PART_MEDIA);
     if (over) {
       groups.push(current);
       current = [];
       chars = 0;
+      htmlChars = 0;
+      bytes = 0;
       blocks = 0;
       media = 0;
     }
     current.push(piece);
     chars += piece.chars;
+    htmlChars += piece.html.length;
+    bytes += piece.bytes;
     blocks += piece.blocks;
     media += piece.media.length;
   }

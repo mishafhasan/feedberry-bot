@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_PART_MEDIA, MAX_PART_CHARS, renderDigest, visibleChars, type RenderInput } from '../../src/digest/render.ts';
+import { MAX_PART_BYTES, MAX_PART_HTML, MAX_PART_MEDIA, MAX_PART_CHARS, renderDigest, visibleChars, type RenderInput } from '../../src/digest/render.ts';
 import type { DigestItem } from '../../src/digest/summarise.ts';
 
 const item = (over: Partial<DigestItem> = {}): DigestItem => ({
@@ -182,8 +182,9 @@ test('digest: a 400-story "Also today" list is split and no story is lost', () =
   }
 });
 
-test('digest: Tamil parts are measured in characters, so a part may exceed 32 768 bytes', () => {
-  // The measured cap counts characters; a byte budget would split this same digest into twice as many parts.
+test('digest: Tamil parts are bounded in bytes, not split at the 32 KiB mark', () => {
+  // The measured payload ceiling is 64 000 bytes, so a part may carry more than 32 768 of them; a
+  // budget at that old figure would only have doubled the message count.
   const items = Array.from({ length: 20 }, (_, index) =>
     item({
       postId: index + 1,
@@ -199,9 +200,32 @@ test('digest: Tamil parts are measured in characters, so a part may exceed 32 76
   for (const plan of plans) {
     const part = plan.kind === 'rich' ? plan.html : '';
     assert.ok(visibleChars(part) <= MAX_PART_CHARS, 'the character budget holds');
+    assert.ok(part.length <= MAX_PART_HTML, 'and the source-length budget');
+    assert.ok(Buffer.byteLength(part, 'utf8') <= MAX_PART_BYTES, 'and the measured payload ceiling');
   }
   const bytes = plans.map((plan) => Buffer.byteLength(plan.kind === 'rich' ? plan.html : '', 'utf8'));
-  assert.ok(Math.max(...bytes) > 32_768, 'and no part was split for its byte count');
+  assert.ok(Math.max(...bytes) > 32_768, 'a part still exceeds 32 KiB of UTF-8, which the API accepts');
+});
+
+test('digest: a Tamil digest that fits the text budget but not the payload ceiling is split', () => {
+  // The live shape: 20 summaries and 60 "Also today" links weigh 77 186 bytes in 24 533 characters,
+  // so a character budget alone lets Telegram refuse the whole digest as one message (ADR-034).
+  const items = Array.from({ length: 20 }, (_, index) =>
+    item({ postId: index + 1, headline: `செய்தி ${index + 1} ${'த'.repeat(80)}`, description: 'ட'.repeat(300), points: Array.from({ length: 3 }, () => 'க'.repeat(150)) }),
+  );
+  const extra = Array.from({ length: 60 }, (_, index) => ({ headline: `கூடுதல் ${index + 1} ${'த'.repeat(80)}`, url: 'https://telegra.ph/Tamilwin-11-22' }));
+  const plans = renderDigest(input({ lang: 'ta', items, postCount: 80, extra }));
+  const html = plans.map((plan) => (plan.kind === 'rich' ? plan.html : ''));
+
+  assert.ok(plans.length > 1, 'the digest that used to ride in one refused message is split');
+  for (const part of html) {
+    assert.ok(visibleChars(part) <= MAX_PART_CHARS, 'the character budget still holds');
+    assert.ok(part.length <= MAX_PART_HTML, 'and so does the source-length budget');
+    assert.ok(Buffer.byteLength(part, 'utf8') <= MAX_PART_BYTES, 'and so does the measured payload ceiling');
+  }
+  const all = html.join('');
+  for (const story of items) assert.ok(all.includes(story.headline), `no summary is lost: ${story.headline}`);
+  assert.equal(all.match(/<li><a href=/g)?.length, 60, 'and every "Also today" story is still there');
 });
 
 test('digest: posts past the cap are numbered headline links under "Also today"', () => {
