@@ -12,9 +12,9 @@ import { payloadOf, type MessagePlan } from '../render/message-plan.ts';
 import { targetOf } from '../telegram/target.ts';
 import { audioOverview } from './audio.ts';
 import { digestGemini } from './quota.ts';
-import { MAX_PART_CHARS, renderDigest, visibleChars } from './render.ts';
+import { MAX_PART_BYTES, MAX_PART_CHARS, MAX_PART_HTML, renderDigest, visibleChars } from './render.ts';
 import { writeScript } from './script.ts';
-import { publishPage, summarisePost, clamp, MAX_HEADLINE, type DigestLang } from './summarise.ts';
+import { publishPage, summarisePost, clamp, MAX_HEADLINE, MAX_SOURCE_TITLE, type DigestLang } from './summarise.ts';
 
 /**
  * ADR-029: one digest run. The job ends before the queue's stale-lock window, so the same digest can
@@ -71,7 +71,10 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     const titles = new Map<number, string | null>();
     const titleOf = (sourceId: number): string | null => {
       if (!titles.has(sourceId)) titles.set(sourceId, getSource(deps.db, sourceId)?.title ?? null);
-      return titles.get(sourceId) ?? null;
+      // A feed's own name has no clamp of its own, and the header prints it once per story: a paragraph
+      // here would spend a whole part's budget before a single summary was rendered.
+      const title = titles.get(sourceId) ?? null;
+      return title === null ? null : clamp(title, MAX_SOURCE_TITLE);
     };
 
     const items = await mapLimit(summarised, SUMMARY_CONCURRENCY, (post) =>
@@ -89,10 +92,12 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
         : await plansFor(deps, { lang, date, tz, digestId, items, overflow, postCount: posts.length, dir, signal, gemini });
 
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
-    // A part over the budget would be refused by Telegram and lose every part after it (ADR-033).
-    built.plans.forEach((plan, index) => {
-      if (plan.kind === 'rich' && visibleChars(plan.html) > MAX_PART_CHARS) log('warn', 'digest_part_over_budget', { part: index + 1, chars: visibleChars(plan.html) });
-    });
+    // A part over any budget would be refused by Telegram and lose every part after it (ADR-033/034).
+    for (const [index, plan] of built.plans.entries()) {
+      if (plan.kind !== 'rich') continue;
+      const part = { part: index + 1, chars: visibleChars(plan.html), htmlChars: plan.html.length, bytes: Buffer.byteLength(plan.html, 'utf8') };
+      if (part.chars > MAX_PART_CHARS || part.htmlChars > MAX_PART_HTML || part.bytes > MAX_PART_BYTES) log('warn', 'digest_part_over_budget', part);
+    }
     // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
     for (const plan of built.plans) await deps.sender.send(plan, target);
     // The stored links live as long as the post row (retention prunes posts): a retry, the other

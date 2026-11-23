@@ -60,6 +60,8 @@ export interface SummariseDeps {
 export const MAX_ARTICLE_CHARS = 12_000;
 export const MAX_IMAGES = 3;
 export const MAX_HEADLINE = 120;
+/** The source's own name, printed in the item header. A feed title is untrusted text like any other. */
+export const MAX_SOURCE_TITLE = 200;
 /** The page's own title, printed under a Tamil headline: a feed can hand over a whole paragraph. */
 const MAX_ORIGINAL_TITLE = 400;
 const MAX_DESCRIPTION = 600;

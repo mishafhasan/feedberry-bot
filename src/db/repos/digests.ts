@@ -119,16 +119,23 @@ export function toggleDigestSource(db: Db, userId: number, digestId: number, sub
 /**
  * The window query. Windows tile: `from` is the previous window's end (or 24 h back), `to` is the
  * pinned end, so no post appears twice and none is older than a day (ADR-029).
+ *
+ * The clock is the post's own publication time, not when the bot happened to record it: a source that
+ * serves its backlog (a new subscription, a republished archive) stamps First Seen at fetch time and
+ * would otherwise push days-old stories into today's digest. `first_seen_at` stays as the fallback for
+ * a feed with no date, which is the only clock such a post has. The trade-off is deliberate: a story
+ * published before the window never reaches a digest even if a source only served it later; per-post
+ * delivery still sends it (ADR-034).
  */
 export function digestPosts(db: Db, digestId: number, from: number, to: number): PostRow[] {
   return db
     .prepare(
       `SELECT p.* FROM posts p
-       WHERE p.first_seen_at >= ? AND p.first_seen_at < ?
+       WHERE COALESCE(p.published_at, p.first_seen_at) >= ? AND COALESCE(p.published_at, p.first_seen_at) < ?
          AND EXISTS (
            SELECT 1 FROM digest_sources ds JOIN subscriptions sub ON sub.id = ds.subscription_id
            WHERE ds.digest_id = ? AND sub.source_id = p.source_id)
-       ORDER BY p.first_seen_at DESC, p.id DESC`,
+       ORDER BY COALESCE(p.published_at, p.first_seen_at) DESC, p.id DESC`,
     )
     .all(from, to, digestId) as unknown as PostRow[];
 }
