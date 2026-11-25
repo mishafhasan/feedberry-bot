@@ -7,12 +7,12 @@ import { parseContentTypes } from '../platform/content-types.ts';
 import { platformForHost } from '../platform/allowlist.ts';
 import type { Platform } from '../platform/registry.ts';
 import { formatKeywords, parseKeywords } from '../pipeline/keyword-filter.ts';
-import { mmddhhmm, platformLabel, sourceName } from '../render/caption.ts';
+import { platformLabel, postTime, sourceName } from '../render/caption.ts';
 import { esc } from '../render/message-plan.ts';
 import { platformIcon } from '../platform/icons.ts';
 import { t, type Lang } from './i18n/index.ts';
 
-export { esc, mmddhhmm, platformIcon };
+export { esc, platformIcon, postTime };
 
 export interface S1Text {
   userId: number;
@@ -113,7 +113,7 @@ const previewTitle = (title: string): string => (title.length <= PREVIEW_TITLE_M
 /** The author + items block S4 and S5 share; kept so S5 can rebuild the caption without refetching. */
 export function sourceBody(params: { platform: Platform; author: string; items: Array<{ title: string; publishedAt: number | null }>; tz?: string; section?: string | null; lang?: Lang }): string {
   const lines = params.items.map((item) => {
-    const when = item.publishedAt === null ? null : mmddhhmm(item.publishedAt, params.tz);
+    const when = item.publishedAt === null ? null : postTime(item.publishedAt, params.tz);
     return when === null ? `• — ${esc(previewTitle(item.title))}` : `• [${when}] — ${esc(previewTitle(item.title))}`;
   });
   // A category source says which category, so the preview cannot be mistaken for the whole site.

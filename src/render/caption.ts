@@ -111,13 +111,13 @@ export function postHeader(params: { sourceTitle: string | null; url: string | n
   const { publishedAt, tz } = params;
 
   if (params.rich !== true) {
-    const when = publishedAt === null ? null : mmddhhmm(publishedAt, tz);
+    const when = publishedAt === null ? null : postTime(publishedAt, tz);
     return [`🌐 ${line}`, when === null ? null : `⏱️ Time: ${when}`].filter((text) => text !== null).join('\n');
   }
 
-  // `<tg-time>` would print the client's own locale format; the layout asks for DD/MM HH:MM, and an
-  // absolute stamp has nothing to tick, so the reader's zone decides the string instead.
-  const time = publishedAt === null ? '' : `<p>⏱️ <b>Time</b>: ${ddmmhhmm(publishedAt, tz)}</p>`;
+  // `<tg-time>` would print the client's own locale format; the layout asks for "Nov 24 02:30 PM",
+  // and an absolute stamp has nothing to tick, so the reader's zone decides the string instead.
+  const time = publishedAt === null ? '' : `<p>⏱️ <b>Time</b>: ${postTime(publishedAt, tz)}</p>`;
   return `<h5>${platformIcon(params.platform)} ${line}</h5>${time}`;
 }
 
@@ -156,26 +156,19 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   snapchat: 'Snapchat',
 };
 
-/** `MM/DD HH:MM` in the given timezone (UTC until a user timezone is stored). */
-export function mmddhhmm(ms: number, tz = 'UTC'): string {
-  return timeLine(ms, tz, false);
-}
-
-/** `DD/MM HH:MM` — the rich header's day-first absolute time in the reader's zone. */
-export function ddmmhhmm(ms: number, tz = 'UTC'): string {
-  return timeLine(ms, tz, true);
-}
-
-function timeLine(ms: number, tz: string, dayFirst: boolean): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+/**
+ * The header's clock for every layout: `Nov 24 02:30 PM` in the reader's zone. `Intl` owns the zone
+ * conversion, so a DST change and a half-hour offset are its business, not ours.
+ */
+export function postTime(ms: number, tz = 'UTC'): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
-    month: '2-digit',
-    day: '2-digit',
+    month: 'short',
+    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
   }).formatToParts(ms);
   const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '--';
-  const date = dayFirst ? `${get('day')}/${get('month')}` : `${get('month')}/${get('day')}`;
-  return `${date} ${get('hour')}:${get('minute')}`;
+  return `${get('month')} ${get('day')} ${get('hour')}:${get('minute')} ${get('dayPeriod')}`;
 }
