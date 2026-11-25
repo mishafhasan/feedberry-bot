@@ -54,7 +54,7 @@ test('R15: a video past the ceiling links from the caption and never enters the 
     ['v1.mp4', 'v2.mp4', 'i1.jpg', 'i2.jpg', 'thumb-1.jpg'],
     'the 51 MB clip is left out; its frame takes the last slot',
   );
-  assert.match(plan.caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/1">@Royal<\/a> \| RSS\n⏱️ Time: 11\/10 16:07/);
+  assert.match(plan.caption, /^🌐 <a href="https:\/\/x\.com\/Royal\/status\/1">@Royal<\/a> \| RSS\n⏱️ Time: Nov 10 04:07 PM/);
   assert.ok(plan.caption.endsWith(LINK), `the caption ends with the direct link:\n${plan.caption}`);
   assert.equal(plan.caption.match(/🎬/g)?.length, 1, 'one line per oversized video');
 });

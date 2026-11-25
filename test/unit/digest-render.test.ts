@@ -50,7 +50,7 @@ test('digest: the English layout carries every block in order', () => {
   assert.match(html, /🎧 Audio overview · 6 min/);
   assert.match(html, /<h3>1\. A quiet headline<\/h3>/);
   assert.match(html, /\| RSS<\/h5>/);
-  assert.match(html, /⏱️ <b>Time<\/b>: 16\/11 04:40/);
+  assert.match(html, /⏱️ <b>Time<\/b>: Nov 16 04:40 AM/);
   assert.match(html, /Two sentences about what happened\./);
   assert.match(html, /🔑 Key points<\/b><\/p><ul><li>first fact<\/li><li>second fact<\/li><\/ul>/);
   assert.match(html, /<a href="https:\/\/telegra\.ph\/Post-11-16">📖 Read full article<\/a>/);
