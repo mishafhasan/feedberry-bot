@@ -31,6 +31,10 @@ The investigation separated two questions that looked like one:
   all three doors (resolve, send, back). It is passed **in** rather than re-read: `sendPreview` takes
   the user's row id, not the telegram id, so an `ensureUser(ownerUserId)` there would look up a
   different user.
+- **The article doors carry the zone too.** `planArticle` has always read `input.tz` into its
+  `postHeader`, but neither caller supplied it: scheduled RSS delivery in `pipeline/run.ts` and
+  Download Mode in `bot/callbacks.ts`. Every blog/article header therefore defaulted to UTC, even
+  for a non-UTC reader. Both callers now pass the owner's zone.
 - **Scheduling is not touched.** `slotAfter` and `digestSlot` already resolve a wall-clock hour in the
   subscriber's zone (`users.tz`, via `wallToUtc` with one DST correction pass), the tick reads that
   column straight from `users`, and changing the zone re-plans every slot and digest. `slots.test.ts`
@@ -56,11 +60,19 @@ The investigation separated two questions that looked like one:
 - Probe, this repo: `09:00Z` → Colombo `Nov 24 02:30 PM`, New York `Nov 24 04:00 AM`, UTC
   `Nov 24 09:00 AM`; `19:30Z` → Colombo `Nov 25 01:00 AM`, New York `Nov 24 02:30 PM`; the dial reads
   `12:05 AM`, `12:00 PM`, `01:00 PM` at its two edges.
-- `npx tsc --noEmit`: exit 0. `npm test`: **560/560 pass**. `npm run build`: exit 0.
+- `npx tsc --noEmit`: exit 0. `npm test`: **562/562 pass**. `npm run build`: exit 0.
 - `test/unit/post-time.test.ts` pins both zones, both dial edges, the zone-follows-the-day case, and
   both `postHeader` layouts. `test/integration/atom-preview.test.ts` sets its user to `Asia/Colombo`
   and asserts the exact `• [Nov 7 03:45 AM]` for the fixture's `22:15:59Z` entry, so a UTC leak in the
-  preview fails. `test/unit/slots.test.ts` is the scheduling evidence and did not change.
+  preview fails. `test/unit/article-plan.test.ts` pins the article header; `test/integration/m11.test.ts`
+  sets a Colombo downloader and asserts `Oct 30 05:30 PM` for `12:00Z`, so that caller cannot drop
+  the zone. `test/unit/slots.test.ts` is the scheduling evidence and did not change.
+- **Docker, real bot pipeline, fake Bot API:** the worktree image booted with `schema: 8` and
+  `polling_started`, fetched the fixture `09:00Z` and delivered it through the scheduled RSS article
+  path twice: Colombo (`users.tz = Asia/Colombo`) → `⏱️ Time: Nov 24 02:30 PM`; New York
+  (`users.tz = America/New_York`) → `⏱️ Time: Nov 24 04:00 AM`. Both runs logged
+  `fetch_done {fresh: 1, delivered: 1, failed: 0}`, and the fake API recorded the exact `sendMessage`
+  bodies. This is the evidence for the scheduled caller the unit test cannot see.
 - The readers of the old format, updated to the clock rather than to a regex they no longer describe:
   `caption-header`, `oversize-album`, `digest-render`, `rich-render`, `download-caption`,
   `atom-preview`, `link-classify`, `text-only-post`, `m4`, `m5`, `m11`, `m12`, `threads`.

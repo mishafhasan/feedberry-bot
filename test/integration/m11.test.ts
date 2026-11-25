@@ -16,7 +16,7 @@ import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
 import { insertPosts } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
-import { ensureUser } from '../../src/db/repos/users.ts';
+import { ensureUser, setUserTimezone } from '../../src/db/repos/users.ts';
 import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { unseenItems } from '../../src/pipeline/dedupe.ts';
@@ -101,6 +101,8 @@ test('download mode: a blog post is accepted and delivered as Instant View', asy
   const dir = mkdtempSync(join(tmpdir(), 'feedberry-m11-blog-'));
   const db = openDb(join(dir, 'bot.db'));
   allowUser(db, USER_ID);
+  // A non-UTC owner: the download path reads users.tz, and a dropped argument showed 12:00 PM.
+  setUserTimezone(db, USER_ID, 'Asia/Colombo');
   const client = telegraph();
 
   try {
@@ -115,7 +117,7 @@ test('download mode: a blog post is accepted and delivered as Instant View', asy
     const payload = api.calls.find((call) => call.method === 'sendMessage' && String(call.body.text).includes('telegra.ph'));
     assert.ok(payload, 'the article went out with its Instant View link');
     assert.match(String(payload?.body.text), /🌐 <a href="[^"]*blog\.example\.test[^"]*">WIRED<\/a> \| RSS/, 'the page names itself, not the host');
-    assert.match(String(payload?.body.text), /⏱️ Time: Oct 30 12:00 PM/, 'and the page\'s own publication time');
+    assert.match(String(payload?.body.text), /⏱️ Time: Oct 30 05:30 PM/, 'and the page’s own publication time in the reader’s zone');
     assert.equal((payload?.body.link_preview_options as { url?: string } | undefined)?.url, 'https://telegra.ph/Test-page-1', 'the preview opens the Instant View copy');
     assert.match(String(payload?.body.text), /<b>The quiet return of the personal website<\/b>/, 'the headline stays plain text');
     assert.match(String(payload?.body.text), /<a href="https:\/\/telegra\.ph\/Test-page-1">👇🏼👇🏼👇🏼<\/a>$/, 'the arrow row carries the Instant View link, last');

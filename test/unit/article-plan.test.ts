@@ -20,6 +20,17 @@ test('planArticle hands the published page to the caller for caching', async () 
   assert.deepEqual(saved, ['https://telegra.ph/Offline-story']);
 });
 
+test('planArticle dates the article in the reader’s zone, 12-hour', async () => {
+  // The header string is built inside planArticle, so this is where a caller's zone can be dropped.
+  const plan = await planArticle(
+    { http: httpWith(article('Zoned story', 120)), telegraph: { createPage: async () => 'https://telegra.ph/Zoned-story' } },
+    { url: 'https://blog.test/zoned', title: 'Zoned story', publishedAt: Date.UTC(2026, 10, 24, 9, 0), sourceTitle: 'Blog', platform: 'rss', tz: 'Asia/Colombo' },
+  );
+
+  assert.ok(plan && plan.kind === 'text', 'an article delivers as its text plan');
+  assert.match(plan.kind === 'text' ? plan.text : '', /⏱️ Time: Nov 24 02:30 PM/, '09:00Z reads 02:30 PM in Colombo');
+});
+
 test('planArticle caches nothing when the page is too thin to publish', async () => {
   const saved: string[] = [];
   const plan = await planArticle(
