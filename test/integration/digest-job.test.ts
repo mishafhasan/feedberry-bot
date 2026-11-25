@@ -401,3 +401,44 @@ test('digest job: a digest too big for one message is sent as every part, losing
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('digest job: a refused part does not cost the parts after it, and the window retries whole', async () => {
+  // The live failure: part 1 is refused, the old loop abandoned parts 2..n, and the reader was left
+  // with an incomplete digest that never came back.
+  const api = await fakeBotApi({}, { failRichParts: [1] });
+  const { dir, db, digest, sourceIds } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+
+  try {
+    const stories = Array.from({ length: 400 }, (_, index) => ({
+      guid: `refused-${String(index + 1).padStart(3, '0')}`,
+      link: `https://blog.test/refused-${index + 1}`,
+      title: `Refused title ${String(index + 1).padStart(3, '0')} ${'x'.repeat(90)}`,
+      summary: 'Feed body',
+      publishedAt: now - 20 * HOUR,
+      media: [],
+    }));
+    insertPosts(db, sourceIds[0] as number, stories, now - 5 * 60_000);
+    enqueue(db, { kind: 'digest', targetId: digest.id, priority: PRIORITY.scheduled, runAfter: now });
+    await runOnce(deps, now);
+
+    const rich = api.calls
+      .filter((call) => call.method === 'sendRichMessage')
+      .map((call) => String((call.body.rich_message as { html?: string } | undefined)?.html ?? ''));
+    assert.ok(rich.length > 1, 'the parts after the refusal were still attempted');
+    assert.equal(rich.join('').match(/<li><a href=/g)?.length, 401, 'every overflow story rode in one of the attempted parts');
+    assert.match(rich[rich.length - 1] ?? '', /<footer>/, 'the part that closes the digest was reached');
+
+    const after = getDigest(db, digest.id);
+    assert.equal(after?.last_window_end, null, 'the window is not committed while a part is missing');
+    assert.equal(after?.window_end, now + 1, 'so the retry selects the same posts and sends it whole');
+    const job = db.prepare("SELECT state FROM jobs WHERE kind = 'digest'").get() as { state: string };
+    assert.equal(job.state, 'queued', 'the digest is retried rather than left short');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
