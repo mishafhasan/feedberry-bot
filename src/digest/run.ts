@@ -12,7 +12,7 @@ import { payloadOf, type MessagePlan } from '../render/message-plan.ts';
 import { targetOf } from '../telegram/target.ts';
 import { audioOverview } from './audio.ts';
 import { digestGemini } from './quota.ts';
-import { MAX_PART_BYTES, MAX_PART_CHARS, MAX_PART_HTML, renderDigest, visibleChars } from './render.ts';
+import { overBudget, partSize, renderDigest } from './render.ts';
 import { writeScript } from './script.ts';
 import { publishPage, summarisePost, clamp, MAX_HEADLINE, MAX_SOURCE_TITLE, type DigestLang } from './summarise.ts';
 
@@ -92,16 +92,38 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
         : await plansFor(deps, { lang, date, tz, digestId, items, overflow, postCount: posts.length, dir, signal, gemini });
 
     const target = targetOf(chat.tg_chat_id, chat.message_thread_id, chat.type);
-    // A part over any budget would be refused by Telegram and lose every part after it (ADR-033/034).
-    for (const [index, plan] of built.plans.entries()) {
-      if (plan.kind !== 'rich') continue;
-      const part = { part: index + 1, chars: visibleChars(plan.html), htmlChars: plan.html.length, bytes: Buffer.byteLength(plan.html, 'utf8') };
-      if (part.chars > MAX_PART_CHARS || part.htmlChars > MAX_PART_HTML || part.bytes > MAX_PART_BYTES) log('warn', 'digest_part_over_budget', part);
+    // A part Telegram would refuse costs its own stories, and one refusal used to cost every part
+    // after it. Send none of them instead: the pin stays, and the retry on the same window delivers
+    // the whole digest rather than a copy the reader can never complete (ADR-035).
+    const oversized = built.plans.flatMap((plan, index) => (plan.kind === 'rich' && overBudget(plan.html) ? [{ part: index + 1, ...partSize(plan.html) }] : []));
+    if (oversized.length > 0) {
+      log('error', 'digest_parts_over_budget', { digest: digestId, planned: built.plans.length, oversized });
+      // Deterministic and terminal: the same renderer refuses the same part on every attempt, so the
+      // retry ladder would only re-plan, re-voice and re-download for the same answer (ADR-035).
+      throw new Coded(E.TOO_LARGE, 'digest part over budget');
     }
-    // shortcut: a crash between parts resends the whole digest; add a per-part ledger if duplicates appear.
-    for (const plan of built.plans) await deps.sender.send(plan, target);
+
+    // Every part is attempted: one refused part must not cost the stories after it. A failure is
+    // logged with the size that was refused, so the live threshold can be read instead of guessed.
+    const failed: number[] = [];
+    let firstFailure: unknown;
+    for (const [index, plan] of built.plans.entries()) {
+      try {
+        await deps.sender.send(plan, target);
+      } catch (err) {
+        failed.push(index + 1);
+        firstFailure ??= err;
+        log('error', 'digest_part_failed', { digest: digestId, part: index + 1, parts: built.plans.length, ...partSize(plan.kind === 'rich' ? plan.html : ''), cause: message(err) });
+      }
+    }
+    log('info', 'digest_parts_sent', { digest: digestId, planned: built.plans.length, sent: built.plans.length - failed.length, failed });
     // The stored links live as long as the post row (retention prunes posts): a retry, the other
     // language or another user on the same source reads them instead of writing the page again.
+    // The window is committed only when every part is on Telegram, so a missing one comes back on the
+    // retry instead of staying missing.
+    // shortcut: a failed part resends the whole digest on the retry; add a per-part ledger if the
+    // duplicates that costs ever matter.
+    if (failed.length > 0) throw firstFailure;
     commitDigestWindow(deps.db, digestId, windowEnd);
 
     log('info', 'digest_sent', {

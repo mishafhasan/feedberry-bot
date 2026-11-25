@@ -39,6 +39,12 @@ const FOOTER_BLOCKS = 2;
 /** One "Also today" chunk: small enough that the greedy packer can always place it whole. */
 const EXTRA_PIECE_LINES = 50;
 const EXTRA_PIECE_CHARS = 8_000;
+/**
+ * A URL past this is not one a reader can open, and a single unbounded href can push a piece past a
+ * part budget on its own — the one piece `pack` cannot split. It is dropped, never truncated, so the
+ * story still ships and its part is never refused (ADR-035).
+ */
+const MAX_LINK_URL = 2_000;
 
 export interface RenderAudio {
   file: string;
@@ -117,13 +123,14 @@ function itemPiece(input: RenderInput, item: DigestItem, number: number): Piece 
   });
 
   const original = input.lang === 'ta' && item.originalTitle !== null && item.originalTitle !== item.headline ? `<p><i>${esc(item.originalTitle)}</i></p>` : '';
-  const header = postHeader({ sourceTitle: item.sourceTitle, url: item.url, publishedAt: item.publishedAt, platform: 'rss', tz: input.tz, rich: true });
+  const header = postHeader({ sourceTitle: item.sourceTitle, url: linkTo(item.url), publishedAt: item.publishedAt, platform: 'rss', tz: input.tz, rich: true });
   const slideshow = images.length === 0 ? '' : images.length === 1 ? (images[0] ?? '') : `<tg-slideshow>${images.join('')}</tg-slideshow>`;
   const points =
     item.points.length === 0
       ? ''
       : `<p><b>${esc(t(input.lang, 'digest.points'))}</b></p><ul>${item.points.map((point) => `<li>${esc(point)}</li>`).join('')}</ul>`;
-  const link = item.link === null ? '' : `<p><a href="${esc(item.link)}">${esc(t(input.lang, 'digest.readFull'))}</a></p>`;
+  const readFull = linkTo(item.link);
+  const link = readFull === null ? '' : `<p><a href="${esc(readFull)}">${esc(t(input.lang, 'digest.readFull'))}</a></p>`;
 
   // Headline first, then the source/time line the rest of the bot prints, then the story.
   const html = `<h3>${number}. ${esc(item.headline)}</h3>${original}${header}${slideshow}<p>${esc(item.description)}</p>${points}${link}<hr/>`;
@@ -164,7 +171,8 @@ function extraPieces(input: RenderInput, first: number): Piece[] {
 
   for (const [index, entry] of input.extra.entries()) {
     const label = `${first + index}. ${esc(entry.headline)}`;
-    const line = entry.url === null ? `<li>${label}</li>` : `<li><a href="${esc(entry.url)}">${label}</a></li>`;
+    const url = linkTo(entry.url);
+    const line = url === null ? `<li>${label}</li>` : `<li><a href="${esc(url)}">${label}</a></li>`;
     if (lines.length > 0 && (lines.length >= EXTRA_PIECE_LINES || chars + line.length > EXTRA_PIECE_CHARS)) close();
     lines.push(line);
     chars += line.length;
@@ -176,6 +184,22 @@ function extraPieces(input: RenderInput, first: number): Piece[] {
 /** The visible characters of one piece: entities are the three `esc` writes, tags are noise. */
 export function visibleChars(html: string): number {
   return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').length;
+}
+
+/** The three units a part is bounded in, measured once so a log and a guard never disagree. */
+export function partSize(html: string): { chars: number; htmlChars: number; bytes: number } {
+  return { chars: visibleChars(html), htmlChars: html.length, bytes: Buffer.byteLength(html, 'utf8') };
+}
+
+/** True when Telegram would refuse a part for its size: the one place the three budgets are read. */
+export function overBudget(html: string): boolean {
+  const size = partSize(html);
+  return size.chars > MAX_PART_CHARS || size.htmlChars > MAX_PART_HTML || size.bytes > MAX_PART_BYTES;
+}
+
+/** The href a piece may carry, or null when the address is too long to be a link anyone can open. */
+function linkTo(url: string | null): string | null {
+  return url !== null && url.length <= MAX_LINK_URL ? url : null;
 }
 
 /** Greedy split in digest order: a part closes before an item would break a budget. */

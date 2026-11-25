@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_PART_BYTES, MAX_PART_HTML, MAX_PART_MEDIA, MAX_PART_CHARS, renderDigest, visibleChars, type RenderInput } from '../../src/digest/render.ts';
+import { MAX_PART_BYTES, MAX_PART_HTML, MAX_PART_MEDIA, MAX_PART_CHARS, overBudget, renderDigest, visibleChars, type RenderInput } from '../../src/digest/render.ts';
 import type { DigestItem } from '../../src/digest/summarise.ts';
 
 const item = (over: Partial<DigestItem> = {}): DigestItem => ({
@@ -152,13 +152,24 @@ test('digest: the media budget splits the message and only Part 1 carries the pl
   assert.match(htmlOf(plans, plans.length - 1), /<footer>/);
 });
 
-test('digest: the text and block budgets split before Telegram rejects a part', () => {
-  const long = Array.from({ length: 20 }, (_, index) => item({ postId: index + 1, description: 'x'.repeat(2000) }));
+test('digest: the text and block budgets split at whole item boundaries', () => {
+  // 20 items of ~2 100 visible characters: the split has to fall between two items, never inside one.
+  const long = Array.from({ length: 20 }, (_, index) =>
+    item({ postId: index + 1, headline: `Headline ${String(index + 1).padStart(2, '0')}`, description: `Body ${String(index + 1).padStart(2, '0')} ${'x'.repeat(2000)}` }),
+  );
   const byText = renderDigest(input({ items: long, postCount: long.length }));
+  const parts = byText.map((plan) => (plan.kind === 'rich' ? plan.html : ''));
   assert.ok(byText.length > 1);
-  for (const plan of byText) {
-    const html = plan.kind === 'rich' ? plan.html : '';
-    assert.ok(visibleChars(html) <= MAX_PART_CHARS, 'each part stays inside the measured text cap');
+
+  const holders = (needle: string): number => parts.filter((part) => part.includes(needle)).length;
+  for (const story of long) {
+    assert.equal(holders(story.headline), 1, `${story.headline} appears in exactly one part`);
+    assert.equal(holders(story.description), 1, 'and so does the body that belongs to it');
+  }
+  for (const [index, part] of parts.entries()) {
+    assert.equal(overBudget(part), false, `part ${index + 1} stays inside every budget`);
+    // A block cut across two parts leaves a segment without its closing heading and rule.
+    for (const segment of part.split('<h3>').slice(1)) assert.ok(segment.includes('</h3>') && segment.includes('<hr/>'), `part ${index + 1} cuts only between items`);
   }
 
   const many = Array.from({ length: 40 }, (_, index) => item({ postId: index + 1, points: ['a', 'b', 'c', 'd', 'e', 'f'] }));
@@ -226,6 +237,51 @@ test('digest: a Tamil digest that fits the text budget but not the payload ceili
   const all = html.join('');
   for (const story of items) assert.ok(all.includes(story.headline), `no summary is lost: ${story.headline}`);
   assert.equal(all.match(/<li><a href=/g)?.length, 60, 'and every "Also today" story is still there');
+});
+
+test('digest: the live shape loses nothing — every summary and link lands in exactly one part', () => {
+  // 20 Tamil summaries + 60 "Also today" links, the shape the live digest reported short.
+  const items = Array.from({ length: 20 }, (_, index) =>
+    item({
+      postId: index + 1,
+      headline: `தலைப்பு ${index + 1} ${'த'.repeat(80)}`,
+      description: `விவரம் ${index + 1} ${'ட'.repeat(290)}`,
+      points: Array.from({ length: 3 }, (_, point) => `புள்ளி ${index + 1}.${point + 1} ${'க'.repeat(140)}`),
+      link: `https://telegra.ph/Story-${index + 1}`,
+      url: `https://tamilwin.test/post-${index + 1}`,
+    }),
+  );
+  const extra = Array.from({ length: 60 }, (_, index) => ({ headline: `கூடுதல் ${index + 1} ${'த'.repeat(80)}`, url: `https://telegra.ph/Overflow-${index + 1}` }));
+  const plans = renderDigest(input({ lang: 'ta', items, extra, postCount: 80 }));
+  const parts = plans.map((plan) => (plan.kind === 'rich' ? plan.html : ''));
+
+  const holders = (needle: string): number => parts.filter((part) => part.includes(needle)).length;
+  const lost: string[] = [];
+  for (const story of items) {
+    for (const text of [story.headline, story.description, ...story.points]) if (holders(text) !== 1) lost.push(text.slice(0, 20));
+  }
+  for (const story of extra) if (holders(story.headline) !== 1) lost.push(story.headline.slice(0, 20));
+
+  assert.deepEqual(lost, [], 'every headline, description, key point and overflow link appears exactly once');
+  assert.ok(plans.length > 1, 'the live shape cannot ride in one message');
+  for (const [index, part] of parts.entries()) {
+    assert.equal(overBudget(part), false, `part ${index + 1} would not be refused for its size`);
+    // A block cut across two parts leaves a segment without its closing heading and rule.
+    for (const segment of part.split('<h3>').slice(1)) assert.ok(segment.includes('</h3>') && segment.includes('<hr/>'), `part ${index + 1} holds whole item blocks only`);
+    assert.equal((part.match(/<ul>/g) ?? []).length, (part.match(/<\/ul>/g) ?? []).length, `part ${index + 1} holds whole lists only`);
+  }
+});
+
+test('digest: an unopenably long link is dropped, never allowed to break its part', () => {
+  // The one input no clamp reached: a feed URL long enough to make a piece past every budget.
+  const huge = `https://telegra.ph/${'x'.repeat(5_000)}`;
+  const plans = renderDigest(input({ items: [item({ link: huge, url: huge })], extra: [{ headline: 'Older story', url: huge }] }));
+  const html = htmlOf(plans);
+
+  assert.match(html, /A quiet headline/, 'the story itself still ships');
+  assert.match(html, /2\. Older story/, 'and the overflow headline ships as a plain label');
+  assert.ok(html.length < 4_000, 'the 5 000-character URL never reached the part');
+  for (const plan of plans) assert.equal(overBudget(plan.kind === 'rich' ? plan.html : ''), false);
 });
 
 test('digest: posts past the cap are numbered headline links under "Also today"', () => {

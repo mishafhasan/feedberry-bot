@@ -401,3 +401,47 @@ test('digest job: a digest too big for one message is sent as every part, losing
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('digest job: a refused part does not cost the parts after it, and a size refusal is not retried', async () => {
+  // The live failure: part 1 is refused, the old loop abandoned parts 2..n, and the reader was left
+  // with an incomplete digest. A size refusal repeats for the same payload, so it must also fail once
+  // instead of re-sending the tail on every rung of the ladder.
+  const api = await fakeBotApi({}, { failRichParts: [1] });
+  const { dir, db, digest, sourceIds } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+
+  try {
+    const stories = Array.from({ length: 400 }, (_, index) => ({
+      guid: `refused-${String(index + 1).padStart(3, '0')}`,
+      link: `https://blog.test/refused-${index + 1}`,
+      title: `Refused title ${String(index + 1).padStart(3, '0')} ${'x'.repeat(90)}`,
+      summary: 'Feed body',
+      publishedAt: now - 20 * HOUR,
+      media: [],
+    }));
+    insertPosts(db, sourceIds[0] as number, stories, now - 5 * 60_000);
+    enqueue(db, { kind: 'digest', targetId: digest.id, priority: PRIORITY.scheduled, runAfter: now });
+    await runOnce(deps, now);
+
+    const rich = api.calls
+      .filter((call) => call.method === 'sendRichMessage')
+      .map((call) => String((call.body.rich_message as { html?: string } | undefined)?.html ?? ''));
+    assert.ok(rich.length > 1, 'the parts after the refusal were still attempted');
+    assert.equal(rich.join('').match(/<li><a href=/g)?.length, 401, 'every overflow story rode in one of the attempted parts');
+    assert.match(rich[rich.length - 1] ?? '', /<footer>/, 'the part that closes the digest was reached');
+
+    const after = getDigest(db, digest.id);
+    assert.equal(after?.last_window_end, null, 'the window is not committed while a part is missing');
+    assert.equal(after?.window_end, now + 1, 'the pin stays, so nothing re-renders under a different window');
+    const job = db.prepare("SELECT state, attempts, last_error FROM jobs WHERE kind = 'digest'").get() as { state: string; attempts: number; last_error: string | null };
+    assert.equal(job.attempts, 1, 'a refusal that repeats for the same payload does not walk the ladder');
+    assert.equal(job.state, 'failed', 'it fails once, loudly, instead of re-sending the tail on every rung');
+    assert.match(String(job.last_error), /RICH_MESSAGE_TEXT_TOO_LONG/, 'and the cause names the refusal');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
