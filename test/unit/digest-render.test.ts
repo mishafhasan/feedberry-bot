@@ -61,6 +61,15 @@ test('digest: the English layout carries every block in order', () => {
   assert.deepEqual(plan?.kind === 'rich' ? plan.media : [], [{ id: 'overview', file: '/tmp/a.mp3', kind: 'audio' }]);
 });
 
+test('digest: an item time follows the digest owner’s zone, not UTC', () => {
+  // The window is a pair of instants, but the reader reads a wall clock: one post, two owners' zones.
+  const at = Date.UTC(2026, 10, 16, 4, 40);
+  const itemHtml = (tz: string): string => htmlOf(renderDigest(input({ tz, items: [item({ publishedAt: at })] })));
+
+  assert.match(itemHtml('Asia/Colombo'), /⏱️ <b>Time<\/b>: Nov 16 10:10 AM/);
+  assert.match(itemHtml('America/New_York'), /⏱️ <b>Time<\/b>: Nov 15 11:40 PM/, 'the reader’s day, not UTC’s');
+});
+
 test('digest: Tamil translates the content but keeps every label in English', () => {
   const html = htmlOf(
     renderDigest(
