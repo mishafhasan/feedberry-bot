@@ -46,7 +46,7 @@ test('M20: an Atom feed reaches S4 with its title and date', async () => {
     const preview = String(api.last('sendMessage')?.body.text ?? '');
     assert.match(preview, /<b>The GitHub Blog<\/b>/, 'the Atom feed title names the source');
     assert.match(preview, /Beyond code generation/, 'the entry title reaches the preview');
-    assert.match(preview, /• \[\d\d\/\d\d \d\d:\d\d\]/, 'and its published date, like any dated item');
+    assert.match(preview, /• \[[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2} (?:AM|PM)\]/, 'and its published date, like any dated item');
     assert.match(preview, /Where should posts from this source be delivered\?/, 'S4 asks for a destination');
   } finally {
     db.close();
