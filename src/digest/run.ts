@@ -98,7 +98,9 @@ export async function runDigest(deps: RunDeps, digestId: number, now = Date.now(
     const oversized = built.plans.flatMap((plan, index) => (plan.kind === 'rich' && overBudget(plan.html) ? [{ part: index + 1, ...partSize(plan.html) }] : []));
     if (oversized.length > 0) {
       log('error', 'digest_parts_over_budget', { digest: digestId, planned: built.plans.length, oversized });
-      throw new Coded(E.FEED_DOWN, 'digest part over budget');
+      // Deterministic and terminal: the same renderer refuses the same part on every attempt, so the
+      // retry ladder would only re-plan, re-voice and re-download for the same answer (ADR-035).
+      throw new Coded(E.TOO_LARGE, 'digest part over budget');
     }
 
     // Every part is attempted: one refused part must not cost the stories after it. A failure is
