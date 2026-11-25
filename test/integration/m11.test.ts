@@ -115,7 +115,7 @@ test('download mode: a blog post is accepted and delivered as Instant View', asy
     const payload = api.calls.find((call) => call.method === 'sendMessage' && String(call.body.text).includes('telegra.ph'));
     assert.ok(payload, 'the article went out with its Instant View link');
     assert.match(String(payload?.body.text), /🌐 <a href="[^"]*blog\.example\.test[^"]*">WIRED<\/a> \| RSS/, 'the page names itself, not the host');
-    assert.match(String(payload?.body.text), /⏱️ Time: 10\/30 12:00/, 'and the page\'s own publication time');
+    assert.match(String(payload?.body.text), /⏱️ Time: Oct 30 12:00 PM/, 'and the page\'s own publication time');
     assert.equal((payload?.body.link_preview_options as { url?: string } | undefined)?.url, 'https://telegra.ph/Test-page-1', 'the preview opens the Instant View copy');
     assert.match(String(payload?.body.text), /<b>The quiet return of the personal website<\/b>/, 'the headline stays plain text');
     assert.match(String(payload?.body.text), /<a href="https:\/\/telegra\.ph\/Test-page-1">👇🏼👇🏼👇🏼<\/a>$/, 'the arrow row carries the Instant View link, last');

@@ -119,7 +119,7 @@ test('M5: photo, album 3, album 11, split caption, video', async () => {
     assert.match(String(photos[0]?.body.caption ?? ''), /🌐 <a href="[^"]+">Blog<\/a>/);
     const three = groups.find((call) => (call.body.media as unknown[]).length === 3);
     const albumCaption = String((three?.body.media as Array<{ caption?: string }>)[0]?.caption ?? '');
-    assert.match(albumCaption, /⏱️ Time: \d{2}\/\d{2} \d{2}:\d{2}/, 'the album carries one caption, on its first item');
+    assert.match(albumCaption, /⏱️ Time: [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2} (?:AM|PM)/, 'the album carries one caption, on its first item');
 
     // §8.2: without a Telegraph client this is the fallback — a 1025-character caption splits into
     // two numbered parts, the second as a reply. With one, the Read-more test below runs instead.

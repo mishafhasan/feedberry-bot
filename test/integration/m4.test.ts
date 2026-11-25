@@ -99,7 +99,7 @@ test('M4: tick delivers a new text post once, then the slot stays quiet; S9 queu
     assert.match(sent[0]?.body.text ?? '', /Body of the third post/);
     // Every delivered post opens with the source name and its publish time.
     assert.match(sent[0]?.body.text ?? '', /🌐 <a href="[^"]+">[^<]+<\/a>/);
-    assert.match(sent[0]?.body.text ?? '', /⏱️ Time: \d{2}\/\d{2} \d{2}:\d{2}/);
+    assert.match(sent[0]?.body.text ?? '', /⏱️ Time: [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2} (?:AM|PM)/);
     assert.equal(sent[0]?.body.parse_mode, 'HTML');
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM deliveries WHERE status = 'sent'"), 1);
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM posts WHERE guid = 't-3'"), 1);
