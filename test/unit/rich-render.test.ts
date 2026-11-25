@@ -24,8 +24,8 @@ const rich = (summary: string, files: MediaFile[]) => {
   return plan.kind === 'rich' ? plan : { html: '', media: [] };
 };
 
-/** The header every rich post opens with: an h5 source line, then the bold DD/MM HH:MM time line. */
-const HEADER = /^<h5><tg-emoji emoji-id="\d+">📸<\/tg-emoji> <a href="https:\/\/www\.instagram\.com\/p\/DfJ2075AGx3\/">Evolving AI<\/a> \| Instagram<\/h5><p>⏱️ <b>Time<\/b>: 01\/11 04:01<\/p>/;
+/** The header every rich post opens with: an h5 source line, then the bold 12-hour time line. */
+const HEADER = /^<h5><tg-emoji emoji-id="\d+">📸<\/tg-emoji> <a href="https:\/\/www\.instagram\.com\/p\/DfJ2075AGx3\/">Evolving AI<\/a> \| Instagram<\/h5><p>⏱️ <b>Time<\/b>: Nov 1 04:01 AM<\/p>/;
 
 test('rich: h5 heading + time, slideshow ref, and the whole body in one framed quote', () => {
   const plan = rich('Hello world', [photo()]);
