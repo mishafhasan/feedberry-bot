@@ -152,13 +152,24 @@ test('digest: the media budget splits the message and only Part 1 carries the pl
   assert.match(htmlOf(plans, plans.length - 1), /<footer>/);
 });
 
-test('digest: the text and block budgets split before Telegram rejects a part', () => {
-  const long = Array.from({ length: 20 }, (_, index) => item({ postId: index + 1, description: 'x'.repeat(2000) }));
+test('digest: the text and block budgets split at whole item boundaries', () => {
+  // 20 items of ~2 100 visible characters: the split has to fall between two items, never inside one.
+  const long = Array.from({ length: 20 }, (_, index) =>
+    item({ postId: index + 1, headline: `Headline ${String(index + 1).padStart(2, '0')}`, description: `Body ${String(index + 1).padStart(2, '0')} ${'x'.repeat(2000)}` }),
+  );
   const byText = renderDigest(input({ items: long, postCount: long.length }));
+  const parts = byText.map((plan) => (plan.kind === 'rich' ? plan.html : ''));
   assert.ok(byText.length > 1);
-  for (const plan of byText) {
-    const html = plan.kind === 'rich' ? plan.html : '';
-    assert.ok(visibleChars(html) <= MAX_PART_CHARS, 'each part stays inside the measured text cap');
+
+  const holders = (needle: string): number => parts.filter((part) => part.includes(needle)).length;
+  for (const story of long) {
+    assert.equal(holders(story.headline), 1, `${story.headline} appears in exactly one part`);
+    assert.equal(holders(story.description), 1, 'and so does the body that belongs to it');
+  }
+  for (const [index, part] of parts.entries()) {
+    assert.equal(overBudget(part), false, `part ${index + 1} stays inside every budget`);
+    // A block cut across two parts leaves a segment without its closing heading and rule.
+    for (const segment of part.split('<h3>').slice(1)) assert.ok(segment.includes('</h3>') && segment.includes('<hr/>'), `part ${index + 1} cuts only between items`);
   }
 
   const many = Array.from({ length: 40 }, (_, index) => item({ postId: index + 1, points: ['a', 'b', 'c', 'd', 'e', 'f'] }));
