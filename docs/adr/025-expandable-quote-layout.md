@@ -48,9 +48,10 @@ Two facts decided the layout:
   a media-only post gets neither rules nor an empty quote.
 - The header becomes two blocks (ADR-023's single `<p>` is gone): the source line as `<h5>`
   (`{platformIcon} <a href="post URL">SourceName</a> | SourceType`) and the time as
-  `<p>⏱️ <b>Time</b>: DD/MM HH:MM</p>` in the reader's `users.tz`. The string is built by
-  `ddmmhhmm()` rather than `<tg-time>`: that tag can only print the client's own locale format
-  (`d` is the app's short date), the layout asks for day-first `DD/MM`, and an absolute stamp has
+  `<p>⏱️ <b>Time</b>: Nov 24 02:30 PM</p>` in the reader's `users.tz` (ADR-036 replaced the
+  day-first `DD/MM` clock). The string is built by `postTime()` rather than
+  `<tg-time>`: that tag can only print the client's own locale format
+  (`d` is the app's short date), the layout asks for a month name and an explicit AM/PM, and an absolute stamp has
   nothing to tick.
 - `platformIcon()` falls back to `🌐` for a platform the icon table does not own (it used to print a
   satellite dish).
@@ -75,7 +76,7 @@ Two facts decided the layout:
 
 `test/unit/rich-render.test.ts` (whole body in the quote, the rules around it, the 50-item list,
 inline-only guard, empty-body case), `test/unit/rich-text.test.ts` (`expandableQuote` escaping and
-marker flattening), `test/unit/caption-header.test.ts` (`<h5>`, bold `DD/MM HH:MM`),
+marker flattening), `test/unit/caption-header.test.ts` (`<h5>`, bold 12-hour clock),
 `test/integration/threads.test.ts` (the 3,779-char sub-post arrives inside the quote). Tag behaviour:
 `docs/expandable-quotes.md`.
 

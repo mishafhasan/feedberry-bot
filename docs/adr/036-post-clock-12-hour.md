@@ -25,6 +25,12 @@ The investigation separated two questions that looked like one:
 - **`mmddhhmm` and `ddmmhhmm` are gone.** They encoded a layout split that no longer exists; both
   `postHeader` layouts, the source preview (`sourceBody`) and the Download renderer now call
   `postTime`. `texts.ts` re-exports it instead of the old pair.
+- **The S4/S5 preview carries the reader's zone too.** `sourceBody` already took a `tz`, but no caller
+  supplied one, so the preview dated its items in UTC while delivery dated the same instant in
+  `users.tz` — the exact conversion this ADR removes. The zone now reaches it from the user row at
+  all three doors (resolve, send, back). It is passed **in** rather than re-read: `sendPreview` takes
+  the user's row id, not the telegram id, so an `ensureUser(ownerUserId)` there would look up a
+  different user.
 - **Scheduling is not touched.** `slotAfter` and `digestSlot` already resolve a wall-clock hour in the
   subscriber's zone (`users.tz`, via `wallToUtc` with one DST correction pass), the tick reads that
   column straight from `users`, and changing the zone re-plans every slot and digest. `slots.test.ts`
@@ -52,7 +58,9 @@ The investigation separated two questions that looked like one:
   `12:05 AM`, `12:00 PM`, `01:00 PM` at its two edges.
 - `npx tsc --noEmit`: exit 0. `npm test`: **560/560 pass**. `npm run build`: exit 0.
 - `test/unit/post-time.test.ts` pins both zones, both dial edges, the zone-follows-the-day case, and
-  both `postHeader` layouts. `test/unit/slots.test.ts` is the scheduling evidence and did not change.
+  both `postHeader` layouts. `test/integration/atom-preview.test.ts` sets its user to `Asia/Colombo`
+  and asserts the exact `• [Nov 7 03:45 AM]` for the fixture's `22:15:59Z` entry, so a UTC leak in the
+  preview fails. `test/unit/slots.test.ts` is the scheduling evidence and did not change.
 - The readers of the old format, updated to the clock rather than to a regex they no longer describe:
   `caption-header`, `oversize-album`, `digest-render`, `rich-render`, `download-caption`,
   `atom-preview`, `link-classify`, `text-only-post`, `m4`, `m5`, `m11`, `m12`, `threads`.

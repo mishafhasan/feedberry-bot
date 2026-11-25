@@ -605,7 +605,7 @@ The `id: #538644` in S7 is the **source id**, rendered as `id: #<id>, source che
 | R13 | article too thin (< 400 chars readable text) | `sendMessage` | title + link, no IV | — | fallback of R12 |
 | R14 | unknown / unsupported | `sendMessage` | text + original link | — | 2,3,4,6,7 |
 | R15 | album holding a video > 50 MB | `sendMediaGroup` of the rest, plus one frame per oversized video | caption + one `🎬` line per oversized video | the oversized video is never uploaded, never dropped | 2–7 |
-| R16 | any non-RSS (social) post | one `sendRichMessage` | `<h5>` source line + bold `DD/MM HH:MM` + in-message slideshow + full text (≤32,768), one `🎬` link per video > 50 MB | ADR-023; supersedes R1–R11/R15 for non-RSS | 2,3,4,5,6,7 |
+| R16 | any non-RSS (social) post | one `sendRichMessage` | `<h5>` source line + bold `Nov 24 02:30 PM` in the reader's zone + in-message slideshow + full text (≤32,768), one `🎬` link per video > 50 MB | ADR-023, ADR-036; supersedes R1–R11/R15 for non-RSS | 2,3,4,5,6,7 |
 | R17 | any non-RSS post with text | the same one `sendRichMessage` | the whole body inside `<blockquote expandable>` (inline RichText only) framed by two `<hr/>`; the client's collapsed height is the preview | ADR-025; supersedes ADR-024 | 2,3,4,5,6,7 |
 
 Every row goes through stage 9 (cleanup). Every row sends to `chat_id` + `message_thread_id` when set.

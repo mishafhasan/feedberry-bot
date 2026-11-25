@@ -169,7 +169,7 @@ post to — with a channel where it is not admin refused, not listed.
    (ADR-006, ADR-015), `bluesky_api` `[BSKY-API]`; parse RSS/Atom into
    `FeedItem{guid, link, title, published_at, summary, media[]}`.
 5. `bot/screens/s3.ts` + `s4.ts`: S3 "Checking source:" then S4 with author, avatar, the last 5 items as
-   `• [MM/DD HH:MM] — title` (ascending, per the S4 screenshot), and the destination list. Read-only: no
+   `• [Nov 24 02:30 PM] — title` in the reader's zone (ADR-036; ascending, per the S4 screenshot), and the destination list. Read-only: no
    `posts`/`sources` writes (ADR-015). 60 s in-memory preview cache.
 6. Chat registration (ADR-014): `my_chat_member` handler → `getChat` → `getChatMember(bot)` →
    channel requires `administrator` **and** `can_post_messages` `[TG-ADMIN]` → upsert `chats`
