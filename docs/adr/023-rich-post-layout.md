@@ -31,8 +31,9 @@ their classic layout is unchanged.
 - Every non-RSS post — scheduled/auto-check **and** Download Mode — is one `MessagePlan` of kind `rich`
   (`{ html, media[] }`). Stage 6 produces data; stage 7 (`TelegramSender.sendRich`) wraps each local file
   in `InputFile` and calls `sendRichMessage` through the same `run()` limiter, returning one `message_id`.
-- The layout, in order: `{platformIcon} <a href="post URL">SourceName</a> | SourceType`; `⏱️ Time: DD/MM
-  HH:MM` in the reader's zone; a `<tg-slideshow>` of the post's sendable photos/videos/animations (≤50);
+- The layout, in order: `{platformIcon} <a href="post URL">SourceName</a> | SourceType`; `⏱️ Time: Nov 24
+  02:30 PM` in the reader's zone (ADR-036 replaced the day-first `DD/MM` clock); a
+  `<tg-slideshow>` of the post's sendable photos/videos/animations (≤50);
   the post's own words, escaped, original line breaks kept; then one `🎬 <a href="direct URL">Video n</a>`
   line per video that cannot upload. No media → header + time + text, still one message.
 - Media uploads as local files via `media[]` + `tg://photo?id=` / `tg://video?id=` refs (spike case B).

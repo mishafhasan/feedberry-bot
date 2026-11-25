@@ -206,7 +206,7 @@ post page, then cobalt for the media.
 Two layouts, chosen by platform:
 
 - **Social posts (non-RSS)** ship as **one rich message** (Bot API 10.x `sendRichMessage`): an `<h5>` source
-  line, `⏱️` bold `DD/MM HH:MM` in the reader's timezone, an in-message `<tg-slideshow>` of up to 50 media,
+  line, `⏱️` bold `Nov 24 02:30 PM` in the reader's timezone (ADR-036), an in-message `<tg-slideshow>` of up to 50 media,
   then the whole body inside a `<blockquote expandable>` framed by two rules — one native tap expands it, with
   no stored payload and no callback. A clip that cannot upload is one `🎬 Video n` link. When an Instagram or
   Facebook extractor is walled or answers less than the post has, the account's own feed supplies the photos

@@ -684,11 +684,11 @@ async function runResolve(ctx: Context, deps: BotDeps, userId: number, link: str
       author,
       avatarUrl: feed.avatarUrl,
       items: feed.items,
-      bodyText: sourceBody({ platform: ref.platform, author, items: preview, section, lang }),
+      bodyText: sourceBody({ platform: ref.platform, author, items: preview, section, lang, tz: user.tz }),
       photo: false,
       at: Date.now(),
     };
-    pending.photo = await sendPreview(ctx, deps, user.id, ref, feed, preview, lang, section);
+    pending.photo = await sendPreview(ctx, deps, user.id, ref, feed, preview, lang, section, user.tz);
     setSession(userId, { state: 'preview', pending });
   } catch (err) {
     // A site with no feed at all cannot be a source, but the same link still downloads as one post:
@@ -714,7 +714,7 @@ async function offerDownloadOnly(ctx: Context, deps: BotDeps, userId: number, li
 }
 
 /** Returns whether the preview went out as a photo (S5/S6 then edit a caption). */
-async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang, section: string | null): Promise<boolean> {
+async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref: SourceRef, feed: ParsedFeed, items: FeedItem[], lang: Lang, section: string | null, tz: string): Promise<boolean> {
   const view = sourcePreviewView({
     platform: ref.platform,
     author: feedSourceTitle(feed.title, ref.canonicalUrl, section, ref.externalId),
@@ -723,6 +723,8 @@ async function sendPreview(ctx: Context, deps: BotDeps, ownerUserId: number, ref
     items,
     personalChatId: personalChat(deps.db, ownerUserId).id,
     chats: destinations(deps.db, ownerUserId),
+    // The preview must date the items the way delivery will, in the same zone (ADR-036).
+    tz,
     lang,
   });
 
@@ -997,6 +999,7 @@ async function goBack(ctx: Context, deps: BotDeps, userId: number): Promise<void
       items: newest(filterByContentTypes(session.pending.platform, session.pending.items, chosenTypes(userId)), deps.cfg.limits.backfillCount),
       personalChatId: personalChat(deps.db, owner.id).id,
       chats: destinations(deps.db, owner.id),
+      tz: owner.tz,
       lang: langOf(deps, userId),
     });
     return editSourceMessage(ctx, session.pending.photo, view);
@@ -1087,6 +1090,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // The page names itself (`og:site_name`); the host is the fallback inside planArticle.
         sourceTitle: null,
         platform: ref.platform,
+        tz: user.tz,
       });
       if (!article) throw new Coded(E.FEED_DOWN, 'article extraction failed');
       const ids = await deps.sender.send(article, target);

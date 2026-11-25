@@ -50,7 +50,7 @@ test('digest: the English layout carries every block in order', () => {
   assert.match(html, /🎧 Audio overview · 6 min/);
   assert.match(html, /<h3>1\. A quiet headline<\/h3>/);
   assert.match(html, /\| RSS<\/h5>/);
-  assert.match(html, /⏱️ <b>Time<\/b>: 16\/11 04:40/);
+  assert.match(html, /⏱️ <b>Time<\/b>: Nov 16 04:40 AM/);
   assert.match(html, /Two sentences about what happened\./);
   assert.match(html, /🔑 Key points<\/b><\/p><ul><li>first fact<\/li><li>second fact<\/li><\/ul>/);
   assert.match(html, /<a href="https:\/\/telegra\.ph\/Post-11-16">📖 Read full article<\/a>/);
@@ -59,6 +59,15 @@ test('digest: the English layout carries every block in order', () => {
   assert.doesNotMatch(html, /<p><i>A quiet headline<\/i><\/p>/, 'the original title is Tamil-only');
   const plan = plans[0];
   assert.deepEqual(plan?.kind === 'rich' ? plan.media : [], [{ id: 'overview', file: '/tmp/a.mp3', kind: 'audio' }]);
+});
+
+test('digest: an item time follows the digest owner’s zone, not UTC', () => {
+  // The window is a pair of instants, but the reader reads a wall clock: one post, two owners' zones.
+  const at = Date.UTC(2026, 10, 16, 4, 40);
+  const itemHtml = (tz: string): string => htmlOf(renderDigest(input({ tz, items: [item({ publishedAt: at })] })));
+
+  assert.match(itemHtml('Asia/Colombo'), /⏱️ <b>Time<\/b>: Nov 16 10:10 AM/);
+  assert.match(itemHtml('America/New_York'), /⏱️ <b>Time<\/b>: Nov 15 11:40 PM/, 'the reader’s day, not UTC’s');
 });
 
 test('digest: Tamil translates the content but keeps every label in English', () => {

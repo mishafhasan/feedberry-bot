@@ -445,7 +445,7 @@ test('M26: a download dates the post from its feed when the page cannot be read'
     await bot.handleUpdate(callbackUpdate(3, USER_ID, 'dl:post'));
 
     const html = String(api.last('sendRichMessage')?.body.rich_message?.html ?? '');
-    assert.match(html, /⏱️ <b>Time<\/b>: 25\/09 13:26/, 'the feed dates the post the page would have dated');
+    assert.match(html, /⏱️ <b>Time<\/b>: Sep 25 01:26 PM/, 'the feed dates the post the page would have dated');
   } finally {
     db.close();
     await api.close();

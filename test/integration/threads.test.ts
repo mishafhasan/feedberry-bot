@@ -81,7 +81,7 @@ function mediaEngine(photoCalls: { resolve: number; download: number }): MediaEn
 function assertHeaderBlock(html: string, hrefPattern: string, name: string, platform: string): void {
   assert.match(
     html,
-    new RegExp(`^<h5>.*?<a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}<\\/h5><p>⏱️ <b>Time<\\/b>: \\d{2}\\/\\d{2} \\d{2}:\\d{2}<\\/p>`),
+    new RegExp(`^<h5>.*?<a href="${hrefPattern}">${escapeRegExp(name)}</a> \\| ${escapeRegExp(platform)}<\\/h5><p>⏱️ <b>Time<\\/b>: [A-Z][a-z]{2} \\d{1,2} \\d{2}:\\d{2} (?:AM|PM)<\\/p>`),
     `header block (saw ${html.slice(0, 160)}…)`,
   );
   assert.equal((html.match(/⏱️ <b>Time<\/b>:/g) ?? []).length, 1, 'one time line');

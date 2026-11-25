@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { createBot } from '../../src/bot/index.ts';
 import { parseConfig } from '../../src/config.ts';
 import { openDb } from '../../src/db/index.ts';
+import { setUserTimezone } from '../../src/db/repos/users.ts';
 import type { Http } from '../../src/platform/http.ts';
 import { fakeBotApi, startUpdate, textUpdate } from '../fake-api.ts';
 import { allowUser } from '../seed.ts';
@@ -36,6 +37,9 @@ test('M20: an Atom feed reaches S4 with its title and date', async () => {
   const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE, CALLBACK_INTERVAL_MS: '0', ADD_INTERVAL_MS: '0' });
   const db = openDb(join(dir, 'bot.db'));
   allowUser(db, USER_ID);
+  // The preview dates its items in the reader's zone, not the server's (ADR-036): a UTC leak here
+  // would print 22:15 UTC, so the exact string is the assertion.
+  setUserTimezone(db, USER_ID, 'Asia/Colombo');
 
   try {
     const bot = createBot({ cfg, db, apiRoot: api.apiRoot, http });
@@ -46,7 +50,8 @@ test('M20: an Atom feed reaches S4 with its title and date', async () => {
     const preview = String(api.last('sendMessage')?.body.text ?? '');
     assert.match(preview, /<b>The GitHub Blog<\/b>/, 'the Atom feed title names the source');
     assert.match(preview, /Beyond code generation/, 'the entry title reaches the preview');
-    assert.match(preview, /• \[\d\d\/\d\d \d\d:\d\d\]/, 'and its published date, like any dated item');
+    // 2026-11-06T22:15:59Z is 03:45 on the 7th in Colombo (+5:30).
+    assert.match(preview, /• \[Nov 7 03:45 AM\]/, 'and its published date in the reader’s zone, like any dated item');
     assert.match(preview, /Where should posts from this source be delivered\?/, 'S4 asks for a destination');
   } finally {
     db.close();
