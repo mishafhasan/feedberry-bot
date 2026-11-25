@@ -240,6 +240,8 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
       publishedAt: post.published_at,
       sourceTitle,
       platform,
+      // Without it the article header dates the post in UTC for every non-UTC reader (ADR-036).
+      tz,
       telegraphUrl: post.telegraph_url,
     });
     if (article) return article;

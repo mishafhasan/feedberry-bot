@@ -1090,6 +1090,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         // The page names itself (`og:site_name`); the host is the fallback inside planArticle.
         sourceTitle: null,
         platform: ref.platform,
+        tz: user.tz,
       });
       if (!article) throw new Coded(E.FEED_DOWN, 'article extraction failed');
       const ids = await deps.sender.send(article, target);
