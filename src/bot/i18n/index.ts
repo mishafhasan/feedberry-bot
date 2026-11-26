@@ -30,7 +30,7 @@ const EN = {
 📄 Full article text: the whole article is pulled from the link and opened as Instant View, with media and without ads.
 ⚡ Checks on your schedule: default 08:00 and 20:00, or any interval from 15 minutes to 24 hours.
 🔑 Keyword filters: only the posts that mention your words or tags reach the chat.
-🫐 Daily AI Summary: one message a day with the stories from your RSS and blog sources, key points, pictures and a 🎧 audio overview.
+🫐 Daily AI Summary: one message a day with the stories from your RSS and blog sources with audio overview.
 ⬇️ Download mode: send any post link and the bot sends its media here, without subscribing.
 
 **How to use**:
