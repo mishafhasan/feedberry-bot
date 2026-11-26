@@ -33,7 +33,8 @@ Then, from the admin account:
 | Restart | `docker compose restart bot` |
 | Update | `git pull && docker compose build bot && docker compose up -d` |
 | Digest state | `docker compose logs bot \| grep -E 'digest_sent\|digest_item_fallback\|digest_audio_failed\|digest_audio_split\|gemini_model_fallback\|gemini_rung_spent\|digest_language_mixed\|digest_part_over_budget\|telegraph_flood_wait\|digest_page'` |
-| RSSHub credentials (only if you ever add instance tokens) | edit `.env`, `docker compose up -d rsshub` — the bot needs no restart |
+| RSSHub credentials (only if you ever add instance tokens) | edit `.env`, `docker compose up -d --force-recreate rsshub` — the bot needs no restart |
+| Home proxy | Repeat the RSSHub container IP test and Meta/native-RSS checks in [HOME_PROXY_GUIDE.md](HOME_PROXY_GUIDE.md) |
 
 Idle cost is one long-poll request per 25 s plus a 30 s tick; nothing else runs while no source is due.
 
@@ -76,13 +77,16 @@ snapshot of a live database, copies it back and asserts the schema version and t
   bot is exactly that profile. Mitigation is the nightly off-box backup plus a rebuild from compose in
   ~10 minutes.
 - **Datacenter IPs are throttled sooner** by the platforms in §10. Expect more `E_RATE_LIMIT` and
-  `E_COOKIE_REQUIRED` events than a home connection would produce.
+  `E_COOKIE_REQUIRED` events than a home connection would produce. For public Meta feeds, the optional
+  [home proxy](HOME_PROXY_GUIDE.md) gives RSSHub residential egress without exposing port `8888`.
 - A home Pi is the documented fallback: same compose file, same `.env`, copy `data/bot.db`.
 
 ## 6. Security posture (verify after every upgrade)
 
-- No credentials are stored: there is no `secrets` table and no `auth_ref` column (ADR-017). Login-only
-  sources are refused at add time with `E_COOKIE_REQUIRED`.
+- No per-user credentials are stored: there is no `secrets` table and no `auth_ref` column (ADR-017).
+  Optional operator credentials live in `.env`; Meta cookies and `HOME_PROXY_URI` are RSSHub-only, while
+  `TWITTER_AUTH_TOKEN` also serves bot media extraction. Login-only sources are refused at add time with
+  `E_COOKIE_REQUIRED`.
 - `grep -r "secrets\|auth_ref" src/` must return nothing.
 - The bot token never reaches the DB or the logs; `src/obs/log.ts` redacts `bot<id>:<token>`, `Cookie:`
   headers, `access_key=` and the `x-goog-api-key` header.
@@ -124,11 +128,12 @@ poster, so cobalt already reached Instagram when the error appears.
 2. **Time the route from the bot.**
    `docker compose exec bot node -e "const t=Date.now();fetch('http://rsshub:1200/instagram/user/evolving.ai').then(async r=>console.log(r.status,Date.now()-t,'ms',(await r.text()).length)).catch(e=>console.log('ERR',e.message,Date.now()-t,'ms'))"`
    A 200 under 60 s means the route is fine and the wait was the bot's cap.
-3. **5xx is the route, not the bot.** `docker compose logs rsshub | tail -40`. A guest scrape that hits
-   `/accounts/login/` needs `INSTAGRAM_COOKIE` in `.env` (`sessionid=…; ds_user_id=…`), then
-   `docker compose up -d rsshub`. Both the sidecar and the bot read that value, so restart both after
-   changing it.
-4. **DNS and egress.** `docker compose exec bot getent hosts rsshub` must resolve; the rsshub
+3. **5xx is the route, not the bot.** `docker compose logs rsshub | tail -40`. For repeated datacenter-IP
+   blocks, use the private [home proxy](HOME_PROXY_GUIDE.md); it is the preferred fix for public pages.
+   If a route genuinely requires a login, use only a dedicated secondary `INSTAGRAM_COOKIE` in `.env`
+   (`sessionid=…; ds_user_id=…`) and recreate **RSSHub only**. Compose clears the cookie from the bot,
+   which continues to make its own post/media requests directly from Oracle.
+4. **DNS and egress.** `docker compose exec bot getent hosts rsshub` must resolve; the RSSHub
    container's egress IP is what Instagram throttles, and RSSHub's healthcheck only proves `/` answers.
 5. **Clear the cache before retrying.** RSSHub holds a route for `CACHE_EXPIRE` (300 s), so
    `docker compose restart rsshub` is what makes the next attempt a cold one.

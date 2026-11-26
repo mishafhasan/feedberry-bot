@@ -214,6 +214,10 @@ Two lines in `.env` are overridden by `docker-compose.yml` and need no editing:
   Never change it to `localhost`, which would mean "the bot container itself".
 - `DB_PATH` — Compose sets `/data/bot.db`, matching the `./data:/data` mount.
 
+Leave `INSTAGRAM_COOKIE`, `FACEBOOK_COOKIE` and `HOME_PROXY_URI` empty for a public-page setup.
+If Oracle's datacenter IP is throttled, follow [HOME_PROXY_GUIDE.md](HOME_PROXY_GUIDE.md) after the base
+stack is healthy; it routes only RSSHub Meta requests through a private home proxy over Tailscale.
+
 Save in nano with `Ctrl+O`, `Enter`, then `Ctrl+X`.
 
 `TELEGRAPH_TOKEN` may stay empty: on first use the bot creates its own Telegra.ph account and writes
@@ -419,11 +423,12 @@ up new code. Your `data/` folder is untouched by any of this.
     some RAM, nothing else.
 12. **Deleting the folder `./data` or `./rsshub-cache` "to clean up".** — `./data` is the whole
     database. Nothing else in the repo needs deleting.
-13. **A Facebook source says "temporarily unreachable" only on the cloud host.** — RSSHub asks
-    `facebook.com/api/graphql` anonymously, and Facebook rate-limits that per IP; a home line is not
-    throttled, a datacenter IP usually is. `docker compose logs rsshub` shows `Facebook GraphQL
-    failed: Rate limit exceeded`. Fix: log in to facebook.com in a browser, copy the whole `Cookie`
-    request header into `FACEBOOK_COOKIE=` in `.env`, then `sudo docker compose up -d rsshub`.
+13. **A Facebook source says "temporarily unreachable" only on the cloud host.** � First check
+    `docker compose logs rsshub` for `Rate limit exceeded` or a login wall. For public pages, use the
+    private [home proxy](HOME_PROXY_GUIDE.md); it gives only RSSHub Meta requests residential egress.
+    If a login is genuinely required, use a dedicated secondary session in `FACEBOOK_COOKIE=` and
+    recreate RSSHub only. Compose keeps the cookie away from the bot. Never use a primary personal
+    account, and stop if Meta asks for a challenge.
 14. **There is no `🫐 Daily AI Summary` button.** — `GEMINI_API_KEY` is empty in `.env`. Set it, then
     rebuild the container so it reads the new environment: `docker compose up -d --force-recreate bot`
     (no image rebuild needed; a plain `up -d` does not notice an `env_file` edit).

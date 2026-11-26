@@ -1,6 +1,6 @@
 # FeedBerry Bot — Implementation Plan
 
-**Status:** implemented — M1–M9 and milestone H done, plus M10–M12 UX/schedule work delivered beyond this plan. 416 tests green; running locally against real Telegram and real feeds. Pending: production deploy + the restore drill (operator, M9 verification).
+**Status:** implemented — M1–M9 and milestone H done, plus M10–M12 UX/schedule work delivered beyond this plan. 565 tests green; running locally against real Telegram and real feeds. Pending: production deploy + the restore drill (operator, M9 verification).
 **Date:** 2026-10-31
 **Source of truth:** [ARCHITECTURE.md](ARCHITECTURE.md) §0–§17 and ADR-001…016
 **Scope:** the ordered plan for the design. Implementation has since landed — see [README.md](../README.md) and the status line above.

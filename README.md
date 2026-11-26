@@ -9,8 +9,9 @@ no inbound port. The only other container is RSSHub, the feed sidecar.
 
 - **Idle costs nothing.** A 30 s tick runs two cheap queries; work starts only from a due source, a user
   tap, or a retry.
-- **No user credentials are stored.** Login-gated sources are refused instead of half-working.
-- **Deterministic and testable.** 416 tests (unit + integration) run offline against fixtures and a fake
+- **No per-user credentials are stored.** Login-gated sources are refused instead of half-working; optional
+  operator credentials stay on the host or in the RSSHub sidecar.
+- **Deterministic and testable.** 565 tests (unit + integration) run offline against fixtures and a fake
   Bot API.
 
 Screens: [UI-Refference/](UI-Refference/)
@@ -192,7 +193,7 @@ post page, then cobalt for the media.
 | TikTok | RSSHub `/tiktok/user/…` | cobalt (short links, photo carousels) |
 | Threads | RSSHub `/threads/…` | the permalink page renders the whole thread |
 | Instagram | RSSHub `/instagram/user/…` | `/p/`, `/reel/`, `/tv/` via cobalt |
-| Facebook | RSSHub `/facebook/page/…` (needs a cookie on a datacenter IP) | `/posts/<id>` and `posts/pfbid…` via cobalt, then the feed's photos; videos, reels, photos, `fb.watch` |
+| Facebook | RSSHub `/facebook/page/…`; public pages may need residential egress or an optional RSSHub session on a datacenter IP | `/posts/<id>` and `posts/pfbid…` via cobalt, then the feed's photos; videos, reels, photos, `fb.watch` |
 | Pinterest | RSSHub user route; `/ideas/` and `/search/` are rejected as browse pages | pins, `pin.it` |
 | X / Twitter | only with an operator-supplied `TWITTER_AUTH_TOKEN` | posts via cobalt |
 | Snapchat | not subscribable (no feed exists) | Download Mode only |
@@ -307,9 +308,9 @@ docker compose logs -f bot   # wait for {"code":"polling_started"}
 
 - `bot` is built from this repo (`node:24-alpine` + ffmpeg), restarts `unless-stopped`, keeps SQLite in
   `./data:/data`, and keeps downloaded media in a 512 MB tmpfs that never touches disk.
-- `rsshub` runs without Chromium, caches in `./rsshub-cache`, and gets the instance-wide credentials.
-  The bot holds `TWITTER_AUTH_TOKEN` and `INSTAGRAM_COOKIE` too, because its media extractors sign in
-  with them; `FACEBOOK_COOKIE` goes to the sidecar alone, and compose clears it from the bot.
+- `rsshub` runs without Chromium, caches in `./rsshub-cache`, and gets the optional instance-wide
+  Meta cookies and residential proxy. The bot holds `TWITTER_AUTH_TOKEN` for X media extraction;
+  Compose explicitly clears `INSTAGRAM_COOKIE`, `FACEBOOK_COOKIE` and `HOME_PROXY_URI` from the bot.
 - Update with `git pull && docker compose build bot && docker compose up -d`; a rebuild is only needed when
   `package.json`, `Dockerfile`, `cobalt-engine` or `schema.sql` changed.
 
@@ -351,15 +352,27 @@ a readable message instead of guessing.
 | `ADD_INTERVAL_MS` | 10000 | Per-user add throttle; `0` disables it. |
 | `CHECKS_PER_HOUR` | 30 | Manual "Check now" ceiling per user; `0` disables it. |
 
-### Feature flags and instance credentials
+### Feature flags, instance credentials and RSSHub egress
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `TRIAL_ENABLED` | false | Shows the cosmetic trial line on the main menu. |
 | `TELEGRAM_BETA` | false | Telegram channel sources through the public `t.me/s` page. |
 | `TWITTER_AUTH_TOKEN` | — | The `auth_token` of a logged-in X account. Present: X profiles become subscribable and gated X media downloads work. Absent: only public X posts. Also passed to the RSSHub sidecar. |
-| `INSTAGRAM_COOKIE` | — | `sessionid=…; ds_user_id=…`. RSSHub scrapes with it and the bot's Instagram extractor signs in with it. Absent: an Instagram post link resolves to nothing. |
-| `FACEBOOK_COOKIE` | — | The whole `Cookie` header of a logged-in Facebook session. **RSSHub container only.** |
+| `INSTAGRAM_COOKIE` | — | Optional `sessionid=…; ds_user_id=…` for login-walled RSSHub routes. **RSSHub only**; Compose clears it from the bot. Leave empty for public pages. |
+| `FACEBOOK_COOKIE` | — | Optional whole `Cookie` header for login-walled RSSHub routes. **RSSHub only**; Compose clears it from the bot. |
+| `HOME_PROXY_URI` | — | Optional authenticated residential forward proxy for RSSHub's Instagram/Facebook requests only. The bot never receives it. |
+| `RSSHUB_LOG_LEVEL` | info | RSSHub log level; use `debug` temporarily when proving proxy routing. |
+
+### Optional residential egress for Meta feeds
+
+Cloud IPs are often throttled before a home IP. The tested [home proxy guide](docs/HOME_PROXY_GUIDE.md)
+routes only RSSHub Instagram/Facebook requests through Tinyproxy on a phone or router over Tailscale.
+Public pages can run without Meta cookies afterward.
+
+This does not proxy Download Mode, bot-side post requests, media CDNs, private pages or feed videos.
+Keep `RSSHUB_BASE` and stored `feed_url` values unchanged, and never use a primary personal Meta account
+for testing.
 
 ---
 
@@ -381,7 +394,7 @@ the operator gets at most one DM per source per 24 h. Users only see error scree
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # node:test, unit + integration, 416 tests, no network
+npm test            # node:test, unit + integration, 565 tests, no network
 npm run build       # dist/ + schema.sql
 ```
 
@@ -398,12 +411,14 @@ database and reading it back.
 - **"Instant View" is a Telegra.ph rewrite.** Telegram's IV works per domain and a bot cannot register a
   template, so articles become a Telegra.ph page (which already has one) and the link is sent. On failure the
   original link goes instead. The Cocoon AI summary above such a page is Telegram's, not the bot's.
-- **No credentials, ever.** A login-gated profile is refused at add time (`E_COOKIE_REQUIRED`) or fails its
-  fetch; single posts still work in Download Mode. Instance-wide RSSHub cookies belong to the sidecar.
+- **No per-user credentials.** A login-gated profile is refused at add time (`E_COOKIE_REQUIRED`) or fails
+  its fetch; single posts still work in Download Mode. Optional operator credentials belong to RSSHub,
+  except the X token also used by bot media extraction.
 - **No transcoding, no CAPTCHA solving, no proxy pools.** Above 50 MB, or on a clipping 3-minute video, the
-  post arrives as poster + caption + link.
+  post arrives as poster + caption + link. An optional single home proxy is documented separately.
 - **A datacenter IP is throttled first** by the platforms. Expect more `E_RATE_LIMIT` and
-  `E_COOKIE_REQUIRED` on a cloud host than on a home connection.
+  `E_COOKIE_REQUIRED` on a cloud host than on a home connection; see the
+  [home proxy guide](docs/HOME_PROXY_GUIDE.md) for the supported RSSHub-only mitigation.
 - **One host, one writer.** SQLite and a single process are the design; the queue is meant for
   hundreds of sources, not for horizontal scaling.
 - **No AI features ship.** The pipeline exposes a hook point after `render`; nothing is registered in it.
