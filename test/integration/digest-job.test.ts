@@ -170,6 +170,26 @@ test('digest scheduler: a new job clears the previous failed run pin', () => {
   }
 });
 
+test('digest scheduler: a pin reset failure rolls back the slot advance and enqueue', () => {
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const previousNextRun = getDigest(db, digest.id)?.next_run_at;
+  try {
+    const pinned = pinDigestWindow(db, digest.id, now - 23 * HOUR);
+    db.exec("CREATE TRIGGER fail_digest_pin_reset BEFORE UPDATE OF window_end ON digests BEGIN SELECT RAISE(ABORT, 'injected pin reset failure'); END");
+
+    assert.throws(() => tick(db, now, { digests: true }), /injected pin reset failure/);
+
+    const after = getDigest(db, digest.id);
+    assert.equal(after?.next_run_at, previousNextRun, 'the due slot stays due after the rollback');
+    assert.equal(after?.window_end, pinned, 'the previous run pin is unchanged');
+    assert.equal(db.prepare("SELECT 1 FROM jobs WHERE kind = 'digest'").get(), undefined, 'no digest job survives the failed schedule');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('digest job: one rich message with the player, the numbered items and the audio media', async () => {
   const api = await fakeBotApi();
   const { dir, db, digest, sourceIds } = seed();
