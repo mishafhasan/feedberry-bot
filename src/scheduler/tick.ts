@@ -1,5 +1,5 @@
 import type { Db } from '../db/index.ts';
-import { advanceDigest, dueDigests } from '../db/repos/digests.ts';
+import { advanceDigest, clearDigestWindow, dueDigests } from '../db/repos/digests.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import { digestSlot, slotAfter } from './slots.ts';
 
@@ -40,7 +40,10 @@ function tickDigests(db: Db, now: number): number {
   for (const row of dueDigests(db, now)) {
     advanceDigest(db, row.id, digestSlot(now, row.tz, row.hour));
     if (row.next_run_at !== null && now - row.next_run_at > LATE_SLOT_MS) continue;
-    if (enqueue(db, { kind: 'digest', targetId: row.id, priority: PRIORITY.scheduled, runAfter: now })) enqueued++;
+    if (enqueue(db, { kind: 'digest', targetId: row.id, priority: PRIORITY.scheduled, runAfter: now })) {
+      clearDigestWindow(db, row.id);
+      enqueued++;
+    }
   }
   return enqueued;
 }
