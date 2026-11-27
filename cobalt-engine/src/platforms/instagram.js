@@ -57,6 +57,10 @@ const getObjectFromEntries = (name, data) => {
 
 export default function instagram(obj) {
     const dispatcher = obj.dispatcher;
+    const fetch = (input, init = {}) => globalThis.fetch(input, { ...init, signal: obj.signal ?? init.signal });
+    const throwIfAborted = () => {
+        if (obj.signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+    };
 
     async function findDtsgId(cookie) {
         try {
@@ -265,6 +269,7 @@ export default function instagram(obj) {
     }
 
     async function getErrorContext(id) {
+        throwIfAborted();
         try {
             const { headers, body } = await getGQLParams(id);
 
@@ -308,7 +313,8 @@ export default function instagram(obj) {
                 if (rulingResponse?.title?.includes('Restricted'))
                     return { error: "content.post.age" };
             }
-        } catch {
+        } catch (err) {
+            if (obj.signal?.aborted) throw err;
             return { error: "fetch.fail" };
         }
 
@@ -462,6 +468,7 @@ export default function instagram(obj) {
             ?? data?.image_versions2,
         );
         let data, result;
+        throwIfAborted();
         try {
             const cookie = getCookie('instagram');
 
@@ -470,34 +477,50 @@ export default function instagram(obj) {
 
             // get media_id for mobile api, three methods
             let media_id = await getMediaId(id);
+            throwIfAborted();
             if (!media_id && token) media_id = await getMediaId(id, { token });
+            throwIfAborted();
             if (!media_id && cookie) media_id = await getMediaId(id, { cookie });
+            throwIfAborted();
 
             // the one surface a signed-in session still reaches: oembed names the id, this names the media
             if (media_id && cookie) {
                 const web = await requestWebMedia(media_id, cookie);
+                throwIfAborted();
                 if (web?.error) return web;
                 data = web;
             }
 
             // mobile api (bearer)
             if (media_id && token) data = await requestMobileApi(media_id, { token });
+            throwIfAborted();
 
             // mobile api (no cookie, cookie)
             if (media_id && !hasData(data)) data = await requestMobileApi(media_id);
+            throwIfAborted();
             if (media_id && cookie && !hasData(data)) data = await requestMobileApi(media_id, { cookie });
+            throwIfAborted();
 
             // html embed (no cookie, cookie)
             if (!hasData(data)) data = await requestHTML(id);
+            throwIfAborted();
             if (!hasData(data) && cookie) data = await requestHTML(id, cookie);
+            throwIfAborted();
 
             // web app graphql api (no cookie, cookie)
             if (!hasData(data)) data = await requestGQL(id);
+            throwIfAborted();
             if (!hasData(data) && cookie) data = await requestGQL(id, cookie);
-        } catch {}
+            throwIfAborted();
+        } catch (err) {
+            if (obj.signal?.aborted) throw err;
+        }
 
         if (!hasData(data)) {
-            return getErrorContext(id);
+            throwIfAborted();
+            const context = await getErrorContext(id);
+            throwIfAborted();
+            return context;
         }
 
         if (data?.gql_data) {

@@ -147,6 +147,7 @@ async function dispatch(host, patternMatch, params, url) {
                 ...patternMatch,
                 quality: params.quality,
                 alwaysProxy: params.alwaysProxy,
+                signal: params.signal,
             });
 
         case "threads":
@@ -265,6 +266,7 @@ export async function resolve(input, options = {}) {
     try {
         r = await dispatch(host, patternMatch, params, url);
     } catch (e) {
+        if (params.signal?.aborted) return fail("error.request.cancelled", { service: friendlyServiceName(host) });
         return fail("error.fetch.critical", { service: friendlyServiceName(host), message: e?.message });
     }
 
