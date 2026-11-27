@@ -137,7 +137,9 @@ Four questions decided the shape:
   publish one itself, it stores that page on the post too, and the column is kept for the life of the
   post (retention prunes posts): a retry, the other language or another user on the same source reads
   the same page instead of writing a second one. A summary row written before v7 can carry a page the
-  post row does not — the digest mirrors it down, so delivery reuses it too.
+  post row does not — the digest mirrors it down, so delivery reuses it too. Delivery also backfills
+  any existing summary row whose URL is null, and digest generation backfills a cached row when the
+  post supplies or publishes the page, so both cache columns converge without another Telegra.ph call.
 - **The digest's labels stay English in every language.** Only the content translates — Tamil
   headline, description, key points and audio. The heading, date line, audio line, key-points and
   read-full labels, "Also today", the part label and the footer are identical in `en` and `ta`; the
@@ -207,7 +209,8 @@ Four questions decided the shape:
   reuses a stored link for a summary and for an overflow story with a client that must not publish,
   then finds both columns NULL; `digest-summary` reads the Instant View copy about the seeded link, a
   dead page falls back to the post, and one failed picture leaves the other two; a cached summary
-  still downloads its picture with zero Gemini calls; a page the digest publishes is stored on the
+  still downloads its picture with zero Gemini calls; delivery and digest generation both backfill a
+  null summary URL without republishing; a page the digest publishes is stored on the
   post and written once; the page's own figures lead the three pictures).
 - `npm run build`: exit 0, `dist/digest/*.js` written.
 - `docker compose build bot`: exit 0, image `daily-digest-bot:latest` built with the new `schema.sql`.
