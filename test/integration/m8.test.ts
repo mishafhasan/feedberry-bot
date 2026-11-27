@@ -23,7 +23,10 @@ import type { MediaEngine } from '../../src/media/media-engine.ts';
 import type { Notifier } from '../../src/obs/alerts.ts';
 import { Coded, E } from '../../src/platform/errors.ts';
 import type { FeedMedia } from '../../src/platform/feed/native.ts';
+import type { MessagePlan } from '../../src/render/message-plan.ts';
 import type { Http } from '../../src/platform/http.ts';
+import { DOWNLOAD_BUDGET_MS } from '../../src/pipeline/prepare-media.ts';
+import { deliverPending } from '../../src/pipeline/run.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
 import { fakeBotApi } from '../fake-api.ts';
@@ -186,14 +189,16 @@ async function deliverWithoutExtractor(
   platform: string,
   media: FeedMedia[],
   resolve: MediaEngine['resolve'] = async () => { throw new Coded(E.NO_MEDIA, 'login wall'); },
-): Promise<{ html: string; media: number }> {
+  download?: MediaEngine['download'],
+): Promise<{ html: string; media: number; degraded: number }> {
   const api = await fakeBotApi();
   const dir = mkdtempSync(join(tmpdir(), `feedberry-walled-${platform}-`));
   const db = openDb(join(dir, 'bot.db'));
   const link = `https://${platform}.test/p/Walled`;
   const walled: MediaEngine = {
     resolve,
-    async download(_item, into) {
+    async download(item, into, signal) {
+      if (download !== undefined) return download(item, into, signal);
       mkdirSync(into, { recursive: true });
       const path = join(into, 'photo.jpg');
       writeFileSync(path, Buffer.alloc(1024, 1));
@@ -217,7 +222,8 @@ async function deliverWithoutExtractor(
     await runOnce({ db, http, cfg, media: walled, thumbnail: async () => null, sender: new TelegramSender(bot.api), workerConcurrency: 1 }, Date.now());
 
     const rich = api.last('sendRichMessage')?.body.rich_message as { html?: string; media?: unknown[] } | undefined;
-    return { html: String(rich?.html ?? ''), media: (rich?.media ?? []).length };
+    const degraded = count(db, "SELECT COUNT(*) AS n FROM events WHERE code = 'media_degraded'");
+    return { html: String(rich?.html ?? ''), media: (rich?.media ?? []).length, degraded };
   } finally {
     db.close();
     await api.close();
@@ -238,6 +244,70 @@ test('M8: an Instagram or Facebook post the extractor walls still ships the phot
 
   const x = await deliverWithoutExtractor('x', [photo]);
   assert.equal(x.media, 0, 'elsewhere a feed photo is only a clip\'s thumbnail and stays dropped (R14)');
+});
+
+test('M8: a failed Instagram photo send records one media_degraded event', async () => {
+  const photo: FeedMedia = { url: 'https://cdn.example.test/C4.jpg', type: 'photo' };
+  const failed = await deliverWithoutExtractor('instagram', [photo], undefined, async () => {
+    throw new Coded(E.NO_MEDIA, 'download budget expired');
+  });
+  assert.equal(failed.media, 0);
+  assert.equal(failed.degraded, 1);
+
+  const textOnly = await deliverWithoutExtractor('instagram', [], undefined, async () => {
+    throw new Coded(E.NO_MEDIA, 'no download expected');
+  });
+  assert.equal(textOnly.media, 0);
+  assert.equal(textOnly.degraded, 0, 'a genuinely text-only post is not a degradation');
+});
+
+test('M8: a partial album upload records contextual media degradation', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-partial-media-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const user = ensureUser(db, USER_ID);
+  const chat = ensurePrivateChat(db, user.id, USER_ID);
+  const link = 'https://instagram.com/p/Partial';
+  const source = upsertSource(db, { platform: 'instagram', canonicalUrl: link, externalId: 'partial', feedUrl: null, strategy: 'native_rss', title: 'Instagram', avatarUrl: null });
+  insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+  const media: FeedMedia[] = [
+    { url: 'https://cdn.example.test/first.jpg', type: 'photo' },
+    { url: 'https://cdn.example.test/second.jpg', type: 'photo' },
+  ];
+  const post = insertPosts(db, source.id, [{ guid: 'partial', link, title: 'Partial post', publishedAt: Date.now(), summary: null, media }])[0];
+  assert.ok(post);
+  markPendingDelivery(db, post.id, chat.id);
+
+  let downloads = 0;
+  const engine: MediaEngine = {
+    async resolve() { throw new Coded(E.NO_MEDIA, 'login wall'); },
+    async download(_item, into, signal) {
+      downloads++;
+      if (downloads === 2) {
+        const aborted = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(new Coded(E.NO_MEDIA, 'download budget expired')), { once: true }));
+        t.mock.timers.tick(DOWNLOAD_BUDGET_MS + 1);
+        await aborted;
+      }
+      mkdirSync(into, { recursive: true });
+      const path = join(into, `${downloads}.jpg`);
+      writeFileSync(path, Buffer.alloc(1024, 1));
+      return path;
+    },
+  };
+  let uploaded = 0;
+  const sender = { async send(plan: MessagePlan) { uploaded = plan.kind === 'rich' ? plan.media.length : 0; return [1]; } } as unknown as TelegramSender;
+  try {
+    const result = await deliverPending({ db, http, cfg, media: engine, thumbnail: async () => null, sender }, source.id, Date.now());
+    assert.equal(result.delivered, 1);
+    assert.equal(uploaded, 1, 'the first photo still reaches Telegram');
+    const event = db.prepare("SELECT detail FROM events WHERE code = 'media_degraded'").get() as { detail: string };
+    assert.match(event.detail, /feed 2, uploaded 1, failed 1 \[1\]/);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM events WHERE code = 'media_degraded'").get() as { n: number }).n, 1);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
 
 test('M8: the feed album beats the single picture the page stated', async () => {

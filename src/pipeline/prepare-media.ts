@@ -6,10 +6,19 @@ import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { MediaFile } from '../render/message-plan.ts';
 import { MAX_UPLOAD_BYTES, overCeiling } from '../render/video.ts';
 
+export interface MediaFailure {
+  index: number;
+  kind: MediaItem['kind'];
+  url: string;
+  cause: string;
+}
+
 export interface PrepareOptions {
   maxMb: number;
   /** Caller cancellation or whole-job budget; each media operation also gets its own transfer budget. */
   signal?: AbortSignal;
+  /** Context for a delivery-level degradation event; stdout alone cannot identify the post. */
+  onFailure?: (failure: MediaFailure) => void;
   /** X and YouTube: the post link to resolve again one rung down instead of pulling a clip too big. */
   ladderUrl?: string;
   /** ADR-022: an RSS album keeps the bytes of an oversized clip, because its stand-in frame is cut from them. */
@@ -75,7 +84,9 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
     } catch (err) {
       // A big file is the one most likely to time out mid-transfer, and cobalt reports that as
       // "no media". Keep the post: the video links from the caption, the rest of it still ships.
-      log('warn', 'media_item_failed', { kind: item.kind, code: isCoded(err) ? err.code : 'unknown' });
+      const cause = err instanceof Error ? err.message : String(err);
+      log('warn', 'media_item_failed', { index, kind: item.kind, code: isCoded(err) ? err.code : 'unknown', cause });
+      options.onFailure?.({ index, kind: item.kind, url: item.url, cause });
       if (options.signal?.aborted) break;
       if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url, ...(item.poster !== undefined && { poster: item.poster }) });
     }

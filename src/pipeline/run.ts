@@ -30,7 +30,7 @@ import { classifyMedia, MEDIA_FROM_FEED } from './classify-media.ts';
 import { effectiveKeywords, passesFilter } from './keyword-filter.ts';
 import { planArticle } from './article-plan.ts';
 import { unseenItems, uniqueItems } from './dedupe.ts';
-import { EXTRACT_BUDGET_MS, ladderFor, mediaSignal, prepareMedia, withPosters } from './prepare-media.ts';
+import { EXTRACT_BUDGET_MS, ladderFor, mediaSignal, prepareMedia, withPosters, type MediaFailure } from './prepare-media.ts';
 import { renderPost } from './render-post.ts';
 import { pageOfPost, withReadMore } from './read-more.ts';
 import { LONG_VIDEO_SEC, MAX_UPLOAD_BYTES } from '../render/video.ts';
@@ -193,11 +193,18 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
 
       // One directory per (post, chat) attempt; the pid keeps two processes from sharing it.
       const dir = workDirFor(`post-${post.id}-${row.chat_id}-${process.pid}`);
+      const feedMedia = payloadOf(post.payload_json).media.length;
+      const mediaFailures: MediaFailure[] = [];
       try {
         const hookContext: HookContext = { sourceId, chatId: row.chat_id, postId: post.id, url: post.url };
-        const planned = await withReadMore(await planForDelivery(deps, post, dir, platform, sourceTitle, row.tz), pageOfPost(post), { telegraph: deps.telegraph, sourceTitle, onPage: (id, url) => setPostTelegraphUrl(deps.db, id, url) }, pages);
+        const planned = await withReadMore(await planForDelivery(deps, post, dir, platform, sourceTitle, row.tz, (failure) => mediaFailures.push(failure)), pageOfPost(post), { telegraph: deps.telegraph, sourceTitle, onPage: (id, url) => setPostTelegraphUrl(deps.db, id, url) }, pages);
         const plan = await applyHooks('render', hookContext, planned);
         const ids = await deliver(deps.sender, plan, target);
+        const uploaded = uploadedMediaCount(plan);
+        if (MEDIA_FROM_FEED.has(platform) && feedMedia > 0 && (uploaded === 0 || mediaFailures.length > 0)) {
+          const failed = mediaFailures.map((failure) => failure.index).join(',');
+          recordEvent(deps.db, { level: 'warn', code: 'media_degraded', sourceId, chatId: row.chat_id, detail: `post ${post.id}, ${platform}, feed ${feedMedia}, uploaded ${uploaded}, failed ${mediaFailures.length} [${failed}], ${plan.kind}`, at: now });
+        }
         recordDelivery(deps.db, { postId: post.id, chatId: row.chat_id, status: 'sent', parts: ids.length, messageIds: ids.join(','), errorCode: null, now });
         recordEvent(deps.db, { level: 'info', code: 'send_ok', sourceId, chatId: row.chat_id, detail: `${ids.length} parts`, at: now });
         delivered++;
@@ -224,7 +231,7 @@ async function deliverSource(deps: RunDeps, sourceId: number, now: number): Prom
 }
 
 /** Stages 3 → 5 → 6 for one post; any media failure degrades to a link card, never a lost post. */
-async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string, sourceTitle: string | null, tz: string): Promise<MessagePlan> {
+async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeof getPost>>, dir: string, platform: string, sourceTitle: string | null, tz: string, onMediaFailure?: (failure: MediaFailure) => void): Promise<MessagePlan> {
   const payload = payloadOf(post.payload_json);
   const hadFeedMedia = payload.media.length > 0;
   // ADR-028: extraction is a few small requests; each transfer gets its own budget in stage 5.
@@ -285,6 +292,7 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   try {
     files = await prepareMedia(deps.media, items, dir, {
       maxMb: deps.cfg.limits.maxDownloadMb,
+      onFailure: onMediaFailure,
       // A social post links a clip it cannot send; an RSS post keeps the bytes ADR-012/022 cut a frame from.
       ...(platform === 'rss'
         ? { keepOversizedVideo: true }
@@ -385,3 +393,19 @@ const refOfSource = (source: SourceRow): SourceRef => ({
 });
 
 const message = (err: unknown): string => (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+
+/** Uploaded attachments, not link-only labels, for degradation monitoring. */
+function uploadedMediaCount(plan: MessagePlan): number {
+  switch (plan.kind) {
+    case 'rich':
+    case 'rich_more':
+      return plan.media.length;
+    case 'album':
+      return plan.items.length;
+    case 'text':
+    case 'link_only':
+      return 0;
+    default:
+      return 1;
+  }
+}
