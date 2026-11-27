@@ -402,6 +402,30 @@ test('digest job: a digest too big for one message is sent as every part, losing
   }
 });
 
+test('digest job: a deterministic photo-dimension refusal fails once', async () => {
+  const api = await fakeBotApi({}, { failRichParts: [1], failRichError: 'Bad Request: PHOTO_INVALID_DIMENSIONS' });
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+  try {
+    enqueue(db, { kind: 'digest', targetId: digest.id, priority: PRIORITY.scheduled, runAfter: now });
+    await runOnce(deps, now);
+
+    assert.equal(api.calls.filter((call) => call.method === 'sendRichMessage').length, 1);
+    const job = db.prepare("SELECT state, attempts, last_error FROM jobs WHERE kind = 'digest'").get() as { state: string; attempts: number; last_error: string | null };
+    assert.equal(job.state, 'failed');
+    assert.equal(job.attempts, 1);
+    assert.match(String(job.last_error), /PHOTO_INVALID_DIMENSIONS/);
+    assert.equal(getDigest(db, digest.id)?.window_end, now + 1);
+    assert.equal(getDigest(db, digest.id)?.last_window_end, null);
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('digest job: a refused part does not cost the parts after it, and a size refusal is not retried', async () => {
   // The live failure: part 1 is refused, the old loop abandoned parts 2..n, and the reader was left
   // with an incomplete digest. A size refusal repeats for the same payload, so it must also fail once

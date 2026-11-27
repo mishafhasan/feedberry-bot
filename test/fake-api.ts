@@ -25,7 +25,7 @@ export interface FakeApi {
 export const BOT_USER = { id: 999, is_bot: true, first_name: 'FeedBerry', username: 'feedberry_bot' };
 
 /** Fake Bot API: records calls, answers from fixtures, never touches the network. */
-export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number; forbidChat?: number; failParseOnce?: boolean; failRichParts?: number[] } = {}): Promise<FakeApi> {
+export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: { fail429Once?: number; forbidChat?: number; failParseOnce?: boolean; failRichParts?: number[]; failRichError?: string } = {}): Promise<FakeApi> {
   const calls: Call[] = [];
   let messageId = 100;
   let floodPending = options.fail429Once !== undefined;
@@ -36,7 +36,7 @@ export async function fakeBotApi(chats: Record<number, FakeChat> = {}, options: 
   const resultFor = (method: string, body: Record<string, any>): unknown | { __error: string } => {
     // The Nth rich message is refused, the way a real size limit answers: the caller must carry on.
     if (method === 'sendRichMessage' && failRich.has(++richSends)) {
-      return { __error: 'Bad Request: RICH_MESSAGE_TEXT_TOO_LONG', __status: 400 } as never;
+      return { __error: options.failRichError ?? 'Bad Request: RICH_MESSAGE_TEXT_TOO_LONG', __status: 400 } as never;
     }
     if ((method === 'sendMessage' || method === 'sendRichMessage') && parsePending) {
       parsePending = false;

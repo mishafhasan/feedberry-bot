@@ -223,9 +223,9 @@ export class TelegramSender {
       // §8.2 rule 5: a parse failure is reported so the post can be resent as plain text.
       if (err.error_code === 400 && /can't parse entities/i.test(err.description)) throw new Coded(E.TG_PARSE, err.description);
 
-      // A part refused for its size answers the same way for the same payload, so the ladder would
-      // only re-send what already arrived. Terminal: the caller logs the size once (ADR-035).
-      if (err.error_code === 400 && /too long|too many|TOO_(LONG|MANY)/i.test(err.description)) throw new Coded(E.TOO_LARGE, err.description);
+      // A deterministic media/size refusal answers the same way for the same payload, so the ladder
+      // would only re-send what already arrived. Terminal: the caller logs it once (ADR-035).
+      if (err.error_code === 400 && /too long|too many|TOO_(LONG|MANY)|PHOTO_INVALID_DIMENSIONS/i.test(err.description)) throw new Coded(E.TOO_LARGE, err.description);
 
       if (err.error_code !== 429) throw err;
 
