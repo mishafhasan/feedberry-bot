@@ -35,11 +35,13 @@ The investigation separated two questions that looked like one:
   `postHeader`, but neither caller supplied it: scheduled RSS delivery in `pipeline/run.ts` and
   Download Mode in `bot/callbacks.ts`. Every blog/article header therefore defaulted to UTC, even
   for a non-UTC reader. Both callers now pass the owner's zone.
-- **Scheduling is not touched.** `slotAfter` and `digestSlot` already resolve a wall-clock hour in the
-  subscriber's zone (`users.tz`, via `wallToUtc` with one DST correction pass), the tick reads that
-  column straight from `users`, and changing the zone re-plans every slot and digest. `slots.test.ts`
-  pins UTC, Berlin's two DST changes, Colombo's half hour (`08:00` local = `02:30Z`) and the
-  unknown-zone fallback, so the behaviour the reader expects already held.
+- **Scheduling stays wall-clock in the subscriber's zone.** `slotAfter` and `digestSlot` resolve the
+  configured hour through `users.tz`. `wallToUtc` validates the local result: a nonexistent
+  spring-forward time moves to the first valid local time after the gap, and a repeated fall-back
+  time uses the later instant. The tick reads the zone straight from `users`, and changing it
+  re-plans every slot and digest. `slots.test.ts` pins UTC, Berlin's two DST changes, Colombo's
+  half hour (`08:00` local = `02:30Z`), the New York spring gap and fall fold, and the unknown-zone
+  fallback.
 - **The digest's own labels are unchanged.** Its date line is a date, not a clock
   (`Tue, 25 Nov 2026` in the owner's zone), and its window is a pair of absolute instants compared
   against `published_at`; no timezone enters either. Its per-item times come from `postHeader`, so
@@ -66,7 +68,7 @@ The investigation separated two questions that looked like one:
   and asserts the exact `• [Nov 7 03:45 AM]` for the fixture's `22:15:59Z` entry, so a UTC leak in the
   preview fails. `test/unit/article-plan.test.ts` pins the article header; `test/integration/m11.test.ts`
   sets a Colombo downloader and asserts `Oct 30 05:30 PM` for `12:00Z`, so that caller cannot drop
-  the zone. `test/unit/slots.test.ts` is the scheduling evidence and did not change.
+  the zone. `test/unit/slots.test.ts` pins ordinary DST days plus the transition-day gap and fold policies.
 - **Docker, real bot pipeline, fake Bot API:** the worktree image booted with `schema: 8` and
   `polling_started`, fetched the fixture `09:00Z` and delivered it through the scheduled RSS article
   path twice: Colombo (`users.tz = Asia/Colombo`) → `⏱️ Time: Nov 24 02:30 PM`; New York

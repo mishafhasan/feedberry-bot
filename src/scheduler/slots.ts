@@ -85,9 +85,36 @@ function offsetAt(ms: number, tz: string): number {
   return asUtc - Math.floor(ms / 1000) * 1000;
 }
 
-/** A wall-clock time in `tz` becomes an instant; one correction pass settles DST boundaries. */
+/** A wall-clock time in `tz` becomes an instant; gaps move forward and folds use the later instant. */
 function wallToUtc(year: number, month: number, day: number, hour: number, tz: string): number {
   const guess = Date.UTC(year, month - 1, day, hour, 0, 0);
   const first = guess - offsetAt(guess, tz);
+  const offsets = new Set<number>();
+  for (const delta of [-48 * 3_600_000, -24 * 3_600_000, 0, 24 * 3_600_000, 48 * 3_600_000]) offsets.add(offsetAt(guess + delta, tz));
+  offsets.add(offsetAt(first, tz));
+
+  const points = [...offsets].map((offset) => guess - offset).sort((a, b) => a - b);
+  const exact = points.filter((point) => wallClockMs(point, tz) === guess);
+  if (exact.length > 0) return Math.max(...exact);
+
+  for (let index = 1; index < points.length; index++) {
+    const low = points[index - 1] as number;
+    const high = points[index] as number;
+    if (wallClockMs(low, tz) < guess && wallClockMs(high, tz) > guess) {
+      let before = low;
+      let after = high;
+      while (after - before > 1) {
+        const middle = Math.floor((before + after) / 2);
+        if (wallClockMs(middle, tz) < guess) before = middle;
+        else after = middle;
+      }
+      return after;
+    }
+  }
   return guess - offsetAt(first, tz);
+}
+
+function wallClockMs(ms: number, tz: string): number {
+  const local = wallClock(ms, tz);
+  return Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second);
 }
