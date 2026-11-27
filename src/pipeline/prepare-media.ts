@@ -7,7 +7,8 @@ import { MAX_UPLOAD_BYTES, overCeiling } from '../render/video.ts';
 
 export interface PrepareOptions {
   maxMb: number;
-  signal: AbortSignal;
+  /** Caller cancellation or whole-job budget; each media operation also gets its own transfer budget. */
+  signal?: AbortSignal;
   /** X and YouTube: the post link to resolve again one rung down instead of pulling a clip too big. */
   ladderUrl?: string;
   /** ADR-022: an RSS album keeps the bytes of an oversized clip, because its stand-in frame is cut from them. */
@@ -49,6 +50,14 @@ export function mediaSignal(ms = 120_000): AbortSignal {
 export const EXTRACT_BUDGET_MS = 30_000;
 export const DOWNLOAD_BUDGET_MS = 300_000;
 
+type OperationOptions = PrepareOptions & { signal: AbortSignal };
+
+/** One slow album item must not spend the transfer budget belonging to the next item. */
+function operationSignal(caller?: AbortSignal): AbortSignal {
+  const budget = mediaSignal(DOWNLOAD_BUDGET_MS);
+  return caller === undefined ? budget : AbortSignal.any([caller, budget]);
+}
+
 /**
  * Stage 5: resolve metadata is already done by the caller; this downloads each item into `dir` and
  * enforces MAX_DOWNLOAD_MB.
@@ -58,12 +67,15 @@ export const DOWNLOAD_BUDGET_MS = 300_000;
 export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir: string, options: PrepareOptions): Promise<MediaFile[]> {
   const files: MediaFile[] = [];
   for (const [index, item] of items.entries()) {
+    if (options.signal?.aborted) break;
+    const itemOptions: OperationOptions = { ...options, signal: operationSignal(options.signal) };
     try {
-      files.push(item.kind === 'video' ? await videoFile(engine, item, index, dir, options) : await saved(engine, item, dir, options));
+      files.push(item.kind === 'video' ? await videoFile(engine, item, index, dir, itemOptions) : await saved(engine, item, dir, itemOptions));
     } catch (err) {
       // A big file is the one most likely to time out mid-transfer, and cobalt reports that as
       // "no media". Keep the post: the video links from the caption, the rest of it still ships.
       log('warn', 'media_item_failed', { kind: item.kind, code: isCoded(err) ? err.code : 'unknown' });
+      if (options.signal?.aborted) break;
       if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url, ...(item.poster !== undefined && { poster: item.poster }) });
     }
   }
@@ -97,11 +109,11 @@ export async function withPosters(
   options: Pick<PrepareOptions, 'signal' | 'poster' | 'keepOversizedVideo'>,
 ): Promise<MediaFile[]> {
   const linked = files.filter((file) => file.kind === 'video' && file.path === '');
-  if (linked.length === 0 || options.keepOversizedVideo === true) return [];
+  if (linked.length === 0 || options.keepOversizedVideo === true || options.signal?.aborted) return [];
   const poster = linked.map((file) => file.poster).find((url) => url !== undefined) ?? (await options.poster?.() ?? null);
   // The post may already upload this very picture; twice would look like a broken gallery.
   if (poster === null || files.some((file) => file.url === poster)) return [];
-  const photo = await posterFile(engine, poster, dir, options.signal);
+  const photo = await posterFile(engine, poster, dir, operationSignal(options.signal));
   return photo === null ? [] : [photo];
 }
 
@@ -117,7 +129,7 @@ async function posterFile(engine: MediaEngine, url: string, dir: string, signal:
 }
 
 /** Every other kind: pull it and report what landed. */
-async function saved(engine: MediaEngine, item: MediaItem, dir: string, options: PrepareOptions): Promise<MediaFile> {
+async function saved(engine: MediaEngine, item: MediaItem, dir: string, options: OperationOptions): Promise<MediaFile> {
   const path = await engine.download(item, dir, options.signal);
   return { path, kind: item.kind, size: (await stat(path)).size, url: item.url };
 }
@@ -127,7 +139,7 @@ async function saved(engine: MediaEngine, item: MediaItem, dir: string, options:
  * quality the post offers: rung one's URL, or the post itself when the file is two tracks and so no
  * single URL plays.
  */
-async function videoFile(engine: MediaEngine, first: MediaItem, index: number, dir: string, options: PrepareOptions): Promise<MediaFile> {
+async function videoFile(engine: MediaEngine, first: MediaItem, index: number, dir: string, options: OperationOptions): Promise<MediaFile> {
   const url = options.ladderUrl;
   // Rung one is the resolve the caller already paid for; only the rungs below it cost another.
   const rungs: Array<string | null> = url === undefined ? [null] : [null, ...RUNGS.slice(1)];
@@ -144,7 +156,7 @@ async function videoFile(engine: MediaEngine, first: MediaItem, index: number, d
 }
 
 /** The clip on disk when it fits, null when it does not — the next rung may still. */
-async function fitting(engine: MediaEngine, item: MediaItem, dir: string, options: PrepareOptions): Promise<MediaFile | null> {
+async function fitting(engine: MediaEngine, item: MediaItem, dir: string, options: OperationOptions): Promise<MediaFile | null> {
   const keep = options.keepOversizedVideo === true;
   const known = keep ? null : await engine.size?.(item, options.signal) ?? null;
   if (known !== null && known > MAX_UPLOAD_BYTES) return null;
