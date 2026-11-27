@@ -184,11 +184,11 @@ export function extract(url) {
 
 // Follow one redirect hop to find the real post behind a share link, then
 // re-extract. Returns undefined when the hop leaves the original platform.
-export async function resolveRedirectingURL(url, headers) {
+export async function resolveRedirectingURL(url, headers, signal) {
     const originalService = getHostIfValid(normalizeURL(url));
     if (!originalService) return;
 
-    const canonicalURL = await getRedirectingURL(url, headers);
+    const canonicalURL = await getRedirectingURL(url, headers, signal);
     if (!canonicalURL) return;
 
     const { host, patternMatch } = extract(normalizeURL(canonicalURL));

@@ -597,11 +597,11 @@ export default function instagram(obj) {
     if (shareId) {
         return resolveRedirectingURL(
             `https://www.instagram.com/share/${shareId}/`,
-            dispatcher,
             // for some reason instagram decides to return HTML
             // instead of a redirect when requesting with a normal
             // browser user-agent
-            {'User-Agent': 'curl/7.88.1'}
+            {'User-Agent': 'curl/7.88.1'},
+            obj.signal
         ).then(match => instagram({
             ...obj, ...match,
             shareId: undefined
