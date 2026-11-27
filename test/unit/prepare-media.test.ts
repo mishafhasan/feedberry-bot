@@ -7,9 +7,11 @@ import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { hasFFmpeg } from 'cobalt-engine';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, mediaSignal, prepareMedia, withPosters } from '../../src/pipeline/prepare-media.ts';
 import { Coded, E } from '../../src/platform/errors.ts';
+import { probeDimensions, telegramPhotoFits } from '../../src/media/video-probe.ts';
 
 const MB = 1024 * 1024;
 const OVER = 51 * MB;
@@ -56,6 +58,7 @@ function engineOf(rungs: Rung[], opts: { size?: boolean; fail?: string } = {}) {
 
 const work = (): string => mkdtempSync(join(tmpdir(), 'feedberry-stage5-'));
 const options = (extra: { ladderUrl?: string } = {}) => ({ maxMb: 500, signal: new AbortController().signal, ...extra });
+const ppm = (width: number, height: number): Buffer => Buffer.from(`P6\n${width} ${height}\n255\n\0\0\0`);
 
 test('stage 5: a clip under the ceiling is downloaded and rides inline', async () => {
   const dir = work();
@@ -412,6 +415,62 @@ test('stage 5: a poster operation gets a fresh signal after the video size probe
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('Telegram photo dimensions enforce the sum and aspect-ratio boundaries', () => {
+  assert.equal(telegramPhotoFits({ width: 1, height: 1 }), true);
+  assert.equal(telegramPhotoFits({ width: 5000, height: 5000 }), true);
+  assert.equal(telegramPhotoFits({ width: 5000, height: 5001 }), false);
+  assert.equal(telegramPhotoFits({ width: 20, height: 1 }), true);
+  assert.equal(telegramPhotoFits({ width: 21, height: 1 }), false);
+  for (const dimensions of [{ width: 0, height: 1 }, { width: -1, height: 1 }, { width: 1.5, height: 1 }, { width: NaN, height: 1 }, { width: Infinity, height: 1 }]) {
+    assert.equal(telegramPhotoFits(dimensions), false);
+  }
+});
+
+test('stage 5: ffprobe rejects and deletes a known-invalid photo', { skip: !hasFFmpeg() }, async () => {
+  const dir = work();
+  const invalid = join(dir, 'invalid.ppm');
+  writeFileSync(invalid, ppm(9000, 1001));
+  try {
+    assert.deepEqual(await probeDimensions(invalid), { width: 9000, height: 1001 });
+    const engine: MediaEngine = {
+      async resolve() { throw new Error('not used'); },
+      async download(_item, into) {
+        const path = join(into, 'photo.ppm');
+        writeFileSync(path, ppm(9000, 1001));
+        return path;
+      },
+    };
+    assert.deepEqual(await prepareMedia(engine, [{ kind: 'photo', url: URL_1080, picker: false }], dir, options()), []);
+    assert.equal(existsSync(join(dir, 'photo.ppm')), false);
+    assert.equal(await probeDimensions(join(dir, 'missing.jpg')), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: a known-invalid poster is omitted while its linked video remains', { skip: !hasFFmpeg() }, async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/poster.jpg';
+  const posterPath = join(dir, 'poster.ppm');
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async size() { return OVER; },
+    async download(_item, into) {
+      const path = join(into, 'poster.ppm');
+      writeFileSync(path, ppm(9000, 1001));
+      return path;
+    },
+  };
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, options());
+    assert.deepEqual(files.map((file) => ({ kind: file.kind, path: file.path })), [{ kind: 'video', path: '' }]);
+    assert.equal(existsSync(posterPath), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('ADR-028: the transfer budget carries a full clip on a slow line, extraction stays short', () => {
   // A 50 MB file inside the budget means the link must stay usable at roughly 1.2 Mbps or better.
   assert.ok((50 * MB) / (DOWNLOAD_BUDGET_MS / 1000) >= 150_000, `${DOWNLOAD_BUDGET_MS} ms is too tight for a 50 MB clip`);

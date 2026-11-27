@@ -3,10 +3,11 @@
  * no Gemini call, and a dead model falls back to the feed's own words without poisoning the cache.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { hasFFmpeg } from 'cobalt-engine';
 import { openDb } from '../../src/db/index.ts';
 import { getSummary, putSummary } from '../../src/db/repos/digests.ts';
 import { getPost, insertPosts, type PostRow } from '../../src/db/repos/posts.ts';
@@ -361,6 +362,33 @@ test('one failed picture does not drop the item’s other pictures', async () =>
   try {
     const item = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
     assert.equal(item.images.length, 2, 'the two good pictures still reach the item');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a Telegram-invalid third picture is removed while the first two remain', { skip: !hasFFmpeg() }, async () => {
+  const { dir, db, post } = seedPost([
+    { url: 'https://cdn.test/a.jpg', type: 'photo' },
+    { url: 'https://cdn.test/b.jpg', type: 'photo' },
+    { url: 'https://cdn.test/c.jpg', type: 'photo' },
+  ]);
+  const paths: string[] = [];
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('no resolve in a summary test'); },
+    async download(item, into) {
+      const path = join(into, `${paths.length}.ppm`);
+      paths.push(path);
+      writeFileSync(path, item.url.includes('/c.jpg') ? 'P6\n9000 1001\n255\n' : 'P6\n1 1\n255\n\0\0\0');
+      return path;
+    },
+  };
+  const { gemini } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const item = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(item.images.length, 2);
+    assert.equal(existsSync(paths[2] ?? ''), false, 'the invalid file is deleted before render');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

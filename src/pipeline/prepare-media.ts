@@ -1,5 +1,6 @@
 import { rm, stat } from 'node:fs/promises';
 import type { MediaEngine, MediaItem } from '../media/media-engine.ts';
+import { probeDimensions, telegramPhotoFits } from '../media/video-probe.ts';
 import { log } from '../obs/log.ts';
 import { Coded, E, isCoded } from '../platform/errors.ts';
 import type { MediaFile } from '../render/message-plan.ts';
@@ -121,9 +122,11 @@ export async function withPosters(
 async function posterFile(engine: MediaEngine, url: string, dir: string, signal: AbortSignal): Promise<MediaFile | null> {
   try {
     const path = await engine.download({ kind: 'photo', url, picker: false }, dir, signal);
-    return { path, kind: 'photo', size: (await stat(path)).size, url };
+    const size = (await stat(path)).size;
+    await ensurePhotoFits(path);
+    return { path, kind: 'photo', size, url };
   } catch (err) {
-    log('warn', 'poster_failed', { code: isCoded(err) ? err.code : 'unknown' });
+    log('warn', 'poster_failed', { code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -131,7 +134,18 @@ async function posterFile(engine: MediaEngine, url: string, dir: string, signal:
 /** Every other kind: pull it and report what landed. */
 async function saved(engine: MediaEngine, item: MediaItem, dir: string, options: OperationOptions): Promise<MediaFile> {
   const path = await engine.download(item, dir, options.signal);
-  return { path, kind: item.kind, size: (await stat(path)).size, url: item.url };
+  const size = (await stat(path)).size;
+  if (item.kind === 'photo') await ensurePhotoFits(path);
+  return { path, kind: item.kind, size, url: item.url };
+}
+
+/** Telegram refuses the whole rich message when one photo exceeds its dimension limits. */
+async function ensurePhotoFits(path: string): Promise<void> {
+  const dimensions = await probeDimensions(path);
+  if (dimensions !== null && !telegramPhotoFits(dimensions)) {
+    await rm(path, { force: true });
+    throw new Coded(E.TOO_LARGE, `photo dimensions ${dimensions.width}x${dimensions.height}`);
+  }
 }
 
 /**
