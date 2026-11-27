@@ -235,7 +235,6 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   const payload = payloadOf(post.payload_json);
   const hadFeedMedia = payload.media.length > 0;
   // ADR-028: extraction is a few small requests; each transfer gets its own budget in stage 5.
-  const signal = mediaSignal(EXTRACT_BUDGET_MS);
 
   // R12: a website or blog post is an article when the page yields readable text. Trying this first
   // also skips cobalt, whose og:image made every blog post look like a photo with a headline.
@@ -259,13 +258,20 @@ async function planForDelivery(deps: RunDeps, post: NonNullable<ReturnType<typeo
   // page's own images, which the feed never carried and the paste door never asks for.
   const youtubePost = youtubeKindOf(post.url) === 'post';
   if (post.url && !youtubePost) {
-    try {
-      const resolved = await deps.media.resolve(post.url, signal);
-      items = resolved.items;
-      // The feed often ships an empty title; the engine fetched one anyway, so keep it.
-      engineTitle = resolved.title?.trim() || null;
-    } catch (err) {
-      log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const signal = mediaSignal(EXTRACT_BUDGET_MS);
+      try {
+        const resolved = await deps.media.resolve(post.url, signal);
+        items = resolved.items;
+        // The feed often ships an empty title; the engine fetched one anyway, so keep it.
+        engineTitle = resolved.title?.trim() || null;
+        if (items.length > 0 || !signal.aborted || attempt === 1) break;
+        log('warn', 'media_resolve_retry', { post: post.id, reason: 'extraction budget expired' });
+      } catch (err) {
+        log('warn', 'media_resolve_failed', { post: post.id, code: isCoded(err) ? err.code : 'unknown', cause: err instanceof Error ? err.message : String(err) });
+        if (!signal.aborted || attempt === 1) break;
+        log('warn', 'media_resolve_retry', { post: post.id, reason: 'extraction budget expired' });
+      }
     }
   }
   // A community post has no extractor, and a listed platform's wall can hand the extractor a single

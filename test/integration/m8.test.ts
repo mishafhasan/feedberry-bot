@@ -25,7 +25,7 @@ import { Coded, E } from '../../src/platform/errors.ts';
 import type { FeedMedia } from '../../src/platform/feed/native.ts';
 import type { MessagePlan } from '../../src/render/message-plan.ts';
 import type { Http } from '../../src/platform/http.ts';
-import { DOWNLOAD_BUDGET_MS } from '../../src/pipeline/prepare-media.ts';
+import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS } from '../../src/pipeline/prepare-media.ts';
 import { deliverPending } from '../../src/pipeline/run.ts';
 import { tick } from '../../src/scheduler/tick.ts';
 import { TelegramSender } from '../../src/telegram/api.ts';
@@ -259,6 +259,54 @@ test('M8: a failed Instagram photo send records one media_degraded event', async
   });
   assert.equal(textOnly.media, 0);
   assert.equal(textOnly.degraded, 0, 'a genuinely text-only post is not a degradation');
+});
+
+test('M8: an aborted Instagram extraction retries once with a fresh budget', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dir = mkdtempSync(join(tmpdir(), 'feedberry-extract-retry-'));
+  const db = openDb(join(dir, 'bot.db'));
+  const cfg = parseConfig({ BOT_TOKEN: TOKEN, ADMIN_CHAT_ID: '1', RSSHUB_BASE });
+  const user = ensureUser(db, USER_ID);
+  const chat = ensurePrivateChat(db, user.id, USER_ID);
+  const link = 'https://instagram.com/p/Retry';
+  const source = upsertSource(db, { platform: 'instagram', canonicalUrl: link, externalId: 'retry', feedUrl: null, strategy: 'native_rss', title: 'Instagram', avatarUrl: null });
+  insertSubscription(db, { userId: user.id, sourceId: source.id, chatId: chat.id, deliver: true, nextSlotAt: null });
+  const photo: FeedMedia = { url: 'https://cdn.example.test/retry.jpg', type: 'photo' };
+  const post = insertPosts(db, source.id, [{ guid: 'retry', link, title: 'Retry post', publishedAt: Date.now(), summary: null, media: [photo] }])[0];
+  assert.ok(post);
+  markPendingDelivery(db, post.id, chat.id);
+
+  const signals: AbortSignal[] = [];
+  let resolves = 0;
+  const media: MediaEngine = {
+    async resolve(_url, signal) {
+      resolves++;
+      signals.push(signal);
+      if (resolves === 1) {
+        const aborted = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(new Coded(E.NO_MEDIA, 'extraction budget expired')), { once: true }));
+        t.mock.timers.tick(EXTRACT_BUDGET_MS + 1);
+        await aborted;
+      }
+      return { items: [{ kind: 'photo', url: photo.url, picker: false }], title: null, artist: null };
+    },
+    async download(_item, into) {
+      mkdirSync(into, { recursive: true });
+      const path = join(into, 'photo.jpg');
+      writeFileSync(path, Buffer.alloc(1024, 1));
+      return path;
+    },
+  };
+  const sender = { async send() { return [1]; } } as unknown as TelegramSender;
+  try {
+    const result = await deliverPending({ db, http, cfg, media, thumbnail: async () => null, sender }, source.id, Date.now());
+    assert.equal(resolves, 2);
+    assert.notEqual(signals[0], signals[1]);
+    assert.equal(result.delivered, 1);
+    assert.equal((db.prepare('SELECT status FROM deliveries WHERE post_id = ?').get(post.id) as { status: string }).status, 'sent');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
 
 test('M8: a partial album upload records contextual media degradation', async (t) => {
