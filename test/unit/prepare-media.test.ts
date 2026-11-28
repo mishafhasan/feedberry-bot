@@ -471,6 +471,41 @@ test('stage 5: a known-invalid poster is omitted while its linked video remains'
   }
 });
 
+test('stage 5: the page poster is a last resort only when every photo failed', async () => {
+  const dir = work();
+  const photoUrl = 'https://cdn.test/photo.jpg';
+  const poster = 'https://cdn.test/poster.jpg';
+  const downloads: string[] = [];
+  let posterCalls = 0;
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async download(item, into) {
+      downloads.push(item.url);
+      if (item.url === photoUrl) throw new Coded(E.NO_MEDIA, 'HTTP 403 for media URL');
+      mkdirSync(into, { recursive: true });
+      const path = join(into, 'poster.jpg');
+      writeFileSync(path, 'x');
+      return path;
+    },
+  };
+  const posterOf = async (): Promise<string | null> => {
+    posterCalls++;
+    return poster;
+  };
+  try {
+    const files = await prepareMedia(engine, [{ kind: 'photo', url: photoUrl, picker: false }], dir, { maxMb: 500, poster: posterOf });
+    assert.deepEqual(downloads, [photoUrl, poster]);
+    assert.equal(files[0]?.url, poster, 'the accessible page image replaces the blocked feed image');
+    assert.equal(posterCalls, 1);
+
+    posterCalls = 0;
+    assert.deepEqual(await prepareMedia(engine, [], dir, { maxMb: 500, poster: posterOf }), []);
+    assert.equal(posterCalls, 0, 'a text-only post never invents an image from its page card');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('ADR-028: the transfer budget carries a full clip on a slow line, extraction stays short', () => {
   // A 50 MB file inside the budget means the link must stay usable at roughly 1.2 Mbps or better.
   assert.ok((50 * MB) / (DOWNLOAD_BUDGET_MS / 1000) >= 150_000, `${DOWNLOAD_BUDGET_MS} ms is too tight for a 50 MB clip`);

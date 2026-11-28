@@ -43,6 +43,8 @@ interface Post {
   summary?: string;
   /** The words the post page states (`og:description`), which the paste door reads when the engine walls. */
   text?: string;
+  /** The page's canonical post URL, which can name an account absent from a short link. */
+  canonicalUrl?: string;
   /** The account's own feed, as RSSHub answers it: where a walled extract leaves the two doors equal. */
   feed?: { url: string; itemUrl: string; photo: string; photos?: string[]; publishedAt: number };
   /** What the extractor answers for the post link, per quality rung. */
@@ -53,6 +55,8 @@ interface Post {
   page?: string;
   /** Bytes each URL lands, for the 50 MB gate. */
   sizes?: Record<string, number>;
+  /** URLs the CDN refuses, to exercise the page-poster fallback. */
+  failDownloads?: string[];
 }
 
 /** A deterministic engine: sparse files, a size the CDN would report, per-rung results. */
@@ -66,6 +70,7 @@ function engineOf(post: Post, calls: { downloads: string[]; sizes: number[] }): 
     },
     async download(item, dir) {
       calls.downloads.push(item.url);
+      if (post.failDownloads?.includes(item.url)) throw new Coded(E.NO_MEDIA, 'HTTP 403 for media URL');
       mkdirSync(dir, { recursive: true });
       const path = join(dir, `${item.kind}-${calls.downloads.length}.bin`);
       const bytes = post.sizes?.[item.url] ?? 2048;
@@ -98,7 +103,8 @@ const pageHttp = (post: Post): Http => async (url) => {
   if (post.page !== undefined) return { status: 200, url, contentType: 'text/html', body: post.page };
   const image = post.poster === undefined ? '' : `<meta property="og:image" content="${post.poster}"/>`;
   const description = post.text === undefined ? '' : `<meta property="og:description" content="${post.text}"/>`;
-  return { status: 200, url, contentType: 'text/html', body: `<html><head>${image}${description}</head><body></body></html>` };
+  const canonical = post.canonicalUrl === undefined ? '' : `<meta property="og:url" content="${post.canonicalUrl}"/>`;
+  return { status: 200, url, contentType: 'text/html', body: `<html><head>${image}${description}${canonical}</head><body></body></html>` };
 };
 
 /** A YouTube community post, read from the captured page the parser tests already rely on. */
@@ -306,6 +312,7 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
     post: {
       platform: 'instagram',
       link: 'https://instagram.com/creator/p/Post1',
+      canonicalUrl: 'https://instagram.com/p/Post1',
       title: 'A post the extractor cannot read',
       artist: 'creator',
       publishedAt: Date.UTC(2026, 10, 13, 15, 0),
@@ -327,6 +334,63 @@ const cases: Array<{ name: string; post: Post; expect: (result: Result) => void 
       assert.equal(result.media, 1, 'the feed photo is uploaded, not an error message');
       assert.equal(result.labels, 0, 'nothing to link');
       assert.match(result.html, /<blockquote expandable>A post the extractor cannot read<\/blockquote>/);
+    },
+  },
+  {
+    name: '(j) a short walled Instagram link uses the page canonical URL to find the feed photo',
+    post: {
+      platform: 'instagram',
+      link: 'https://instagram.com/p/Post1',
+      canonicalUrl: 'https://instagram.com/creator/p/Post1',
+      title: 'A post the extractor cannot read',
+      artist: 'creator',
+      publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      media: [{ url: 'https://cdn.test/from-feed.jpg', type: 'photo' }],
+      text: 'A post the extractor cannot read',
+      feed: {
+        url: 'http://rsshub.test/instagram/user/creator',
+        itemUrl: 'https://instagram.com/creator/p/Post1',
+        photo: 'https://cdn.test/from-feed.jpg',
+        publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      },
+      resolve: () => {
+        throw new Coded(E.COOKIE_REQUIRED, 'error.fetch.empty');
+      },
+      sizes: { 'https://cdn.test/from-feed.jpg': 4096 },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 1, 'the short link still reaches the account feed photo');
+      assert.equal(result.labels, 0, 'nothing to link');
+      assert.match(result.html, /<blockquote expandable>A post the extractor cannot read<\/blockquote>/);
+    },
+  },
+  {
+    name: '(k) a blocked Instagram feed photo falls back to the accessible page image',
+    post: {
+      platform: 'instagram',
+      link: 'https://instagram.com/p/Post1',
+      canonicalUrl: 'https://instagram.com/creator/p/Post1',
+      title: 'A post the extractor cannot read',
+      artist: 'creator',
+      publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      media: [{ url: 'https://cdn.test/from-feed.jpg', type: 'photo' }],
+      text: 'A post the extractor cannot read',
+      poster: 'https://cdn.test/page-cover.jpg',
+      feed: {
+        url: 'http://rsshub.test/instagram/user/creator',
+        itemUrl: 'https://instagram.com/creator/p/Post1',
+        photo: 'https://cdn.test/from-feed.jpg',
+        publishedAt: Date.UTC(2026, 10, 13, 15, 0),
+      },
+      resolve: () => {
+        throw new Coded(E.COOKIE_REQUIRED, 'error.fetch.empty');
+      },
+      failDownloads: ['https://cdn.test/from-feed.jpg'],
+      sizes: { 'https://cdn.test/page-cover.jpg': 4096 },
+    },
+    expect: (result) => {
+      assert.equal(result.media, 1, 'the page image ships when the feed CDN refuses the photo');
+      assert.equal(result.labels, 0, 'nothing to link');
     },
   },
   {

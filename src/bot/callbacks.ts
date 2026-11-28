@@ -1127,7 +1127,7 @@ async function runDownload(ctx: Context, deps: BotDeps, userId: number, link: st
         const text = (ref.platform === 'x' ? await xFullText(deps.http, ref.canonicalUrl) : null) ?? engineText ?? meta.text;
         engineAuthor = resolved?.artist?.trim() || null;
         // The page names the account as it prints it; then the extractor, then the account the link names.
-        const owner = profileOfPost(ref.canonicalUrl);
+        const owner = profileOfPost(ref.canonicalUrl) ?? (meta.url === null ? null : profileOfPost(meta.url));
         // The post's own item in the account's feed is read only when it can add something: a date the
         // page and the engine both lack, or the media a walled extractor could not hand over (ADR-030).
         const resolvedAt = resolved?.publishedAt ?? null;

@@ -24,8 +24,8 @@ export interface PrepareOptions {
   /** ADR-022: an RSS album keeps the bytes of an oversized clip, because its stand-in frame is cut from them. */
   keepOversizedVideo?: boolean;
   /**
-   * ADR-027, called only when a clip ends up link-only and the extractor named no poster: the page's
-   * own `og:image`. One page fetch on the rare oversized post, never on the common inline one.
+   * ADR-027, called when a clip ends up link-only or every photo download fails: the page's own
+   * `og:image`. One page fetch on either rare path, never on the common inline one.
    */
   poster?: () => Promise<string | null>;
 }
@@ -89,6 +89,14 @@ export async function prepareMedia(engine: MediaEngine, items: MediaItem[], dir:
       options.onFailure?.({ index, kind: item.kind, url: item.url, cause });
       if (options.signal?.aborted) break;
       if (item.kind === 'video') files.push({ path: '', kind: 'video', size: 0, url: item.url, ...(item.poster !== undefined && { poster: item.poster }) });
+    }
+  }
+
+  if (!options.signal?.aborted && files.length === 0 && items.some((item) => item.kind === 'photo')) {
+    const poster = await options.poster?.() ?? null;
+    if (poster !== null) {
+      const photo = await posterFile(engine, poster, dir, operationSignal(options.signal));
+      if (photo !== null) files.push(photo);
     }
   }
 

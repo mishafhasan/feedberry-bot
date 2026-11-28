@@ -21,6 +21,8 @@ export function metaDescription(html: string): string | null {
 export interface PageMeta {
   text: string | null;
   name: string | null;
+  /** The page's canonical post URL; social cards can name an account absent from a short link. */
+  url: string | null;
   publishedAt: number | null;
   /** The post's own video file, when the page links one directly (Snapchat spotlight). */
   video: string | null;
@@ -36,6 +38,7 @@ export async function pageMeta(http: Http, url: string): Promise<PageMeta> {
     return {
       text: metaDescription(res.body),
       name: profileNameOf(res.body),
+      url: metaUrlOf(res.body),
       publishedAt: publishedAtOf(res.body),
       video: metaVideoOf(res.body),
       image: metaImageOf(res.body),
@@ -45,7 +48,7 @@ export async function pageMeta(http: Http, url: string): Promise<PageMeta> {
   }
 }
 
-const NOTHING: PageMeta = { text: null, name: null, publishedAt: null, video: null, image: null };
+const NOTHING: PageMeta = { text: null, name: null, url: null, publishedAt: null, video: null, image: null };
 
 /** The post's own words when neither the feed nor the media engine carries them. */
 export async function pageText(http: Http, url: string): Promise<string | null> {
@@ -55,6 +58,12 @@ export async function pageText(http: Http, url: string): Promise<string | null> 
 /** The card's video file, when the page points at one (a Snapchat spotlight clip). */
 export function metaVideoOf(html: string): string | null {
   return metaContent(html, 'og:video') ?? metaContent(html, 'og:video:secure_url');
+}
+
+/** The card's canonical post URL, which can name the account behind a short permalink. */
+export function metaUrlOf(html: string): string | null {
+  const raw = metaContent(html, 'og:url') ?? metaContent(html, 'twitter:url');
+  return raw !== null && /^https?:\/\//i.test(raw) ? raw : null;
 }
 
 /** The card's picture: what Telegram and every social preview shows for the page. */
