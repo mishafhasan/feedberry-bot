@@ -49,8 +49,12 @@ each, and every one of them was a place where two doors or two names disagreed.
 - **ADR-030's feed fallback reaches the paste door.** `feedItemOf` reads the account's own feed once,
   only when it can add something (the engine walls, or neither the page nor the engine states a
   date), and the paste door applies the same rule the schedule does: an Instagram post's media is the
-  feed's photos. It also supplies the date and the account title the feed prints, so the two doors
-  now render the same header for the same post (ADR-028's parity, extended to a *failed* resolve).
+  feed's photos. A short `/p/<id>` permalink names no account, so `pageMeta` also reads `og:url`; its
+  canonical `<user>/p/<id>` URL supplies the profile only when the pasted link cannot. If RSSHub's
+  signed photo URL is refused by the CDN, stage 5 falls back to the page's accessible `og:image`, but
+  only after the feed or extractor proved the post had photo media. It also supplies the date and the
+  account title the feed prints, so the two doors render the same header for the same post (ADR-028's
+  parity, extended to a *failed* resolve).
 - **A one-segment listing word is a source.** `isListingUrl` adds `popular`, `trending`, `latest`,
   `top`, `hot`, `breaking`, `most-read`, `most-popular`, `top-stories` to ADR-018's marker-and-id
   rule. `isSectionUrl` is unchanged on purpose: a navigation word tells the *classifier* it is a

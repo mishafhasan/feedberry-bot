@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { metaDescription, metaImageOf, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
+import { metaDescription, metaImageOf, metaUrlOf, metaVideoOf, profileNameOf, publishedAtOf } from '../../src/platform/page-text.ts';
+
+test('page text: the og:url names the canonical post and only an http(s) address is one', () => {
+  assert.equal(metaUrlOf('<meta property="og:url" content="https://www.instagram.com/evolving.ai/p/DgQFqkSgMv0/">'), 'https://www.instagram.com/evolving.ai/p/DgQFqkSgMv0/');
+  assert.equal(metaUrlOf('<meta name="twitter:url" content="https://x.com/who/status/123">'), 'https://x.com/who/status/123');
+  assert.equal(metaUrlOf('<meta property="og:url" content="/p/123">'), null, 'a relative address cannot name the account');
+  assert.equal(metaUrlOf('<html></html>'), null);
+});
 
 test('page text: the poster is the page card image, and only an http(s) address is one', () => {
   assert.equal(metaImageOf('<meta property="og:image" content="https://pbs.twimg.com/poster.jpg">'), 'https://pbs.twimg.com/poster.jpg');
