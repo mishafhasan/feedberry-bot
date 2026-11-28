@@ -24,6 +24,16 @@ test('M4 slots: DST is a wall-clock recomputation, not a fixed offset', () => {
   assert.equal(slotAfter(utc(2025, 10, 26, 5), 'Europe/Berlin', null), utc(2025, 10, 26, 7));
 });
 
+test('M4 slots: a nonexistent spring-forward hour resolves to the first valid local time', () => {
+  assert.equal(digestSlot(utc(2026, 3, 7, 12), 'America/New_York', 2), utc(2026, 3, 8, 7), '02:00 EST never occurs, so the slot moves to 03:00 EDT');
+  assert.equal(digestSlot(utc(2026, 3, 28, 12), 'Europe/Berlin', 2), utc(2026, 3, 29, 1), '02:00 CET never occurs, so the slot moves to 03:00 CEST');
+});
+
+test('M4 slots: a repeated fall-back hour uses the later instant', () => {
+  assert.equal(digestSlot(utc(2026, 10, 31, 12), 'America/New_York', 1), utc(2026, 11, 1, 6), 'the second 01:00 is 06:00 UTC');
+  assert.equal(digestSlot(utc(2026, 10, 24, 12), 'Europe/Berlin', 2), utc(2026, 10, 25, 1), 'the second 02:00 is 01:00 UTC');
+});
+
 test('M4 slots: the next slot is always in the future', () => {
   const now = utc(2025, 10, 24, 12);
   for (const tz of ['UTC', 'Europe/Berlin', 'America/New_York', 'Asia/Tokyo', 'Australia/Sydney']) {

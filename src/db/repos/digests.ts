@@ -155,6 +155,11 @@ export function dropStaleWindow(db: Db, id: number, now: number): void {
   db.prepare('UPDATE digests SET window_end = NULL WHERE id = ? AND window_end IS NOT NULL AND window_end < ?').run(id, now - 24 * 60 * 60 * 1000);
 }
 
+/** A newly scheduled run starts a fresh window; retries keep the pin on their existing job. */
+export function clearDigestWindow(db: Db, id: number): void {
+  db.prepare('UPDATE digests SET window_end = NULL WHERE id = ?').run(id);
+}
+
 /** One statement, after the last part is sent: the next window starts where this one ended. */
 export function commitDigestWindow(db: Db, id: number, windowEnd: number): void {
   // The value is passed in, not re-read: a toggle during the run clears the column, and the tile

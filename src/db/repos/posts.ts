@@ -51,6 +51,7 @@ export function getPost(db: Db, id: number): PostRow | undefined {
 /** Written once by whoever published the page, then reused for good — a stored link is never rewritten. */
 export function setPostTelegraphUrl(db: Db, postId: number, url: string): void {
   db.prepare('UPDATE posts SET telegraph_url = ? WHERE id = ?').run(url, postId);
+  db.prepare('UPDATE post_summaries SET telegraph_url = ? WHERE post_id = ? AND telegraph_url IS NULL').run(url, postId);
 }
 
 /** Stage 4's input: what this source has already recorded, raw so the pipeline owns the rules. */

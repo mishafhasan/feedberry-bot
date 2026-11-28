@@ -3,13 +3,15 @@
  * and X/YouTube step 1080 → 720 → 480 until one rung fits. Nothing here touches the network.
  */
 import assert from 'node:assert/strict';
-import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { hasFFmpeg } from 'cobalt-engine';
 import type { MediaEngine, MediaItem } from '../../src/media/media-engine.ts';
 import { DOWNLOAD_BUDGET_MS, EXTRACT_BUDGET_MS, mediaSignal, prepareMedia, withPosters } from '../../src/pipeline/prepare-media.ts';
 import { Coded, E } from '../../src/platform/errors.ts';
+import { probeDimensions, telegramPhotoFits } from '../../src/media/video-probe.ts';
 
 const MB = 1024 * 1024;
 const OVER = 51 * MB;
@@ -56,6 +58,7 @@ function engineOf(rungs: Rung[], opts: { size?: boolean; fail?: string } = {}) {
 
 const work = (): string => mkdtempSync(join(tmpdir(), 'feedberry-stage5-'));
 const options = (extra: { ladderUrl?: string } = {}) => ({ maxMb: 500, signal: new AbortController().signal, ...extra });
+const ppm = (width: number, height: number): Buffer => Buffer.from(`P6\n${width} ${height}\n255\n\0\0\0`);
 
 test('stage 5: a clip under the ceiling is downloaded and rides inline', async () => {
   const dir = work();
@@ -317,6 +320,152 @@ test('ADR-027: the poster is added once, however many times the pipeline asks', 
 
     assert.deepEqual(again, [], 'a poster already in the gallery is not uploaded twice');
     assert.deepEqual(downloads, [poster], 'and never re-downloaded');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: each album item gets a fresh transfer budget', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dir = work();
+  const signals: AbortSignal[] = [];
+  let downloads = 0;
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async download(_item, into, signal) {
+      signals.push(signal);
+      downloads++;
+      if (downloads === 1) {
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Coded(E.NO_MEDIA, 'budget expired')), { once: true }));
+      }
+      const path = join(into, `${downloads}.jpg`);
+      writeFileSync(path, 'x');
+      return path;
+    },
+  };
+  try {
+    const pending = prepareMedia(engine, [
+      { kind: 'photo', url: URL_1080, picker: false },
+      { kind: 'photo', url: URL_720, picker: false },
+      { kind: 'photo', url: URL_480, picker: false },
+    ], dir, { maxMb: 500 });
+    await Promise.resolve();
+    t.mock.timers.tick(DOWNLOAD_BUDGET_MS + 1);
+    await Promise.resolve();
+    const files = await pending;
+
+    assert.equal(signals.length, 3);
+    assert.notEqual(signals[0], signals[1]);
+    assert.notEqual(signals[1], signals[2]);
+    assert.equal(signals[0]?.aborted, true);
+    assert.equal(signals[1]?.aborted, false);
+    assert.equal(files.filter((file) => file.path !== '').length, 2, 'the first timeout does not empty the album');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: caller cancellation stops the remaining album items', async () => {
+  const dir = work();
+  const caller = new AbortController();
+  let downloads = 0;
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async download(_item, _into, signal) {
+      downloads++;
+      await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Coded(E.NO_MEDIA, 'cancelled')), { once: true }));
+      throw new Error('unreachable');
+    },
+  };
+  try {
+    const pending = prepareMedia(engine, [
+      { kind: 'photo', url: URL_1080, picker: false },
+      { kind: 'photo', url: URL_720, picker: false },
+    ], dir, { maxMb: 500, signal: caller.signal });
+    await Promise.resolve();
+    caller.abort();
+    assert.deepEqual(await pending, []);
+    assert.equal(downloads, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: a poster operation gets a fresh signal after the video size probe', async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/poster.jpg';
+  const signals: AbortSignal[] = [];
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async size(_item, signal) { signals.push(signal); return OVER; },
+    async download(_item, into, signal) {
+      signals.push(signal);
+      const path = join(into, 'poster.jpg');
+      writeFileSync(path, 'x');
+      return path;
+    },
+  };
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, options());
+    assert.equal(files[0]?.path, '');
+    assert.equal(files[1]?.url, poster);
+    assert.equal(signals.length, 2);
+    assert.notEqual(signals[0], signals[1]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('Telegram photo dimensions enforce the sum and aspect-ratio boundaries', () => {
+  assert.equal(telegramPhotoFits({ width: 1, height: 1 }), true);
+  assert.equal(telegramPhotoFits({ width: 5000, height: 5000 }), true);
+  assert.equal(telegramPhotoFits({ width: 5000, height: 5001 }), false);
+  assert.equal(telegramPhotoFits({ width: 20, height: 1 }), true);
+  assert.equal(telegramPhotoFits({ width: 21, height: 1 }), false);
+  for (const dimensions of [{ width: 0, height: 1 }, { width: -1, height: 1 }, { width: 1.5, height: 1 }, { width: NaN, height: 1 }, { width: Infinity, height: 1 }]) {
+    assert.equal(telegramPhotoFits(dimensions), false);
+  }
+});
+
+test('stage 5: ffprobe rejects and deletes a known-invalid photo', { skip: !hasFFmpeg() }, async () => {
+  const dir = work();
+  const invalid = join(dir, 'invalid.ppm');
+  writeFileSync(invalid, ppm(9000, 1001));
+  try {
+    assert.deepEqual(await probeDimensions(invalid), { width: 9000, height: 1001 });
+    const engine: MediaEngine = {
+      async resolve() { throw new Error('not used'); },
+      async download(_item, into) {
+        const path = join(into, 'photo.ppm');
+        writeFileSync(path, ppm(9000, 1001));
+        return path;
+      },
+    };
+    assert.deepEqual(await prepareMedia(engine, [{ kind: 'photo', url: URL_1080, picker: false }], dir, options()), []);
+    assert.equal(existsSync(join(dir, 'photo.ppm')), false);
+    assert.equal(await probeDimensions(join(dir, 'missing.jpg')), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('stage 5: a known-invalid poster is omitted while its linked video remains', { skip: !hasFFmpeg() }, async () => {
+  const dir = work();
+  const poster = 'https://cdn.test/poster.jpg';
+  const posterPath = join(dir, 'poster.ppm');
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('not used'); },
+    async size() { return OVER; },
+    async download(_item, into) {
+      const path = join(into, 'poster.ppm');
+      writeFileSync(path, ppm(9000, 1001));
+      return path;
+    },
+  };
+  try {
+    const files = await prepareMedia(engine, [item(URL_1080, { poster })], dir, options());
+    assert.deepEqual(files.map((file) => ({ kind: file.kind, path: file.path })), [{ kind: 'video', path: '' }]);
+    assert.equal(existsSync(posterPath), false);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }

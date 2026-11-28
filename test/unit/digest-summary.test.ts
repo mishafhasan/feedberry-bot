@@ -3,13 +3,14 @@
  * no Gemini call, and a dead model falls back to the feed's own words without poisoning the cache.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { hasFFmpeg } from 'cobalt-engine';
 import { openDb } from '../../src/db/index.ts';
 import { getSummary, putSummary } from '../../src/db/repos/digests.ts';
-import { getPost, insertPosts, type PostRow } from '../../src/db/repos/posts.ts';
+import { getPost, insertPosts, setPostTelegraphUrl, type PostRow } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import type { Gemini } from '../../src/digest/gemini.ts';
 import { cleanSummary, summarisePost, summaryPrompt } from '../../src/digest/summarise.ts';
@@ -124,6 +125,45 @@ test('a cached summary is used as it is and costs no Gemini call', async () => {
     assert.equal(item.fellBack, false);
     // A page known only to the summary cache is mirrored onto the post, so delivery reuses it too.
     assert.equal(getPost(db, post.id)?.telegraph_url, 'https://telegra.ph/Cached');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('delivery page storage backfills an existing summary cache row', async () => {
+  const { dir, db, post } = seedPost();
+  try {
+    putSummary(db, post.id, 'en', JSON.stringify({ headline: 'Cached headline', description: 'Cached description', key_points: [] }), null, Date.now());
+    setPostTelegraphUrl(db, post.id, 'https://telegra.ph/Delivery');
+    assert.equal(getPost(db, post.id)?.telegraph_url, 'https://telegra.ph/Delivery');
+    assert.equal(getSummary(db, post.id, 'en')?.telegraph_url, 'https://telegra.ph/Delivery', 'the per-language cache learns the delivery page too');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a cached summary with no URL inherits the post page without republishing', async () => {
+  const { dir, db, post } = seedPost();
+  const page = 'https://telegra.ph/Existing';
+  setPostTelegraphUrl(db, post.id, page);
+  putSummary(db, post.id, 'en', JSON.stringify({ headline: 'Cached headline', description: 'Cached description', key_points: [] }), null, Date.now());
+  const { gemini, calls } = countingGemini(() => {
+    throw new Error('the cache must answer');
+  });
+  try {
+    const item = await summarisePost({
+      db,
+      http,
+      media: noEngine,
+      telegraph: { async createPage() { throw new Error('a stored page must not be published again'); } },
+      gemini,
+      maxMb: 100,
+    }, getPost(db, post.id) as PostRow, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(calls(), 0);
+    assert.equal(item.link, page);
+    assert.equal(getSummary(db, post.id, 'en')?.telegraph_url, page, 'the cached row is backfilled during digest generation');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -300,6 +340,7 @@ test('a page the digest publishes is stored on the post and written once', async
   try {
     await summarisePost({ db, http: serve, media: noEngine, telegraph, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
     assert.equal(getPost(db, post.id)?.telegraph_url, 'https://telegra.ph/New', 'the page is stored on the post');
+    assert.equal(getSummary(db, post.id, 'en')?.telegraph_url, 'https://telegra.ph/New', 'and on the new summary row');
     assert.equal(published, 1);
     assert.deepEqual(seen, ['https://blog.test/one'], 'the page just written is not fetched back');
 
@@ -308,6 +349,7 @@ test('a page the digest publishes is stored on the post and written once', async
     const again = await summarisePost({ db, http: serve, media: noEngine, telegraph, gemini: second, maxMb: 100 }, getPost(db, post.id) as PostRow, 'ta', dir, new AbortController().signal, 'Blog');
     assert.equal(published, 1, 'no second publish');
     assert.equal(again.link, 'https://telegra.ph/New');
+    assert.equal(getSummary(db, post.id, 'ta')?.telegraph_url, 'https://telegra.ph/New', 'the other language caches the same page');
     assert.deepEqual(seen.slice(-1), ['https://telegra.ph/New'], 'the stored page is the source');
   } finally {
     db.close();
@@ -361,6 +403,33 @@ test('one failed picture does not drop the item’s other pictures', async () =>
   try {
     const item = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
     assert.equal(item.images.length, 2, 'the two good pictures still reach the item');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('a Telegram-invalid third picture is removed while the first two remain', { skip: !hasFFmpeg() }, async () => {
+  const { dir, db, post } = seedPost([
+    { url: 'https://cdn.test/a.jpg', type: 'photo' },
+    { url: 'https://cdn.test/b.jpg', type: 'photo' },
+    { url: 'https://cdn.test/c.jpg', type: 'photo' },
+  ]);
+  const paths: string[] = [];
+  const engine: MediaEngine = {
+    async resolve() { throw new Error('no resolve in a summary test'); },
+    async download(item, into) {
+      const path = join(into, `${paths.length}.ppm`);
+      paths.push(path);
+      writeFileSync(path, item.url.includes('/c.jpg') ? 'P6\n9000 1001\n255\n' : 'P6\n1 1\n255\n\0\0\0');
+      return path;
+    },
+  };
+  const { gemini } = countingGemini(() => ({ headline: 'A headline', description: 'A description.', key_points: [] }));
+  try {
+    const item = await summarisePost({ db, http, media: engine, gemini, maxMb: 100 }, post, 'en', dir, new AbortController().signal, 'Blog');
+    assert.equal(item.images.length, 2);
+    assert.equal(existsSync(paths[2] ?? ''), false, 'the invalid file is deleted before render');
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

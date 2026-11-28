@@ -4,16 +4,18 @@ const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
 // Resolve a shortened or redirecting link without following it. HEAD first
 // (cheap), GET as fallback for servers that answer HEAD with 405.
-export async function getRedirectingURL(url, headers) {
+export async function getRedirectingURL(url, headers, signal) {
     const attempt = async (method) => {
         try {
-            const r = await fetch(url, { method, headers, redirect: "manual" });
+            const r = await fetch(url, { method, headers, signal, redirect: "manual" });
             if (redirectStatuses.has(r.status) && r.headers.get("location")) {
                 return r.headers.get("location");
             }
             // drain the body so the socket returns to the pool
             await r.body?.cancel().catch(() => {});
-        } catch {}
+        } catch (err) {
+            if (signal?.aborted) throw err;
+        }
     };
 
     return (await attempt("HEAD")) ?? (await attempt("GET"));

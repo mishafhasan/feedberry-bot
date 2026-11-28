@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setCookies } from '../../cobalt-engine/src/cookie-store.js';
+import { resolve } from '../../cobalt-engine/src/engine.js';
 import instagram from '../../cobalt-engine/src/platforms/instagram.js';
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -93,6 +94,34 @@ test('a reel states its video and the frame it shows instead', async () => {
 
   assert.equal(result.urls, BIG, 'the largest rendition plays');
   assert.equal(result.cover, COVER, 'a clip past the ceiling shows the post\'s own frame (ADR-027)');
+});
+
+test('public resolve forwards cancellation to Instagram and stops fallback requests', async () => {
+  const controller = new AbortController();
+  let seen: AbortSignal | null | undefined;
+  let calls = 0;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    calls++;
+    seen = init?.signal;
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal === null || signal === undefined) {
+        reject(new Error('missing abort signal'));
+        return;
+      }
+      signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')), { once: true });
+    });
+  }) as typeof fetch;
+
+  const pending = resolve(`https://www.instagram.com/p/${ID}/`, { signal: controller.signal }) as Promise<{ status: string; error?: { code?: string } }>;
+  await Promise.resolve();
+  assert.equal(seen, controller.signal, 'the exact caller signal reaches the fetch');
+  controller.abort();
+  const result = await pending;
+
+  assert.equal(result.status, 'error');
+  assert.equal(result.error?.code, 'error.request.cancelled');
+  assert.equal(calls, 1, 'no fallback request runs after cancellation');
 });
 
 test('a challenged session is a credential problem, not a wall, and costs no further request', async () => {

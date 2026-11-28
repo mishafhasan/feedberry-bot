@@ -131,7 +131,7 @@ export async function summarisePost(deps: SummariseDeps, post: PostRow, lang: Di
     headline = summary.headline;
     description = summary.description;
     points = summary.key_points;
-    if (cached === undefined) putSummary(deps.db, post.id, lang, JSON.stringify(summary), telegraphUrl, Date.now());
+    if (cached === undefined || (cached.telegraph_url === null && telegraphUrl !== null)) putSummary(deps.db, post.id, lang, JSON.stringify(summary), telegraphUrl, Date.now());
   }
 
   return {

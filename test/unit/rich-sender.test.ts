@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { Api } from 'grammy';
 import { TelegramSender, senderTarget, plainText } from '../../src/telegram/api.ts';
+import { E, isCoded } from '../../src/platform/errors.ts';
 import { morePayload } from '../../src/telegram/more.ts';
 import { fakeBotApi } from '../fake-api.ts';
 
@@ -28,6 +29,20 @@ test('rich plan: one sendRichMessage, html + uploaded media refs, entity detecti
     assert.match(media[0]?.media.media ?? '', /^attach:\/\//, 'the local file uploads as attach://');
     assert.equal(api.calls.filter((c) => c.method === 'sendMediaGroup').length, 0, 'no attached media group');
     assert.equal(api.calls.filter((c) => c.method === 'sendMessage').length, 0, 'no continuation message');
+  } finally {
+    await api.close();
+  }
+});
+
+test('rich plan: PHOTO_INVALID_DIMENSIONS is terminal after one attempt', async () => {
+  const api = await fakeBotApi({}, { failRichParts: [1], failRichError: 'Bad Request: PHOTO_INVALID_DIMENSIONS' });
+  try {
+    const sender = senderFor(api.apiRoot);
+    await assert.rejects(
+      () => sender.send({ kind: 'rich', html: '<p>header</p>', media: [{ id: 'm0', file: photo, kind: 'photo' }] }, target),
+      (err: unknown) => isCoded(err) && err.code === E.TOO_LARGE,
+    );
+    assert.equal(api.calls.filter((call) => call.method === 'sendRichMessage').length, 1);
   } finally {
     await api.close();
   }

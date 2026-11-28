@@ -1,5 +1,5 @@
-import type { Db } from '../db/index.ts';
-import { advanceDigest, dueDigests } from '../db/repos/digests.ts';
+import { tx, type Db } from '../db/index.ts';
+import { advanceDigest, clearDigestWindow, dueDigests } from '../db/repos/digests.ts';
 import { enqueue, PRIORITY } from '../jobs/queue.ts';
 import { digestSlot, slotAfter } from './slots.ts';
 
@@ -38,9 +38,17 @@ function enqueueCleanup(db: Db, now: number): boolean {
 function tickDigests(db: Db, now: number): number {
   let enqueued = 0;
   for (const row of dueDigests(db, now)) {
-    advanceDigest(db, row.id, digestSlot(now, row.tz, row.hour));
-    if (row.next_run_at !== null && now - row.next_run_at > LATE_SLOT_MS) continue;
-    if (enqueue(db, { kind: 'digest', targetId: row.id, priority: PRIORITY.scheduled, runAfter: now })) enqueued++;
+    const late = row.next_run_at !== null && now - row.next_run_at > LATE_SLOT_MS;
+    const scheduled = tx(db, () => {
+      advanceDigest(db, row.id, digestSlot(now, row.tz, row.hour));
+      if (late) return false;
+      if (!enqueue(db, { kind: 'digest', targetId: row.id, priority: PRIORITY.scheduled, runAfter: now })) return false;
+      clearDigestWindow(db, row.id);
+      return true;
+    });
+    if (scheduled) {
+      enqueued++;
+    }
   }
   return enqueued;
 }

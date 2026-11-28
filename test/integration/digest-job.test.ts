@@ -13,7 +13,7 @@ import { createBot } from '../../src/bot/index.ts';
 import { parseConfig, type Config } from '../../src/config.ts';
 import { openDb, type Db } from '../../src/db/index.ts';
 import { ensurePrivateChat } from '../../src/db/repos/chats.ts';
-import { advanceDigest, ensureDigest, getDigest, setDigestEnabled, toggleDigestSource, type DigestRow } from '../../src/db/repos/digests.ts';
+import { advanceDigest, ensureDigest, getDigest, pinDigestWindow, setDigestEnabled, toggleDigestSource, type DigestRow } from '../../src/db/repos/digests.ts';
 import { insertPosts, postByGuid, setPostTelegraphUrl } from '../../src/db/repos/posts.ts';
 import { upsertSource } from '../../src/db/repos/sources.ts';
 import { insertSubscription } from '../../src/db/repos/subscriptions.ts';
@@ -153,6 +153,42 @@ function workerDeps(db: Db, apiRoot: string, gemini: Gemini, api: Awaited<Return
     workerConcurrency: 1,
   };
 }
+
+test('digest scheduler: a new job clears the previous failed run pin', () => {
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  try {
+    pinDigestWindow(db, digest.id, now - 23 * HOUR);
+    const ticked = tick(db, now, { digests: true });
+    assert.equal(ticked.digests, 1);
+    assert.equal(getDigest(db, digest.id)?.window_end, null, 'the new day does not reuse a fresh-looking old pin');
+    const job = db.prepare("SELECT state FROM jobs WHERE kind = 'digest'").get() as { state: string };
+    assert.equal(job.state, 'queued');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest scheduler: a pin reset failure rolls back the slot advance and enqueue', () => {
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const previousNextRun = getDigest(db, digest.id)?.next_run_at;
+  try {
+    const pinned = pinDigestWindow(db, digest.id, now - 23 * HOUR);
+    db.exec("CREATE TRIGGER fail_digest_pin_reset BEFORE UPDATE OF window_end ON digests BEGIN SELECT RAISE(ABORT, 'injected pin reset failure'); END");
+
+    assert.throws(() => tick(db, now, { digests: true }), /injected pin reset failure/);
+
+    const after = getDigest(db, digest.id);
+    assert.equal(after?.next_run_at, previousNextRun, 'the due slot stays due after the rollback');
+    assert.equal(after?.window_end, pinned, 'the previous run pin is unchanged');
+    assert.equal(db.prepare("SELECT 1 FROM jobs WHERE kind = 'digest'").get(), undefined, 'no digest job survives the failed schedule');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
 
 test('digest job: one rich message with the player, the numbered items and the audio media', async () => {
   const api = await fakeBotApi();
@@ -395,6 +431,30 @@ test('digest job: a digest too big for one message is sent as every part, losing
 
     const after = getDigest(db, digest.id);
     assert.equal(after?.last_window_end, now + 1, 'the window is committed only after the last part is sent');
+  } finally {
+    db.close();
+    await api.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('digest job: a deterministic photo-dimension refusal fails once', async () => {
+  const api = await fakeBotApi({}, { failRichParts: [1], failRichError: 'Bad Request: PHOTO_INVALID_DIMENSIONS' });
+  const { dir, db, digest } = seed();
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  const { gemini } = fakeGemini();
+  const deps = workerDeps(db, api.apiRoot, gemini, api);
+  try {
+    enqueue(db, { kind: 'digest', targetId: digest.id, priority: PRIORITY.scheduled, runAfter: now });
+    await runOnce(deps, now);
+
+    assert.equal(api.calls.filter((call) => call.method === 'sendRichMessage').length, 1);
+    const job = db.prepare("SELECT state, attempts, last_error FROM jobs WHERE kind = 'digest'").get() as { state: string; attempts: number; last_error: string | null };
+    assert.equal(job.state, 'failed');
+    assert.equal(job.attempts, 1);
+    assert.match(String(job.last_error), /PHOTO_INVALID_DIMENSIONS/);
+    assert.equal(getDigest(db, digest.id)?.window_end, now + 1);
+    assert.equal(getDigest(db, digest.id)?.last_window_end, null);
   } finally {
     db.close();
     await api.close();
